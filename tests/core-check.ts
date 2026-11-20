@@ -11,7 +11,8 @@ import { serializeLabels, parseLabels } from '../src/core/label.ts'
 import { parsePCD } from '../src/core/pcd.ts'
 import { matVec, projectPoint, projectBox, type Calibration } from '../src/core/calibration.ts'
 import { HistoryStack, cloneBoxes } from '../src/core/history.ts'
-import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, extractTrajectories, type FrameData } from '../src/core/sequence.ts'
+import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, extractTrajectories, propagateBox, type FrameData } from '../src/core/sequence.ts'
+import { evaluateTemporal, injectTemporalDefects } from '../src/core/temporalQA.ts'
 import { voxelDownsample, distanceLod, generateMassiveCloud } from '../src/core/downsample.ts'
 import { bevIoU, boxIoU3D, matchBoxes, cohenKappa, evaluateQuality, perturbLabels, boxBevCorners } from '../src/core/quality.ts'
 import { hungarian, greedyAssign, KalmanFilter2D, demoCrossingCase } from '../src/core/tracker.ts'
@@ -184,6 +185,49 @@ check('轨迹点按帧号升序', trajs.every((t) => t.points.every((p, i) => i 
 check('跨帧目标含 5 个采样点', trajs.find((t) => t.id === '1')?.points.length === 5, `实际 ${trajs.find((t) => t.id === '1')?.points.length}`)
 const singleFrame: FrameData[] = [{ index: 0, cloud: { positions: new Float32Array(0), count: 0 }, boxes: [{ id: '9', label: 'Car', position: { x: 0, y: 0, z: 1 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0 }] }]
 check('单帧目标不产生轨迹', extractTrajectories(singleFrame).length === 0)
+
+// ============ 4D 跨帧编辑与时序质检 ============
+console.log('\n[4D] 跨帧编辑与时序质检')
+// 构造 3 帧、同 id 目标在不同位置
+const pf: FrameData[] = [0, 1, 2].map((i) => ({
+  index: i,
+  cloud: { positions: new Float32Array(0), count: 0 },
+  boxes: [{ id: '1', label: 'Car', position: { x: i * 10, y: 0, z: 1 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0 }],
+}))
+// 整框替换：当前帧(1)改 y=5，传播到全部帧 → 所有帧 y 都变 5
+const ref1: Box3D = { ...pf[1].boxes[0], position: { ...pf[1].boxes[0].position } }
+const edited1: Box3D = { ...ref1, position: { ...ref1.position, y: 5 } }
+pf[1].boxes[0] = edited1 // 调用方先把当前帧写回（与 App.vue 的 doPropagate 一致）
+const replaceChanged = propagateBox(pf, 1, '1', ref1, edited1, 'all', 'replace')
+check('整框替换修改了其他 2 帧', replaceChanged === 2, `实际 ${replaceChanged}`)
+check('整框替换后各帧 y 一致', pf.every((f) => f.boxes[0].position.y === 5))
+// 增量平移：只改 x +2，传播到后续帧 → 各帧保留自己的 x 基准，只加 2
+const pf2: FrameData[] = [0, 1, 2].map((i) => ({
+  index: i, cloud: { positions: new Float32Array(0), count: 0 },
+  boxes: [{ id: '1', label: 'Car', position: { x: i * 10, y: 0, z: 1 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0 }],
+}))
+const ref2: Box3D = { ...pf2[1].boxes[0], position: { ...pf2[1].boxes[0].position } }
+const edited2: Box3D = { ...ref2, position: { ...ref2.position, x: ref2.position.x + 2 } }
+propagateBox(pf2, 1, '1', ref2, edited2, 'forward', 'offset')
+check('增量平移只影响后续帧', pf2[0].boxes[0].position.x === 0 && pf2[2].boxes[0].position.x === 22)
+// 时序质检：原始演示序列故意稀疏标注（后3目标只标首末帧），先插值补全再质检应为干净
+const cleanSeq = generateDemoSequence(5)
+interpolateTracks(cleanSeq) // 补全稀疏帧，消除 track_gap
+const cleanReport = evaluateTemporal(cleanSeq)
+check('补全后的序列检出 0 处问题', cleanReport.issues.length === 0, `实际 ${cleanReport.issues.length}：${cleanReport.issues.map((x) => x.type).join(',')}`)
+check('干净序列健康分 100', cleanReport.score === 100)
+// 稀疏序列应能检出轨迹断裂（这是"未补全"的正确告警）
+const sparseReport = evaluateTemporal(generateDemoSequence(5))
+check('稀疏序列检出轨迹断裂', sparseReport.counts.track_gap >= 1, `实际 ${sparseReport.counts.track_gap}`)
+// 注入缺陷后应检出四类问题
+const defective = injectTemporalDefects(cleanSeq)
+const badReport = evaluateTemporal(defective)
+check('注入缺陷后检出 ID 跳变', badReport.counts.id_switch >= 1, `实际 ${badReport.counts.id_switch}`)
+check('注入缺陷后检出速度突变', badReport.counts.speed_jump >= 1, `实际 ${badReport.counts.speed_jump}`)
+check('注入缺陷后检出抖动', badReport.counts.jitter >= 1, `实际 ${badReport.counts.jitter}`)
+check('注入缺陷后检出轨迹断裂', badReport.counts.track_gap >= 1, `实际 ${badReport.counts.track_gap}`)
+check('缺陷序列健康分下降', badReport.score < 100)
+check('缺陷注入不改原始数据', cleanSeq[2].boxes.find((b) => b.id === '1')?.position.x === 18 + 6)
 
 // ============ P0-3 性能优化 ============
 console.log('\n[10] 大规模点云性能优化')

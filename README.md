@@ -53,6 +53,8 @@ npm run typecheck  # 只做类型检查
 | **撤销重做** | 命令模式 + 状态快照，`Ctrl+Z` / `Ctrl+Shift+Z`；连续操作自动合并 | — |
 | **多帧时序** | 5 帧演示序列、obj_id 跨帧保持一致、首末帧轨迹插值补全中间帧 | batch 模式 |
 | **4D 轨迹叠加回放** | 同目标多帧中心点连成轨迹线（已走过段高亮），播放/暂停/调速逐帧回放，选中目标整条轨迹高亮 | — |
+| **跨帧编辑** | 把选中框的改动传播到同 id 框：整框替换 / 增量平移 × 后续/前序/全部帧 | — |
+| **时序质检** | ID 跳变、速度突变、轨迹抖动、轨迹断裂四类检测，健康分 + 问题列表可跳帧；一键注入缺陷演示 | 智能审核 |
 | **全局最优关联** | Kalman 预测 + 门控 + Hungarian 匹配；交叉案例演示贪心如何串 ID | — |
 | **性能优化** | 体素网格下采样 + 距离 LOD；实测 100 万点→27 万点、3.7× 压缩 | — |
 | **质检与一致性** | BEV 旋转框 IoU、目标匹配、漏标/误标率、F1、Cohen's kappa；可叠加显示待评估框 | — |
@@ -76,6 +78,7 @@ npm run typecheck  # 只做类型检查
 | ⑨ | [面试准备：系统设计题与项目话术](docs/09-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、高频追问速查表 |
 | ⑩ | [nuScenes 真实数据集接入](docs/10-nuscenes-dataset.md) | `scripts/convert_nuscenes.py` | 下载/转换真实数据、世界坐标→lidar、四元数→yaw、相机内外参计算 |
 | ⑪ | [4D 轨迹叠加回放](docs/11-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
+| ⑫ | [4D 进阶：跨帧编辑与时序质检](docs/12-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
 
 ---
 

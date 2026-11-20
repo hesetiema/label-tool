@@ -17,7 +17,8 @@ import { parseLabels, serializeLabels, downloadJson } from './core/label'
 import { fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from './core/box'
 import { parseCalibration, type Calibration } from './core/calibration'
 import { HistoryStack, cloneBoxes } from './core/history'
-import { generateDemoSequence, interpolateTracks, extractTrajectories, type FrameData } from './core/sequence'
+import { generateDemoSequence, interpolateTracks, extractTrajectories, propagateBox, type FrameData, type PropagateScope } from './core/sequence'
+import { evaluateTemporal, injectTemporalDefects, issueTypeName, type TemporalReport } from './core/temporalQA'
 import { voxelDownsample, distanceLod, generateMassiveCloud } from './core/downsample'
 import {
   evaluateQuality,
@@ -70,6 +71,15 @@ const showTrajectories = ref(false)
 const isPlaying = ref(false)
 const playSpeed = ref(0.6) // 每帧间隔（秒）
 let playTimer: number | undefined
+
+// ---- 4D 跨帧编辑 ----
+/** 选中框时记录"编辑前"的快照，用于计算跨帧传播的增量 */
+let selectedBoxOrigin: Box3D | null = null
+const propagateScope = ref<PropagateScope>('forward')
+const propagateStrategy = ref<'replace' | 'offset'>('offset')
+
+// ---- 4D 时序质检 ----
+const temporalReport = ref<TemporalReport | null>(null)
 
 // ---- 质检相关（DeepSeek 第7项：质检、指标与数据治理）----
 /** 待评估版本（模拟第二位标注员 / 模型预标注的结果） */
@@ -157,14 +167,18 @@ function doRedo() {
 }
 
 /** 加载新数据集时清空历史：不同数据集之间不应该能互相撤销 */
-function resetHistory(clearPlayback = true) {
+function resetHistory(clearPlayback = true, clearQA = true) {
   history.clear()
   syncHistoryUi()
   if (clearPlayback) pausePlay()
   // 数据集切换时清空质检结果，避免拿 A 帧的报告去解释 B 帧
-  reviewBoxes.value = []
-  qaReport.value = null
-  showReview.value = false
+  if (clearQA) {
+    reviewBoxes.value = []
+    qaReport.value = null
+    showReview.value = false
+    temporalReport.value = null
+    selectedBoxOrigin = null
+  }
 }
 
 /** 统计首末帧都有标注、但中间帧缺失的轨迹数量（用来展示插值的价值） */
@@ -211,7 +225,8 @@ function gotoFrame(fi: number) {
   cloud.value = frames.value[target].cloud
   boxes.value = cloneBoxes(frames.value[target].boxes)
   selectedId.value = null
-  resetHistory(false) // 跨帧撤销语义复杂，教学版切帧即清空历史；但不打断回放
+  selectedBoxOrigin = null
+  resetHistory(false, false) // 跨帧撤销语义复杂，教学版切帧即清空历史；但不打断回放，也保留质检报告
   syncViewer()
   statusText.value = `第 ${target + 1}/${frames.value.length} 帧 · ${boxes.value.length} 个框`
 }
@@ -275,6 +290,78 @@ function onSpeedChange(e: Event) {
     pausePlay()
     play()
   }
+}
+
+function onScopeChange(e: Event) { propagateScope.value = strVal(e) as PropagateScope }
+function onStrategyChange(e: Event) { propagateStrategy.value = strVal(e) as 'replace' | 'offset' }
+
+/** 跨帧编辑：把选中框的当前修改传播到其他帧的同 id 框。
+ * 用 selectedBoxOrigin（选中时快照）作为"编辑前"基准，配合 propagateBox 计算增量或整框替换。
+ */
+function doPropagate() {
+  if (!frames.value.length || !selectedId.value) {
+    statusText.value = '跨帧传播需要先加载帧序列，并选中一个框'
+    return
+  }
+  const edited = boxes.value.find((b) => b.id === selectedId.value)
+  if (!edited || !selectedBoxOrigin) {
+    statusText.value = '请先选中一个框再传播'
+    return
+  }
+  // 先把当前帧的编辑写回序列，再传播
+  frames.value[currentFrame.value].boxes = cloneBoxes(boxes.value)
+  const changed = propagateBox(
+    frames.value,
+    currentFrame.value,
+    selectedId.value,
+    selectedBoxOrigin,
+    edited,
+    propagateScope.value,
+    propagateStrategy.value,
+  )
+  // 把传播后的当前帧重新读回（内容未变，保持引用一致）
+  boxes.value = cloneBoxes(frames.value[currentFrame.value].boxes)
+  selectedBoxOrigin = cloneBoxes([edited])[0] // 更新基准为"本次编辑后"
+  resetHistory()
+  syncViewer()
+  const scopeText = { all: '全部帧', forward: '后续帧', backward: '前序帧' }[propagateScope.value]
+  const strategyText = propagateStrategy.value === 'replace' ? '整框替换' : '增量平移'
+  statusText.value = changed > 0
+    ? `跨帧传播完成：${strategyText} → ${scopeText}，修改了 ${changed} 帧的目标 #${selectedId.value}`
+    : `没有可传播的目标：${scopeText}里未找到 id=${selectedId.value} 的框`
+}
+
+/** 时序质检：对当前帧序列做 4D 一致性检查 */
+function runTemporalQA() {
+  if (frames.value.length < 2) {
+    statusText.value = '时序质检需要至少 2 帧（先加载序列演示）'
+    return
+  }
+  // 确保当前帧编辑已写回
+  frames.value[currentFrame.value].boxes = cloneBoxes(boxes.value)
+  temporalReport.value = evaluateTemporal(frames.value)
+  const r = temporalReport.value
+  statusText.value = r.issues.length === 0
+    ? `时序质检通过：${r.trackCount} 条轨迹、${r.frameCount} 帧，未发现异常`
+    : `时序质检发现 ${r.issues.length} 处问题（ID跳变 ${r.counts.id_switch} / 速度突变 ${r.counts.speed_jump} / 抖动 ${r.counts.jitter} / 断裂 ${r.counts.track_gap}），健康分 ${r.score}`
+}
+
+/** 注入时序缺陷并立即质检，用于演示四类问题 */
+function runTemporalDemo() {
+  if (frames.value.length < 2) {
+    statusText.value = '请先加载序列演示'
+    return
+  }
+  pausePlay()
+  const defective = injectTemporalDefects(frames.value)
+  temporalReport.value = evaluateTemporal(defective)
+  const r = temporalReport.value
+  statusText.value = `已注入 4 类时序缺陷：检出 ${r.issues.length} 处，健康分 ${r.score}/100（点下方问题行可跳到对应帧）`
+}
+
+/** 点击质检问题行：跳到出问题的帧 */
+function gotoIssueFrame(frame: number) {
+  gotoFrame(frame)
 }
 
 /** 用 requestAnimationFrame 实测渲染帧率 —— 用数据说话，而不是凭感觉说"优化后更快" */
@@ -673,6 +760,8 @@ function setMode(m: ViewMode) {
 
 function selectBox(id: string) {
   selectedId.value = id
+  const b = boxes.value.find((x) => x.id === id)
+  selectedBoxOrigin = b ? cloneBoxes([b])[0] : null
   syncViewer()
 }
 
@@ -835,6 +924,40 @@ onBeforeUnmount(() => {
               <span class="replay-hint">同目标跨帧连成轨迹线，白点=当前帧</span>
             </div>
           </div>
+
+          <!-- 4D 时序质检 -->
+          <div class="temporal-box">
+            <div class="replay-row">
+              <button class="ghost" @click="runTemporalQA">✓ 时序质检</button>
+              <button class="ghost" @click="runTemporalDemo">⚠ 演示缺陷注入</button>
+            </div>
+            <div v-if="temporalReport" class="temporal-report">
+              <div class="qa-row">
+                <span>健康分</span>
+                <b :class="temporalReport.score >= 80 ? 'qa-good' : 'qa-warn'">{{ temporalReport.score }} / 100</b>
+              </div>
+              <div class="temporal-summary">
+                <span>ID跳变 {{ temporalReport.counts.id_switch }}</span>
+                <span>速度突变 {{ temporalReport.counts.speed_jump }}</span>
+                <span>抖动 {{ temporalReport.counts.jitter }}</span>
+                <span>断裂 {{ temporalReport.counts.track_gap }}</span>
+              </div>
+              <div class="temporal-issues">
+                <div
+                  v-for="(issue, i) in temporalReport.issues"
+                  :key="i"
+                  class="temporal-issue"
+                  :class="issue.severity"
+                  @click="gotoIssueFrame(issue.frame)"
+                  :title="'跳到第 ' + (issue.frame + 1) + ' 帧'"
+                >
+                  <span class="issue-tag">{{ issueTypeName(issue.type) }}</span>
+                  <span class="issue-detail">{{ issue.detail }}</span>
+                </div>
+                <div v-if="!temporalReport.issues.length" class="issue-clean">✓ 未发现时序异常</div>
+              </div>
+            </div>
+          </div>
           <button class="ghost wide" style="margin-top:8px" @click="runTrackingDemo">⚯ 贪心 vs Hungarian 关联演示</button>
           <div v-if="trackDemo" class="track-demo">
             <div class="qa-row"><span>观测距离（上一帧→当前帧）</span></div>
@@ -928,6 +1051,23 @@ onBeforeUnmount(() => {
           <label>朝向 yaw <span class="mono">{{ selectedBox.yaw.toFixed(2) }} rad</span>
             <input type="range" min="-3.14" max="3.14" step="0.01" :value="selectedBox.yaw" @input="setBoxProp('yaw', numVal($event))" />
           </label>
+          <!-- 4D 跨帧编辑：把当前框的修改传播到其他帧的同 id 框（仅在有时序帧时显示） -->
+          <div v-if="frames.length" class="propagate-box">
+            <div class="propagate-title">跨帧传播（目标 #{{ selectedBox.id }}）</div>
+            <div class="replay-row">
+              <select :value="propagateScope" @change="onScopeChange">
+                <option value="forward">后续帧</option>
+                <option value="backward">前序帧</option>
+                <option value="all">全部帧</option>
+              </select>
+              <select :value="propagateStrategy" @change="onStrategyChange">
+                <option value="offset">增量平移</option>
+                <option value="replace">整框替换</option>
+              </select>
+            </div>
+            <button class="ghost wide" @click="doPropagate">⇢ 应用到其他帧</button>
+            <div class="hint-small">增量平移保留各帧位置、只带去本次改动；整框替换用当前框覆盖其他帧</div>
+          </div>
         </section>
 
         <button class="ghost wide" @click="loadDemo">重置演示场景</button>

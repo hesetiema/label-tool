@@ -106,6 +106,75 @@ export interface Trajectory {
 }
 
 /**
+ * 跨帧编辑传播范围
+ * - all:     传播到所有帧（含当前帧外的每一帧）
+ * - forward: 只传播到当前帧之后（把当前框的修正带到后续轨迹）
+ * - backward:只传播到当前帧之前
+ */
+export type PropagateScope = 'all' | 'forward' | 'backward'
+
+/**
+ * 跨帧编辑：把"当前帧某个框"的修改传播到其他帧里同一个 obj_id 的框。
+ *
+ * 两种策略（面试常问的"改一帧怎么同步到其他帧"）：
+ * - 'replace'：整框替换 —— 用当前框原样覆盖其他帧的同 id 框。
+ *   适合"这个目标从头到尾尺寸/朝向就该是这样"的修正，但会抹掉各帧的位置差异。
+ * - 'offset' ：增量平移 —— 计算当前框相对"当前帧原始框"的位移/朝向变化量，
+ *   把这个增量叠加到其他帧的同 id 框上，保留它们各自的位置。
+ *   适合"这个目标整体标注偏了 2 米"的整体修正，轨迹形状不变。
+ *
+ * @param frames 帧序列（会被原地修改）
+ * @param currentFrame 当前帧号
+ * @param boxId 要传播的 obj_id
+ * @param referenceBox 当前帧编辑前的原始框（用于算 offset 增量）
+ * @param editedBox 当前帧编辑后的框
+ * @param scope 传播范围
+ * @param strategy 传播策略
+ * @returns 被修改的帧数
+ */
+export function propagateBox(
+  frames: FrameData[],
+  currentFrame: number,
+  boxId: string,
+  referenceBox: Box3D,
+  editedBox: Box3D,
+  scope: PropagateScope = 'all',
+  strategy: 'replace' | 'offset' = 'replace',
+): number {
+  if (currentFrame < 0 || currentFrame >= frames.length) return 0
+
+  // 增量：编辑后 - 编辑前（朝向走最短弧，避免 ±π 绕圈）
+  let dx = 0, dy = 0, dz = 0, dyaw = 0
+  if (strategy === 'offset') {
+    dx = editedBox.position.x - referenceBox.position.x
+    dy = editedBox.position.y - referenceBox.position.y
+    dz = editedBox.position.z - referenceBox.position.z
+    dyaw = lerpAngle(referenceBox.yaw, editedBox.yaw, 1) - referenceBox.yaw
+  }
+
+  let changed = 0
+  frames.forEach((frame, fi) => {
+    if (fi === currentFrame) return // 当前帧已经是编辑后的，跳过
+    if (scope === 'forward' && fi < currentFrame) return
+    if (scope === 'backward' && fi > currentFrame) return
+    const box = frame.boxes.find((b) => b.id === boxId)
+    if (!box) return
+
+    if (strategy === 'replace') {
+      const idx = frame.boxes.indexOf(box)
+      frame.boxes[idx] = { ...editedBox } // 保留 id，整框替换
+    } else {
+      box.position.x += dx
+      box.position.y += dy
+      box.position.z += dz
+      box.yaw += dyaw
+    }
+    changed++
+  })
+  return changed
+}
+
+/**
  * 轨迹提取：把帧序列里同一 obj_id 的框按帧号串成轨迹线数据。
  * 这是"轨迹叠加可视化"的数据源 —— 渲染层拿它把同目标的多帧中心点连成线。
  * 只保留出现 >= 2 帧的目标（单点连不成线）。
