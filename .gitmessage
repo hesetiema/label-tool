@@ -1,0 +1,14 @@
+# 提交类型（选其一，保留一个即可）：
+# feat:     新功能
+# fix:      修复 bug
+# docs:     文档变更
+# style:    格式/样式，不影响逻辑
+# refactor: 重构，既不新增功能也不修复 bug
+# perf:     性能优化
+# test:     测试相关
+# chore:    构建/工具/依赖等杂项
+#
+# 格式：<type>: <简短描述>
+# 示例：feat: 支持 binary_compressed PCD 解析
+
+feat:

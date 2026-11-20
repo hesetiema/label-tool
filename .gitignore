@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 原始大数据集（nuScenes mini 约 4GB，可按需重新下载）
+datasets/
+
+# 由 datasets/ 转换而来的产物（运行 scripts/convert_nuscenes.py 可再生成）
+public/data/nuscenes/
+
+# 测试运行时临时文件
+tests/.check.bundle.mjs
+
+# 编辑器 / 系统文件
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+
+# WorkBuddy 本地工作数据（日志、记忆等，非源码）
+.workbuddy/

@@ -1,0 +1,25 @@
+{
+  "name": "point-cloud-label-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A learning-oriented 3D point cloud annotation tool built with Vue3 + TS + Three.js, inspired by SUSTechPOINTS",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "test:core": "esbuild tests/core-check.ts --bundle --platform=node --format=esm --outfile=tests/.check.bundle.mjs && node tests/.check.bundle.mjs && node -e \"require('fs').unlinkSync('tests/.check.bundle.mjs')\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.171.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@types/three": "^0.171.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.7",
+    "vue-tsc": "^2.2.0"
+  }
+}
