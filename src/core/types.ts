@@ -25,6 +25,18 @@ export interface Vec3 {
  * 为什么叫"有向"？因为普通 AABB 轴对齐、不能旋转，而真实车辆是斜着停的，
  * 必须带一个朝向角才能贴合。这就是 9-DoF 里最关键的那个旋转自由度。
  */
+/**
+ * 目标的可见性状态（4D 时序标注的核心语义）。
+ * - visible  ：本帧能直接看到并标注
+ * - occluded ：目标被遮挡，框由轨迹预测/插值补出，不应算作"漏标"或参与位置精度评估
+ * - predicted：目标离开视野或完全消失，Kalman 外推的预测框（coasting）
+ *
+ * 为什么需要它：时序质检里"中间帧缺失"既可能是漏标（错误），也可能是正常遮挡。
+ * 不显式标记就无法区分——这正是生产标注平台（如 nuScenes 的 visibility_token、
+ * MolarData 的遮挡状态）必做的字段。
+ */
+export type Visibility = 'visible' | 'occluded' | 'predicted'
+
 export interface Box3D {
   /** 唯一标识，对应原仓库的 obj_id */
   id: string
@@ -33,6 +45,8 @@ export interface Box3D {
   position: Vec3
   scale: Vec3
   yaw: number
+  /** 可见性，默认 visible。可选以兼容历史数据与 SUSTechPOINTS 格式 */
+  visibility?: Visibility
 }
 
 /**
@@ -53,6 +67,8 @@ export interface RawLabelObject {
    * 顺序：车头面4点(底左,底右,顶右,顶左) + 车尾面4点(同序)。
    */
   vertices: number[]
+  /** 扩展字段：本工具的 4D 遮挡状态。SUSTechPOINTS 会忽略未知字段，我们读回时保留 */
+  visibility?: Visibility
 }
 
 /**

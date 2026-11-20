@@ -29,6 +29,7 @@ npm run dev        # 打开 http://127.0.0.1:5173
 | `?data=track` | 关联演示：贪心串 ID vs Kalman+Hungarian 正确保持的交叉案例 |
 | `?data=real` | 真实数据 + 相机投影分屏 |
 | `?data=nuscenes` | nuScenes mini 真实序列：多帧激光雷达 + 官方 3D 标注 + 相机投影（需先转换数据，见 [第 10 节](docs/10-nuscenes-dataset.md)） |
+| `?data=world` | **4D-BEV 世界系**：ego-pose 对齐后静止背景重合、运动目标拖轨迹；遮挡框虚线显示（需先 `--mode world` 转换，见 [第 13 节](docs/13-4d-bev-and-occlusion.md)） |
 
 ```bash
 npm run build      # 类型检查 + 生产构建
@@ -55,6 +56,8 @@ npm run typecheck  # 只做类型检查
 | **4D 轨迹叠加回放** | 同目标多帧中心点连成轨迹线（已走过段高亮），播放/暂停/调速逐帧回放，选中目标整条轨迹高亮 | — |
 | **跨帧编辑** | 把选中框的改动传播到同 id 框：整框替换 / 增量平移 × 后续/前序/全部帧 | — |
 | **时序质检** | ID 跳变、速度突变、轨迹抖动、轨迹断裂四类检测，健康分 + 问题列表可跳帧；一键注入缺陷演示 | 智能审核 |
+| **4D-BEV 世界系** | ego-pose 把多帧点云对齐到统一世界系，静止背景重合、运动目标拖轨迹（nuScenes 真实数据） | 4D 工具 |
+| **遮挡状态机** | alive/occluded/dead 三态、Kalman coasting 预测续接、虚线渲染遮挡框、质检豁免遮挡缺口 | 4D 工具 |
 | **全局最优关联** | Kalman 预测 + 门控 + Hungarian 匹配；交叉案例演示贪心如何串 ID | — |
 | **性能优化** | 体素网格下采样 + 距离 LOD；实测 100 万点→27 万点、3.7× 压缩 | — |
 | **质检与一致性** | BEV 旋转框 IoU、目标匹配、漏标/误标率、F1、Cohen's kappa；可叠加显示待评估框 | — |
@@ -79,6 +82,7 @@ npm run typecheck  # 只做类型检查
 | ⑩ | [nuScenes 真实数据集接入](docs/10-nuscenes-dataset.md) | `scripts/convert_nuscenes.py` | 下载/转换真实数据、世界坐标→lidar、四元数→yaw、相机内外参计算 |
 | ⑪ | [4D 轨迹叠加回放](docs/11-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
 | ⑫ | [4D 进阶：跨帧编辑与时序质检](docs/12-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
+| ⑬ | [4D-BEV 世界系对齐与遮挡状态](docs/13-4d-bev-and-occlusion.md) | `scripts/convert_nuscenes.py` / `core/tracker.ts` | ego-motion 世界系变换、三态遮挡状态机、Kalman coasting、遮挡与质检联动 |
 
 ---
 

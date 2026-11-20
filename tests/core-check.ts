@@ -12,10 +12,14 @@ import { parsePCD } from '../src/core/pcd.ts'
 import { matVec, projectPoint, projectBox, type Calibration } from '../src/core/calibration.ts'
 import { HistoryStack, cloneBoxes } from '../src/core/history.ts'
 import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, extractTrajectories, propagateBox, type FrameData } from '../src/core/sequence.ts'
-import { evaluateTemporal, injectTemporalDefects } from '../src/core/temporalQA.ts'
+import { evaluateTemporal, injectTemporalDefects, markOccluded } from '../src/core/temporalQA.ts'
 import { voxelDownsample, distanceLod, generateMassiveCloud } from '../src/core/downsample.ts'
 import { bevIoU, boxIoU3D, matchBoxes, cohenKappa, evaluateQuality, perturbLabels, boxBevCorners } from '../src/core/quality.ts'
-import { hungarian, greedyAssign, KalmanFilter2D, demoCrossingCase } from '../src/core/tracker.ts'
+import {
+  hungarian, greedyAssign, KalmanFilter2D, demoCrossingCase,
+  initTracks, associateHungarianKalman, stepTrackState, coastOccludedTracks,
+  demoOcclusionCase,
+} from '../src/core/tracker.ts'
 import type { Box3D } from '../src/core/types.ts'
 
 let passed = 0
@@ -306,6 +310,66 @@ check('交叉案例：贪心串 ID', greedySwapped)
 check('交叉案例：Kalman+Hungarian 保持 ID', kalmanCorrect)
 check('交叉案例：贪心总距离=0（看似完美）', close(sumCost(cross.greedy), 0, 1e-6))
 check('交叉案例：门控拒绝错误配对', cross.kalman.gated === 2, `gated=${cross.kalman.gated}`)
+
+// ===== 遮挡状态机 + 4D-BEV 世界系语义 =====
+console.log('\n--- 遮挡状态机与 4D-BEV ---')
+// 1) visibility 序列化往返
+const occBox: Box3D = { id: 'v1', label: 'Car', position: { x:1,y:2,z:0 }, scale: { x:4,y:2,z:1.6 }, yaw:0, visibility:'occluded' }
+const rtOcc = parseLabels(serializeLabels([occBox]))[0]
+check('visibility 序列化往返保留', rtOcc.visibility === 'occluded', `实际 ${rtOcc.visibility}`)
+const visBox: Box3D = { ...occBox, visibility: undefined }
+check('visible 不写入扩展字段', !('visibility' in JSON.parse(serializeLabels([visBox]))[0]))
+
+// 2) 关联时失配帧 missedFrames 递增
+const trks = initTracks([
+  { id:'A', label:'Car', position:{x:0,y:0,z:1}, scale:{x:4,y:2,z:1.6}, yaw:0 },
+  { id:'B', label:'Car', position:{x:100,y:0,z:1}, scale:{x:4,y:2,z:1.6}, yaw:0 },
+])
+// 当前帧只有 A 有观测（B 被遮挡）
+associateHungarianKalman(trks, [{ id:'A2', label:'Car', position:{x:2,y:0,z:1}, scale:{x:4,y:2,z:1.6}, yaw:0 }], 0.5, 3)
+check('匹配轨迹 missedFrames=0', trks[0].missedFrames === 0)
+check('失配轨迹 missedFrames 递增为 1', trks[1].missedFrames === 1, `实际 ${trks[1].missedFrames}`)
+
+// 3) 状态机三态
+trks[1].missedFrames = 2; stepTrackState(trks)
+check('短暂失配 → occluded', trks[1].state === 'occluded', `实际 ${trks[1].state}`)
+trks[1].missedFrames = 10; stepTrackState(trks)
+check('长期失配 → dead', trks[1].state === 'dead', `实际 ${trks[1].state}`)
+
+// 4) coasting 只续接 occluded，不续 dead
+trks[1].missedFrames = 2; stepTrackState(trks)
+const ghosts = coastOccludedTracks(trks)
+check('coasting 为遮挡轨迹产出预测框', ghosts.length === 1 && ghosts[0].visibility === 'predicted')
+check('dead 轨迹不产出幽灵框', (() => {
+  trks[1].missedFrames = 10; stepTrackState(trks)
+  return coastOccludedTracks(trks).length === 0
+})())
+
+// 5) 遮挡演示序列结构：A 在第 0/1 帧可见，第 2/3 帧被挡（无观测），第 4 帧重现
+const occDemo = demoOcclusionCase()
+check('遮挡演示序列 5 帧', occDemo.frames.length === 5)
+check('遮挡演示第 2/3 帧无观测', occDemo.frames[2].length === 0 && occDemo.frames[3].length === 0)
+
+// 6) 质检：在断裂帧补一个 occluded 框后，不再误报断裂
+const qaSeq = generateDemoSequence(5)
+const beforeOcc = evaluateTemporal(qaSeq)
+const gapCount = beforeOcc.counts.track_gap
+check('未标记时有轨迹断裂告警', gapCount > 0, `实际 ${gapCount}`)
+const firstGap = beforeOcc.issues.find((i) => i.type === 'track_gap')!
+// 从序列其它帧取该目标的框作为种子，插入到缺口帧并标记为 occluded
+const seed = qaSeq.flatMap((f) => f.boxes).find((b) => b.id === firstGap.objId)!
+const filled = qaSeq.map((f, fi) => fi === firstGap.frame
+  ? { ...f, boxes: [...f.boxes, { ...cloneBoxes([seed])[0], visibility: 'occluded' as const }] }
+  : f)
+check('补框后该帧多一个框', filled[firstGap.frame].boxes.length === qaSeq[firstGap.frame].boxes.length + 1)
+const afterOcc = evaluateTemporal(filled)
+check('遮挡点被统计', afterOcc.occludedPoints >= 1, `实际 ${afterOcc.occludedPoints}`)
+// markOccluded 纯函数：返回新数组，目标帧的框被标记 visibility
+const marked = markOccluded(filled, firstGap.objId, firstGap.frame, 'predicted')
+check('markOccluded 返回新数组', marked !== filled)
+check('markOccluded 标记目标帧框', marked[firstGap.frame].boxes.some(
+  (b) => b.id === firstGap.objId && b.visibility === 'predicted'))
+check('markOccluded 不改原数组', !filled[firstGap.frame].boxes.some((b) => b.visibility === 'predicted'))
 
 console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
 if (failed > 0) process.exit(1)

@@ -49,6 +49,8 @@ export interface TemporalReport {
   counts: Record<TemporalIssue['type'], number>
   /** 综合健康分 0~100（100 表示无任何问题） */
   score: number
+  /** 被显式标记为遮挡/预测的轨迹点数（这些点不参与精度检测与断裂判定） */
+  occludedPoints: number
 }
 
 export interface TemporalQaOptions {
@@ -81,10 +83,13 @@ export function evaluateTemporal(
   const issues: TemporalIssue[] = []
   const tracks = extractTrajectories(frames)
   const frameCount = frames.length
+  let occludedPoints = 0
 
   // ---- 检测 1/2/3：逐条轨迹分析 ----
   for (const tr of tracks) {
     const pts = tr.points
+    // 统计遮挡点（predicted / occluded）
+    occludedPoints += pts.filter((p) => p.visibility === 'predicted' || p.visibility === 'occluded').length
     // 检测 1：ID 跳变 + 检测 2：速度突变
     let prevSpeed: number | null = null
     let prevHeading: number | null = null
@@ -93,6 +98,15 @@ export function evaluateTemporal(
       // 该点必须是连续帧（跨缺失帧会让速度失真，跳过）
       const frameGap = b.frame - a.frame
       if (frameGap !== 1) { prevSpeed = null; prevHeading = null; continue }
+
+      // 遮挡续接的预测框不是真实观测：位置由运动模型外推，
+      // 拿它算位移/速度/方向会产生假告警。直接跳过这类段——这正是
+      // "显式标记 visibility" 带来的收益：质检能区分真跳变和预测续接。
+      if (a.visibility === 'predicted' || a.visibility === 'occluded'
+        || b.visibility === 'predicted' || b.visibility === 'occluded') {
+        prevSpeed = null; prevHeading = null
+        continue
+      }
 
       const d = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
       const speed = d / dt
@@ -134,16 +148,22 @@ export function evaluateTemporal(
     }
 
     // 检测 4：轨迹断裂 —— 首末帧之间某帧缺失
+    // 例外：若缺失帧紧邻一个 predicted 续接点，说明目标是被遮挡、已显式标记，
+    //       不是漏标 —— 这正是 visibility 字段的核心价值。
     const first = pts[0].frame
     const last = pts[pts.length - 1].frame
     for (let f = first + 1; f < last; f++) {
-      if (!pts.some((p) => p.frame === f)) {
-        issues.push({
-          type: 'track_gap', severity: 'warn', objId: tr.id, label: tr.label, frame: f,
-          detail: `目标 ${tr.id} 在第 ${f} 帧缺失（首末帧都有），可能是漏标`,
-          value: 1,
-        })
-      }
+      if (pts.some((p) => p.frame === f)) continue
+      const coveredByOcclusion = pts.some(
+        (p) => (p.visibility === 'predicted' || p.visibility === 'occluded')
+          && Math.abs(p.frame - f) <= 1,
+      )
+      if (coveredByOcclusion) continue
+      issues.push({
+        type: 'track_gap', severity: 'warn', objId: tr.id, label: tr.label, frame: f,
+        detail: `目标 ${tr.id} 在第 ${f} 帧缺失（首末帧都有），可能是漏标`,
+        value: 1,
+      })
     }
   }
 
@@ -156,7 +176,7 @@ export function evaluateTemporal(
   const penalty = issues.reduce((s, i) => s + (i.severity === 'error' ? 15 : 6), 0)
   const score = Math.max(0, 100 - penalty)
 
-  return { frameCount, trackCount: tracks.length, issues, counts, score }
+  return { frameCount, trackCount: tracks.length, issues, counts, score, occludedPoints }
 }
 
 /**
@@ -200,6 +220,23 @@ export function injectTemporalDefects(frames: FrameData[]): FrameData[] {
   }
 
   return out
+}
+
+/**
+ * 演示遮挡标记：把指定目标在指定帧的框标记为 occluded（遮挡）。
+ * 用于对比"标记前报断裂 / 标记后不报"——这是 visibility 字段最直观的价值证明。
+ * 深拷贝，不污染输入。
+ */
+export function markOccluded(
+  frames: FrameData[],
+  objId: string,
+  frameIndex: number,
+  visibility: 'occluded' | 'predicted' = 'occluded',
+): FrameData[] {
+  return frames.map((f, fi) => ({
+    ...f,
+    boxes: f.boxes.map((b) => (fi === frameIndex && b.id === objId ? { ...b, visibility } : b)),
+  }))
 }
 
 /** 取问题类型的中文名，供 UI 展示 */

@@ -96,6 +96,8 @@ export interface TrackPoint {
   x: number
   y: number
   z: number
+  /** 该帧的可见性，predicted/occluded 的点不参与位移精度检测 */
+  visibility?: Box3D['visibility']
 }
 
 /** 一条轨迹：同一 obj_id 跨帧出现的有序点列 */
@@ -188,7 +190,10 @@ export function extractTrajectories(frames: FrameData[]): Trajectory[] {
         tr = { id: box.id, label: box.label, points: [] }
         byId.set(box.id, tr)
       }
-      tr.points.push({ frame: fi, x: box.position.x, y: box.position.y, z: box.position.z })
+      tr.points.push({
+        frame: fi, x: box.position.x, y: box.position.y, z: box.position.z,
+        visibility: box.visibility ?? 'visible',
+      })
     }
   })
   return Array.from(byId.values())

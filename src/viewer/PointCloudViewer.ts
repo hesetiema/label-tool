@@ -156,7 +156,8 @@ export class PointCloudViewer {
     ctx.fillRect(0, 0, 256, 64)
     ctx.fillStyle = '#ffffff'
     ctx.font = '30px sans-serif'
-    ctx.fillText(`${box.label} #${box.id}`, 8, 42)
+    const tag = box.visibility === 'predicted' ? '预测' : box.visibility === 'occluded' ? '遮挡' : ''
+    ctx.fillText(`${box.label} #${box.id}${tag ? ' [' + tag + ']' : ''}`, 8, 42)
     const tex = new THREE.CanvasTexture(canvas)
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }))
     sprite.scale.set(6, 1.5, 1)
@@ -164,7 +165,8 @@ export class PointCloudViewer {
     return sprite
   }
 
-  /** 用一个框生成线框对象。用 vertices 保证与原仓库顶点顺序一致 */
+  /** 用一个框生成线框对象。用 vertices 保证与原仓库顶点顺序一致。
+   *  occluded/predicted 用虚线 + 半透明表示"这是推断出来的框，不是真实观测" */
   private makeBoxEdges(box: Box3D, color: number): THREE.LineSegments {
     const v = boxToVertices(box)
     const pts: number[] = []
@@ -178,6 +180,15 @@ export class PointCloudViewer {
     for (const [a, b] of edges) pts.push(...p(a), ...p(b))
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
+    const predicted = box.visibility === 'occluded' || box.visibility === 'predicted'
+    if (predicted) {
+      const dashed = new THREE.LineSegments(geo, new THREE.LineDashedMaterial({
+        color, linewidth: 1, dashSize: 0.4, gapSize: 0.3,
+        transparent: true, opacity: 0.55, depthTest: false,
+      }))
+      dashed.computeLineDistances() // LineDashedMaterial 必需：计算每条线的累积长度
+      return dashed
+    }
     return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, linewidth: 2, depthTest: false }))
   }
 
@@ -195,17 +206,21 @@ export class PointCloudViewer {
         this.scene3d.add(vis.a.edges, vis.a.label)
         this.sceneBev.add(vis.b.edges, vis.b.label)
       } else {
-        // 替换几何体以反映编辑后的框
+        // 替换几何体以反映编辑后的框；材质也要在 basic/dashed 间正确切换
         for (const v of [vis.a, vis.b]) {
           v.edges.geometry.dispose()
-          v.edges.geometry = this.makeBoxEdges(box, color).geometry
-          ;(v.edges.material as THREE.LineBasicMaterial).color.setHex(color)
+          const replacement = this.makeBoxEdges(box, color)
+          v.edges.geometry = replacement.geometry
+          ;(v.edges.material as THREE.Material).dispose()
+          v.edges.material = replacement.material
           v.label.position.set(box.position.x, box.position.y, box.position.z + box.scale.z / 2 + 1)
           const tex = (v.label.material as THREE.SpriteMaterial).map as THREE.CanvasTexture
           const canvas = tex.image as HTMLCanvasElement
           const ctx = canvas.getContext('2d')!
           ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, 0, 256, 64)
-          ctx.fillStyle = '#ffffff'; ctx.font = '30px sans-serif'; ctx.fillText(`${box.label} #${box.id}`, 8, 42)
+          ctx.fillStyle = '#ffffff'; ctx.font = '30px sans-serif'
+          const tag = box.visibility === 'predicted' ? '预测' : box.visibility === 'occluded' ? '遮挡' : ''
+          ctx.fillText(`${box.label} #${box.id}${tag ? ' [' + tag + ']' : ''}`, 8, 42)
           tex.needsUpdate = true
         }
       }

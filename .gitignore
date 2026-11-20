@@ -8,6 +8,7 @@ datasets/
 
 # 由 datasets/ 转换而来的产物（运行 scripts/convert_nuscenes.py 可再生成）
 public/data/nuscenes/
+public/data/nuscenes_world/
 
 # 测试运行时临时文件
 tests/.check.bundle.mjs

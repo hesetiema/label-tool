@@ -23,6 +23,7 @@ export function toRawLabel(box: Box3D): RawLabelObject {
     obj_type: box.label,
     obj_id: box.id,
     vertices: boxToVertices(box),
+    ...(box.visibility && box.visibility !== 'visible' ? { visibility: box.visibility } : {}),
   }
 }
 
@@ -34,6 +35,7 @@ export function fromRawLabel(raw: RawLabelObject): Box3D {
     position: { ...raw.psr.position },
     scale: { ...raw.psr.scale },
     yaw: raw.psr.rotation.z,
+    ...(raw.visibility ? { visibility: raw.visibility } : {}),
   }
 }
 

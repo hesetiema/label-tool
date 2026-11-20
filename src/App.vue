@@ -346,6 +346,46 @@ function runTemporalQA() {
     : `时序质检发现 ${r.issues.length} 处问题（ID跳变 ${r.counts.id_switch} / 速度突变 ${r.counts.speed_jump} / 抖动 ${r.counts.jitter} / 断裂 ${r.counts.track_gap}），健康分 ${r.score}`
 }
 
+/** 演示"显式标记遮挡"：把有 track_gap 的目标在当前帧标为 occluded，看健康分回升 */
+function runOcclusionDemo() {
+  if (frames.value.length < 2) {
+    statusText.value = '请先加载序列演示（至少 2 帧）'
+    return
+  }
+  pausePlay()
+  // 先把当前帧编辑写回，再对第一个有断裂的目标在缺口帧标记遮挡
+  frames.value[currentFrame.value].boxes = cloneBoxes(boxes.value)
+  const before = evaluateTemporal(frames.value)
+  const gap = before.issues.find((i) => i.type === 'track_gap')
+  if (!gap) {
+    statusText.value = '当前序列没有轨迹断裂，无需标记遮挡。可先点「演示缺陷注入」制造断裂'
+    temporalReport.value = before
+    return
+  }
+  // 在断裂帧给该目标补一个 occluded 标记框（用 markOccluded 纯函数，从种子框复制）
+  const seed = frames.value[0]?.boxes.find((b) => b.id === gap.objId)
+    ?? frames.value.find((fr) => fr.boxes.some((b) => b.id === gap.objId))?.boxes.find((b) => b.id === gap.objId)
+  if (!seed) return
+  frames.value[gap.frame].boxes.push({ ...cloneBoxes([seed])[0], visibility: 'occluded' })
+  const after = evaluateTemporal(frames.value)
+  temporalReport.value = after
+  statusText.value = `已把 ${gap.objId} 在第 ${gap.frame} 帧标记为遮挡：健康分 ${before.score} → ${after.score}，该处断裂不再误报（遮挡点 ${after.occludedPoints} 个）`
+  gotoFrame(gap.frame)
+  syncViewer()
+}
+
+/** 把当前选中框切换 可见 / 遮挡 状态（插入历史，可撤销） */
+function toggleSelectedVisibility() {
+  if (!selectedId.value) return
+  const box = boxes.value.find((b) => b.id === selectedId.value)
+  if (!box) return
+  const next = box.visibility === 'occluded' ? 'visible' : 'occluded'
+  mutate(`标记 ${selectedId.value} 为${next === 'occluded' ? '遮挡' : '可见'}`, () => {
+    box.visibility = next
+  })
+  statusText.value = `目标 #${selectedId.value} 已标记为${next === 'occluded' ? '遮挡（虚线显示，质检不误报）' : '可见'}`
+}
+
 /** 注入时序缺陷并立即质检，用于演示四类问题 */
 function runTemporalDemo() {
   if (frames.value.length < 2) {
@@ -529,12 +569,22 @@ async function loadRealData() {
  * 每一帧都是真实激光雷达点云 + 官方 3D 标注 + 真实相机内外参，
  * 复用多帧机制，切帧即可逐帧核对标注与相机投影。
  */
-async function loadNuScenes() {
-  statusText.value = '正在加载 nuScenes 真实序列…'
+/** 4D-BEV 世界系入口（按钮点击用，避免模板里传参的类型冲突） */
+function loadWorld() {
+  void loadNuScenes(true)
+}
+function loadLocal() {
+  void loadNuScenes(false)
+}
+
+async function loadNuScenes(world = false) {
+  const dataDir = world ? '/data/nuscenes_world' : '/data/nuscenes'
+  const label = world ? '4D-BEV 世界系' : 'nuScenes'
+  statusText.value = `正在加载 ${label} 真实序列…`
   try {
-    const idxRes = await fetch('/data/nuscenes/index.json')
+    const idxRes = await fetch(`${dataDir}/index.json`)
     if (!idxRes.ok) {
-      statusText.value = '未找到 nuScenes 数据，请先运行 python scripts/convert_nuscenes.py'
+      statusText.value = `未找到 ${label} 数据，请先运行 python scripts/convert_nuscenes.py --mode ${world ? 'world' : 'lidar'}`
       return
     }
     const index = await idxRes.json() as Array<{
@@ -553,8 +603,8 @@ async function loadNuScenes() {
     for (let fi = 0; fi < index.length; fi++) {
       const item = index[fi]
       const [pcRes, labelRes] = await Promise.all([
-        fetch(`/data/nuscenes/${item.点云}`),
-        fetch(`/data/nuscenes/${item.标注}`),
+        fetch(`${dataDir}/${item.点云}`),
+        fetch(`${dataDir}/${item.标注}`),
       ])
       if (!pcRes.ok || !labelRes.ok) continue
       const [pcBuf, labelText] = await Promise.all([pcRes.arrayBuffer(), labelRes.text()])
@@ -565,9 +615,9 @@ async function loadNuScenes() {
       })
       // 用第一帧的标定与图像做相机对照（同一段序列标定基本稳定）
       if (!firstCalib) {
-        const calibRes = await fetch(`/data/nuscenes/${item.标定}`)
+        const calibRes = await fetch(`${dataDir}/${item.标定}`)
         if (calibRes.ok) firstCalib = parseCalibration(await calibRes.text())
-        if (item.图像) firstImage = `/data/nuscenes/${item.图像}`
+        if (item.图像) firstImage = `${dataDir}/${item.图像}`
       }
     }
     if (!loaded.length) {
@@ -581,13 +631,13 @@ async function loadNuScenes() {
     selectedId.value = null
     calib.value = firstCalib
     imageUrl.value = firstImage
-    setLayout(firstCalib ? 'split' : 'cloud')
+    setLayout(!world && firstCalib ? 'split' : 'cloud')
     resetHistory()
     lastCloudRef = null
     syncViewer()
     viewer?.focusOnCloud(cloud.value)
     const totalPts = loaded.reduce((s, f) => s + f.cloud.count, 0)
-    statusText.value = `nuScenes 真实序列：${loaded.length} 帧 · ${totalPts.toLocaleString()} 点 · 当前 ${boxes.value.length} 个标注框`
+    statusText.value = `${label} 真实序列：${loaded.length} 帧 · ${totalPts.toLocaleString()} 点 · 当前 ${boxes.value.length} 个标注框${world ? ' · 静止背景已对齐、运动目标拖出轨迹' : ''}`
   } catch (err) {
     statusText.value = `nuScenes 加载失败：${(err as Error).message}`
   }
@@ -814,6 +864,9 @@ onMounted(async () => {
     await loadRealData()
   } else if (demo === 'nuscenes') {
     await loadNuScenes()
+  } else if (demo === 'world') {
+    await loadNuScenes(true)
+    if (params.get('autoplay') === '1') play()
   } else if (demo === 'sequence') {
     loadSequence()
     if (params.get('autoplay') === '1') play()
@@ -862,7 +915,8 @@ onBeforeUnmount(() => {
         <button :disabled="!canUndo" :title="canUndo ? `撤销：${undoLabel}` : '无可撤销操作'" @click="doUndo">↶ 撤销</button>
         <button :disabled="!canRedo" title="重做" @click="doRedo">↷ 重做</button>
         <button class="real" @click="loadRealData">◉ 真实数据</button>
-        <button class="real" @click="loadNuScenes">◉ nuScenes</button>
+        <button class="real" @click="loadLocal">◉ nuScenes</button>
+        <button class="real" @click="loadWorld">◉ 4D-BEV</button>
         <button @click="fileInput?.click()">导入 PCD</button>
         <button @click="labelInput?.click()">导入标注</button>
         <button class="primary" @click="doExport">导出 JSON ↓</button>
@@ -931,6 +985,9 @@ onBeforeUnmount(() => {
               <button class="ghost" @click="runTemporalQA">✓ 时序质检</button>
               <button class="ghost" @click="runTemporalDemo">⚠ 演示缺陷注入</button>
             </div>
+            <div class="replay-row" style="margin-top:6px">
+              <button class="ghost" @click="runOcclusionDemo">◐ 演示遮挡标记</button>
+            </div>
             <div v-if="temporalReport" class="temporal-report">
               <div class="qa-row">
                 <span>健康分</span>
@@ -941,6 +998,7 @@ onBeforeUnmount(() => {
                 <span>速度突变 {{ temporalReport.counts.speed_jump }}</span>
                 <span>抖动 {{ temporalReport.counts.jitter }}</span>
                 <span>断裂 {{ temporalReport.counts.track_gap }}</span>
+                <span>遮挡 {{ temporalReport.occludedPoints }}</span>
               </div>
               <div class="temporal-issues">
                 <div
@@ -1052,6 +1110,12 @@ onBeforeUnmount(() => {
             <input type="range" min="-3.14" max="3.14" step="0.01" :value="selectedBox.yaw" @input="setBoxProp('yaw', numVal($event))" />
           </label>
           <!-- 4D 跨帧编辑：把当前框的修改传播到其他帧的同 id 框（仅在有时序帧时显示） -->
+          <div v-if="selectedBox" class="propagate-box" style="margin-top:8px">
+            <button class="ghost wide" @click="toggleSelectedVisibility">
+              {{ selectedBox.visibility === 'occluded' ? '◉ 恢复可见' : '◐ 标记为遮挡' }}
+            </button>
+            <div class="hint-small">遮挡框用虚线显示，4D 质检不把它算作漏标/跳变</div>
+          </div>
           <div v-if="frames.length" class="propagate-box">
             <div class="propagate-title">跨帧传播（目标 #{{ selectedBox.id }}）</div>
             <div class="replay-row">

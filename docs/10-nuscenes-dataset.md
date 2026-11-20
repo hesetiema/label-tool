@@ -36,17 +36,24 @@ datasets/nuscenes/v1.0-mini/
 
 ## 2. 转换
 
+两种坐标系模式：
+
 ```bash
-python scripts/convert_nuscenes.py
+# lidar 模式（默认）：每帧保持在 ego/lidar 局部系，适合逐帧对照相机图
+python scripts/convert_nuscenes.py --mode lidar
+
+# world 模式：用 ego_pose 把点云对齐到统一世界系 —— 真正的 4D-BEV
+# 静止背景重合、运动目标拖轨迹，详见第 13 节
+python scripts/convert_nuscenes.py --mode world
 ```
 
 纯标准库实现（无需 numpy/scipy）。可环境变量控制转换帧数：
 
 ```bash
-MAX_SAMPLES=20 python scripts/convert_nuscenes.py
+MAX_SAMPLES=20 python scripts/convert_nuscenes.py --mode world
 ```
 
-输出到 `public/data/nuscenes/`：
+默认输出到 `public/data/nuscenes/`，world 模式输出到 `public/data/nuscenes_world/`：
 
 | 文件 | 内容 |
 |------|------|

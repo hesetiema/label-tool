@@ -302,13 +302,22 @@ export class KalmanFilter2D {
   }
 }
 
-/** 一条被跟踪的轨迹：持有 obj_id、最近一次框、以及 Kalman 状态 */
+/** 跟踪轨迹的生命周期状态（生产跟踪器的标准三态） */
+export type TrackState = 'alive' | 'occluded' | 'dead'
+
+/**
+ * 一条被跟踪的轨迹：持有 obj_id、最近一次框、以及 Kalman 状态
+ */
 export interface Track {
   id: string
   box: Box3D
   kf: KalmanFilter2D
-  /** 连续未匹配的帧数，超过阈值可判定轨迹终止 */
+  /** 连续未匹配的帧数，超过阈值判定为 occluded/dead */
   missedFrames: number
+  /** 当前生命周期状态 */
+  state: TrackState
+  /** 累计成功匹配次数（区分刚初始化的轨迹与稳定轨迹） */
+  hits: number
 }
 
 /** 关联结果（供 UI 展示对比） */
@@ -366,13 +375,24 @@ export function associateHungarianKalman(
   for (const a of assignments) {
     const t = tracks[a.row]
     const d = detections[a.col]
-    t.kf.update(d.position.x, d.position.y)
+    t.    kf.update(d.position.x, d.position.y)
     // 用观测位置作为新的 box 位置（保持 id/label/scale/朝向不变）
     t.box = {
       ...t.box,
       position: { ...d.position },
+      visibility: 'visible',
     }
     t.missedFrames = 0
+    t.hits++
+    t.state = 'alive'
+  }
+
+  // 4b) 失配轨迹：递增 missedFrames（这才是它真正该有的语义）
+  //     当前帧没观测到 ≠ 目标消失，可能只是遮挡；状态由 stepTrackState 判定
+  const matchedRows = new Set(assignments.map((a) => a.row))
+  for (let i = 0; i < tracks.length; i++) {
+    if (matchedRows.has(i)) continue
+    tracks[i].missedFrames++
   }
 
   // 统计被门控拒绝的候选对（用于 UI 说明"为什么没配"）
@@ -398,7 +418,87 @@ export function initTracks(boxes: Box3D[]): Track[] {
     box: { ...b, position: { ...b.position }, scale: { ...b.scale } },
     kf: new KalmanFilter2D(b.position.x, b.position.y),
     missedFrames: 0,
+    state: 'alive' as TrackState,
+    hits: 0,
   }))
+}
+
+/**
+ * 轨迹状态机：根据 missedFrames 判定 alive → occluded → dead。
+ *
+ * 这是"遮挡不是简单丢失"的核心语义：
+ *   - missedFrames = 0        → alive，每帧都有观测
+ *   - 1..maxOccludedFrames    → occluded，短暂遮挡，保留 ID 用预测续接
+ *   - > maxDeadFrames         → dead，目标确实离开/消失，轨迹终止不再预测
+ *
+ * 为什么要分两级：真实场景里目标会被卡车挡住几帧又出现（occluded），
+ * 也可能驶出视野永不回来（dead）。只用单一阈值会要么过早丢弃、要么无限续假框。
+ */
+export function stepTrackState(
+  tracks: Track[],
+  maxDeadFrames = 8,
+): { becameOccluded: string[]; becameDead: string[] } {
+  const becameOccluded: string[] = []
+  const becameDead: string[] = []
+  for (const t of tracks) {
+    const prev = t.state
+    if (t.missedFrames === 0) {
+      t.state = 'alive'
+    } else if (t.missedFrames > maxDeadFrames) {
+      t.state = 'dead'
+    } else if (t.missedFrames > 0) {
+      t.state = 'occluded'
+    }
+    if (t.state !== prev) {
+      if (t.state === 'occluded') becameOccluded.push(t.id)
+      if (t.state === 'dead') becameDead.push(t.id)
+    }
+  }
+  return { becameOccluded, becameDead }
+}
+
+/**
+ * Coasting（预测续接）：对 occluded 轨迹，用 Kalman 预测位置生成"幽灵框"。
+ *
+ * 关键点：预测位置来自 kf.predict(dt) 已经推进的状态（关联时每帧都 predict 一次），
+ * 这里直接取 kf.position() 作为续接框中心，并把 visibility 标成 'predicted'，
+ * 这样下游渲染能画成虚线、质检知道它不算漏标。
+ *
+ * 注意：只续接 occluded（短暂遮挡），dead 轨迹不再产出框——否则会留下无穷多的假目标。
+ */
+export function coastOccludedTracks(tracks: Track[]): Box3D[] {
+  const ghosts: Box3D[] = []
+  for (const t of tracks) {
+    if (t.state !== 'occluded') continue
+    const p = t.kf.position()
+    ghosts.push({
+      ...t.box,
+      id: t.id,
+      position: { x: p.x, y: p.y, z: t.box.position.z },
+      visibility: 'predicted',
+    })
+  }
+  return ghosts
+}
+
+/**
+ * 生成"目标被遮挡后消失又重现"的演示数据，用于 UI 展示状态机。
+ * 返回逐帧的检测框列表：目标 A 在第 2~3 帧被挡住（无观测），第 4 帧重现。
+ */
+export function demoOcclusionCase(): { frames: Box3D[][]; expectedStates: TrackState[][] } {
+  const mk = (id: string, x: number): Box3D => ({
+    id, label: 'Car',
+    position: { x, y: 0, z: 0.8 }, scale: { x: 4.5, y: 1.8, z: 1.6 }, yaw: 0,
+  })
+  // A 匀速向右 5m/s，dt=0.5 → 每帧 +2.5m；第 2、3 帧消失
+  const ax = [0, 2.5, null, null, 7.5]
+  const frames: Box3D[][] = ax.map((x) => (x === null ? [] : [mk('A', x)]))
+  return {
+    frames,
+    expectedStates: [
+      ['alive'], ['alive'], ['occluded'], ['occluded'], ['alive'],
+    ],
+  }
 }
 
 /**
