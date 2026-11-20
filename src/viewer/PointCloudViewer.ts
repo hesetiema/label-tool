@@ -18,6 +18,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Box3D, PointCloud } from '../core/types'
 import type { Trajectory, TrackPoint } from '../core/sequence'
+import type { CameraPose, CameraTrajectory } from '../core/cameraTrajectory'
 import { boxToVertices } from '../core/box'
 import { DEFAULT_CATEGORIES } from '../core/types'
 
@@ -42,9 +43,16 @@ export class PointCloudViewer {
   private bevFrustum = 60 // BEV 正交相机视野大小（米），可缩放
   private mode: ViewMode = '3d'
 
-  /** 轨迹叠加层：同一 id 的多帧中心点连成线，展示目标的运动路径 */
+  /** 目标轨迹叠加层：同一 id 的多帧中心点连成线，展示目标的运动路径 */
   private trajLines3d?: THREE.Group
   private trajLinesBev?: THREE.Group
+
+  /** 相机运镜关键帧叠加层（只在 3D 视口显示，因为运镜本身发生在透视相机上） */
+  private cameraTrajLayer?: THREE.Group
+  /** 当前 roll。OrbitControls 不修改 camera.up，所以由我们显式记录 */
+  private cameraRoll = 0
+  /** 录制水印：挂在相机下的 Sprite，因此会被 canvas.captureStream 一起录进去 */
+  private watermarkSprite?: THREE.Sprite
 
   /** 当用户在 BEV 上拖拽画框时，用于实时显示的临时矩形 */
   private draftLine?: THREE.Line
@@ -74,6 +82,9 @@ export class PointCloudViewer {
     this.controls = new OrbitControls(this.camera3d, this.renderer.domElement)
     this.controls.enableDamping = true
     this.controls.target.set(0, 0, 0)
+
+    // 把相机挂进场景图：这样挂在相机下的水印 Sprite 才会被渲染/录制
+    this.scene3d.add(this.camera3d)
 
     // 两个场景都加网格与坐标轴，帮助建立空间感
     for (const sc of [this.scene3d, this.sceneBev]) {
@@ -324,6 +335,130 @@ export class PointCloudViewer {
     this.sceneBev.add(this.trajLinesBev)
   }
 
+  /** 读取当前 3D 相机位姿，供上层「记录当前视角」使用 */
+  getCameraPose(): CameraPose {
+    const p = this.camera3d.position
+    const t = this.controls.target
+    return {
+      position: { x: p.x, y: p.y, z: p.z },
+      target: { x: t.x, y: t.y, z: t.z },
+      roll: this.cameraRoll,
+    }
+  }
+
+  /**
+   * 应用一个相机位姿。roll 通过绕视线方向旋转 camera.up 实现，
+   * 这样 OrbitControls 仍可用，同时 z-up 的世界约定不受破坏。
+   */
+  applyCameraPose(pose: CameraPose) {
+    const pos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z)
+    const target = new THREE.Vector3(pose.target.x, pose.target.y, pose.target.z)
+    const dir = new THREE.Vector3().subVectors(target, pos)
+    if (dir.lengthSq() < 1e-8) dir.set(0, -1, 0)
+    dir.normalize()
+
+    // 视线接近垂直时 z-up 会与视线共线，退化成 y-up 作为基准
+    const baseUp = Math.abs(dir.z) > 0.98
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(0, 0, 1)
+    const rolledUp = baseUp.clone().applyQuaternion(
+      new THREE.Quaternion().setFromAxisAngle(dir, pose.roll || 0),
+    ).normalize()
+
+    this.camera3d.up.copy(rolledUp)
+    this.camera3d.position.copy(pos)
+    this.controls.target.copy(target)
+    this.cameraRoll = pose.roll || 0
+    this.controls.update()
+  }
+
+  /** 在 3D 视口画出运镜关键帧：连线 + 小球 + 注视方向短线 */
+  setCameraTrajectory(traj: CameraTrajectory | null, activeIndex = -1) {
+    if (this.cameraTrajLayer) {
+      this.cameraTrajLayer.traverse((o) => {
+        const line = o as THREE.Line
+        if (line.geometry) line.geometry.dispose()
+        const mat = line.material as THREE.Material | undefined
+        if (mat) mat.dispose()
+      })
+      this.scene3d.remove(this.cameraTrajLayer)
+      this.cameraTrajLayer = undefined
+    }
+    if (!traj || !traj.frames.length) return
+
+    const group = new THREE.Group()
+    group.userData.isCameraTrajectoryLayer = true
+    const positions = traj.frames.map((k) => new THREE.Vector3(
+      k.pose.position.x, k.pose.position.y, k.pose.position.z,
+    ))
+
+    if (positions.length > 1) {
+      group.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(positions),
+        new THREE.LineBasicMaterial({ color: 0xffca28, transparent: true, opacity: 0.75, depthTest: false }),
+      ))
+    }
+
+    traj.frames.forEach((kf, i) => {
+      const active = i === activeIndex
+      const dot = new THREE.Mesh(
+        new THREE.SphereGeometry(active ? 0.95 : 0.6, 12, 10),
+        new THREE.MeshBasicMaterial({ color: active ? 0x00e5ff : 0xffca28, depthTest: false }),
+      )
+      dot.position.copy(positions[i])
+      group.add(dot)
+
+      const target = new THREE.Vector3(
+        kf.pose.target.x, kf.pose.target.y, kf.pose.target.z,
+      )
+      if (target.distanceToSquared(positions[i]) > 1e-6) {
+        const gaze = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([positions[i], target]),
+          new THREE.LineDashedMaterial({
+            color: active ? 0x00e5ff : 0xffca28, dashSize: 1.2, gapSize: 0.8,
+            transparent: true, opacity: 0.4, depthTest: false,
+          }),
+        )
+        gaze.computeLineDistances()
+        group.add(gaze)
+      }
+    })
+
+    this.cameraTrajLayer = group
+    this.scene3d.add(group)
+  }
+
+  /** 水印挂在相机下，canvas.captureStream 会把它一起录进视频 */
+  setWatermark(enabled: boolean) {
+    if (!enabled) {
+      if (this.watermarkSprite) {
+        this.camera3d.remove(this.watermarkSprite)
+        ;(this.watermarkSprite.material as THREE.SpriteMaterial).map?.dispose()
+        this.watermarkSprite.material.dispose()
+        this.watermarkSprite = undefined
+      }
+      return
+    }
+    if (this.watermarkSprite) return
+    const canvas = document.createElement('canvas')
+    canvas.width = 512
+    canvas.height = 96
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#e6ecf5'
+    ctx.font = 'bold 34px sans-serif'
+    ctx.fillText('Point Cloud Label Studio', 18, 62)
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false,
+    }))
+    sprite.position.set(0.58, -0.40, -1)
+    sprite.scale.set(0.46, 0.086, 1)
+    sprite.renderOrder = 999
+    this.camera3d.add(sprite)
+    this.watermarkSprite = sprite
+  }
+
   /** 显示 BEV 上拖拽时的临时矩形（p0,p1 为世界 xy 两点） */
   showDraft(p0: { x: number; y: number }, p1: { x: number; y: number }) {
     if (!this.draftLine) {
@@ -394,10 +529,12 @@ export class PointCloudViewer {
     this.cameraBev.lookAt(cx, cy, 0)
     this.onResize()
 
-    // 3D 相机拉远并指向数据中心
-    this.camera3d.position.set(cx + span * 0.4, cy - span * 0.5, span * 0.45)
-    this.controls.target.set(cx, cy, 0)
-    this.controls.update()
+    // 3D 相机拉远并指向数据中心（走 applyCameraPose，保证 roll/up 同步复位）
+    this.applyCameraPose({
+      position: { x: cx + span * 0.4, y: cy - span * 0.5, z: span * 0.45 },
+      target: { x: cx, y: cy, z: 0 },
+      roll: 0,
+    })
   }
 
   zoomBev(delta: number) {
@@ -414,6 +551,8 @@ export class PointCloudViewer {
 
   dispose() {
     window.removeEventListener('resize', this.onResize)
+    this.setWatermark(false)
+    this.setCameraTrajectory(null)
     this.controls.dispose()
     this.renderer.dispose()
   }

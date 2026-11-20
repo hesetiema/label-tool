@@ -24,6 +24,7 @@ npm run dev        # 打开 http://127.0.0.1:5173
 | 链接 | 演示内容 |
 |---|---|
 | `?data=sequence` | 5 帧时序序列：目标会移动，默认叠加显示跨帧轨迹线。点「轨迹插值补全」可补出 9 个中间帧框；点「回放」逐帧播放（白点=当前帧），加 `&autoplay=1` 进入即自动播放 |
+| `?data=sequence&cinema=1` | **相机导演演示**：自动加载 4 个镜头关键帧，点「▶ 播放运镜」或「● 录制视频」导出 WebM（见 [第 14 节](docs/14-camera-cinematography.md)） |
 | `?data=perf` | 百万点性能压测：生成 100 万点 → 体素下采样 → 距离 LOD → 实测 FPS |
 | `?data=qa` | 质检演示：生成扰动版标注并自动出报告（IoU / kappa / 漏标率） |
 | `?data=track` | 关联演示：贪心串 ID vs Kalman+Hungarian 正确保持的交叉案例 |
@@ -54,6 +55,8 @@ npm run typecheck  # 只做类型检查
 | **撤销重做** | 命令模式 + 状态快照，`Ctrl+Z` / `Ctrl+Shift+Z`；连续操作自动合并 | — |
 | **多帧时序** | 5 帧演示序列、obj_id 跨帧保持一致、首末帧轨迹插值补全中间帧 | batch 模式 |
 | **4D 轨迹叠加回放** | 同目标多帧中心点连成轨迹线（已走过段高亮），播放/暂停/调速逐帧回放，选中目标整条轨迹高亮 | — |
+| **相机运镜** | 关键帧 + 转场/停留时间 + 样条/缓入缓出；镜头时间线与数据帧时间线相互独立，可保存/打开轨迹 JSON | rviz_cinematographer `CameraTrajectory` |
+| **演示视频录制** | `canvas.captureStream` + `MediaRecorder` 导出 WebM，可选 fps、VP9/VP8、右下角水印 | rviz_cinematographer `Recorder` |
 | **跨帧编辑** | 把选中框的改动传播到同 id 框：整框替换 / 增量平移 × 后续/前序/全部帧 | — |
 | **时序质检** | ID 跳变、速度突变、轨迹抖动、轨迹断裂四类检测，健康分 + 问题列表可跳帧；一键注入缺陷演示 | 智能审核 |
 | **4D-BEV 世界系** | ego-pose 把多帧点云对齐到统一世界系，静止背景重合、运动目标拖轨迹（nuScenes 真实数据） | 4D 工具 |
@@ -83,6 +86,7 @@ npm run typecheck  # 只做类型检查
 | ⑪ | [4D 轨迹叠加回放](docs/11-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
 | ⑫ | [4D 进阶：跨帧编辑与时序质检](docs/12-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
 | ⑬ | [4D-BEV 世界系对齐与遮挡状态](docs/13-4d-bev-and-occlusion.md) | `scripts/convert_nuscenes.py` / `core/tracker.ts` | ego-motion 世界系变换、三态遮挡状态机、Kalman coasting、遮挡与质检联动 |
+| ⑭ | [相机导演：关键帧运镜与视频录制](docs/14-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、Three.js 相机 API、MediaRecorder 录制闭环 |
 
 ---
 
@@ -99,6 +103,7 @@ src/
 │   ├── sample.ts         # 程序化演示点云
 │   ├── history.ts        # 撤销重做：命令模式 + 状态快照
 │   ├── sequence.ts       # 多帧时序：跟踪关联 + 轨迹插值
+│   ├── cameraTrajectory.ts # 相机运镜：关键帧 + 样条采样 + JSON 序列化
 │   ├── downsample.ts     # 性能：体素下采样 + 距离 LOD
 │   ├── quality.ts        # 质检：IoU / 目标匹配 / kappa / 漏误标率
 │   └── tracker.ts        # 关联：Hungarian 全局匹配 + Kalman 运动预测
@@ -135,6 +140,8 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 - **删除**：`Delete` / `Backspace`。
 - **撤销/重做**：`Ctrl+Z` / `Ctrl+Shift+Z`（或 `Ctrl+Y`）。所有编辑（画框、删除、快捷键、属性面板）都可撤销；连续拖动滑杆合并为一次撤销。
 - **多帧时序**：点「加载 5 帧序列」，用时间轴切帧；点「轨迹插值补全」看首末帧标注如何自动补全中间帧。
+- **相机导演**：切到「3D 透视」摆好视角，点「＋ 记录当前视角」追加关键帧；设置每段的转场/停留时间后点「▶ 播放运镜」。镜头运动与数据帧回放独立计时，轨迹可保存/打开。也可直接访问 `?data=sequence&cinema=1` 加载演示运镜。
+- **录制演示视频**：左侧「视频录制」面板选择 fps / 编码 / 水印，点「● 录制视频」自动播放一圈运镜并导出 WebM；再点一次可提前结束（需 Chrome / Edge）。
 - **性能压测**：点「⚡ 生成 100 万点压测」，看体素下采样 + LOD 的实时效果与实测 FPS。
 - **导出**：点"导出 JSON"或 `Ctrl+S`，得到可直接被 SUSTechPOINTS 读取的标注文件。
 

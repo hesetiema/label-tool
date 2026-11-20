@@ -21,6 +21,11 @@ import {
   demoOcclusionCase,
 } from '../src/core/tracker.ts'
 import type { Box3D } from '../src/core/types.ts'
+import {
+  createDefaultTrajectory, appendKeyframe, sampleTrajectory, sampleTrajectoryInfo,
+  trajectoryDuration, serializeTrajectory, parseTrajectory,
+  type CameraTrajectory, type CameraPose, type CameraKeyframe,
+} from '../src/core/cameraTrajectory.ts'
 
 let passed = 0
 let failed = 0
@@ -370,6 +375,48 @@ check('markOccluded 返回新数组', marked !== filled)
 check('markOccluded 标记目标帧框', marked[firstGap.frame].boxes.some(
   (b) => b.id === firstGap.objId && b.visibility === 'predicted'))
 check('markOccluded 不改原数组', !filled[firstGap.frame].boxes.some((b) => b.visibility === 'predicted'))
+
+// ===== 相机运镜轨迹（借鉴 rviz_cinematographer）=====
+console.log('\n--- 相机运镜轨迹 ---')
+const poseA: CameraPose = { position: { x: 0, y: 0, z: 10 }, target: { x: 0, y: 0, z: 0 }, roll: 0 }
+const poseB: CameraPose = { position: { x: 10, y: 0, z: 10 }, target: { x: 2, y: 0, z: 0 }, roll: 0 }
+const poseC: CameraPose = { position: { x: 10, y: 10, z: 10 }, target: { x: 2, y: 2, z: 0 }, roll: 0 }
+let ct = createDefaultTrajectory('测试运镜')
+ct.options.spline = false
+ct.options.smoothVelocity = false
+ct = appendKeyframe(ct, poseA)
+ct = appendKeyframe(ct, poseB)
+ct = appendKeyframe(ct, poseC)
+check('轨迹总时长=停留+转场', close(trajectoryDuration(ct), 7), `实际 ${trajectoryDuration(ct)}`)
+check('t=0 位于首帧', close(sampleTrajectory(ct, 0).position.x, 0))
+check('t=0.9 首帧停留中不移动', close(sampleTrajectory(ct, 0.9).position.x, 0))
+check('t=2 线性插值到 A→B 中点', close(sampleTrajectory(ct, 2).position.x, 5), `实际 ${sampleTrajectory(ct, 2).position.x}`)
+check('t=3 到达第二帧', close(sampleTrajectory(ct, 3).position.x, 10))
+check('t=5 在第二段中点', close(sampleTrajectory(ct, 5).position.y, 5), `实际 ${sampleTrajectory(ct, 5).position.y}`)
+check('t=7 停在末帧', close(sampleTrajectory(ct, 7).position.y, 10))
+check('采样信息标出当前关键帧', sampleTrajectoryInfo(ct, 3.5).keyframeIndex === 1)
+const splineTraj: CameraTrajectory = { ...ct, options: { ...ct.options, spline: true } }
+const splineMid = sampleTrajectory(splineTraj, 2)
+check('样条采样数值有限', Number.isFinite(splineMid.position.x) && Number.isFinite(splineMid.position.y))
+check('样条路径偏离线性路径', !close(splineMid.position.y, 0, 1e-6), `y=${splineMid.position.y}`)
+const mk = (id: string, pose: CameraPose, transition: number, hold: number): CameraKeyframe => ({ id, pose, transition, hold })
+const rollTraj: CameraTrajectory = {
+  ...createDefaultTrajectory('roll'),
+  options: { ...createDefaultTrajectory().options, spline: false, smoothVelocity: false, allowRoll: true },
+  frames: [
+    mk('1', { ...poseA, roll: 3.1 }, 0, 0),
+    mk('2', { ...poseB, roll: -3.1 }, 1, 0),
+  ],
+}
+check('roll 插值走最短弧', close(Math.abs(sampleTrajectory(rollTraj, 0.5).roll), Math.PI, 0.02),
+  `实际 ${sampleTrajectory(rollTraj, 0.5).roll}`)
+const noRollTraj = { ...rollTraj, options: { ...rollTraj.options, allowRoll: false } }
+check('关闭 roll 后始终为 0', sampleTrajectory(noRollTraj, 0.5).roll === 0)
+const rtTraj = parseTrajectory(serializeTrajectory(ct))
+check('轨迹 JSON 往返：帧数一致', rtTraj.frames.length === 3)
+check('轨迹 JSON 往返：位姿一致', close(rtTraj.frames[1].pose.position.x, 10))
+check('轨迹 JSON 往返：时间参数一致', close(rtTraj.frames[2].transition, 2) && close(rtTraj.frames[0].hold, 1))
+check('空轨迹 JSON 被拒绝', (() => { try { parseTrajectory('{"frames":[]}'); return false } catch { return true } })())
 
 console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
 if (failed > 0) process.exit(1)

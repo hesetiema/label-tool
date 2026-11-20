@@ -50,13 +50,17 @@ export function parseLabels(json: string): Box3D[] {
   return raws.map(fromRawLabel)
 }
 
-/** 触发浏览器下载 JSON 文件 */
-export function downloadJson(filename: string, content: string): void {
-  const blob = new Blob([content], { type: 'application/json' })
+/** 触发浏览器下载任意 Blob（JSON / 视频共用） */
+export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** 触发浏览器下载 JSON 文件 */
+export function downloadJson(filename: string, content: string): void {
+  downloadBlob(filename, new Blob([content], { type: 'application/json' }))
 }

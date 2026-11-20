@@ -13,7 +13,12 @@ import { ref, onMounted, onBeforeUnmount, computed, nextTick } from 'vue'
 import { PointCloudViewer, type ViewMode } from './viewer/PointCloudViewer'
 import { generateDemoScene } from './core/sample'
 import { parsePCD } from './core/pcd'
-import { parseLabels, serializeLabels, downloadJson } from './core/label'
+import { parseLabels, serializeLabels, downloadJson, downloadBlob } from './core/label'
+import {
+  createDefaultTrajectory, appendKeyframe, sampleTrajectoryInfo, trajectoryDuration,
+  serializeTrajectory, parseTrajectory, clamp,
+  type CameraTrajectory, type CameraPose,
+} from './core/cameraTrajectory'
 import { fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from './core/box'
 import { parseCalibration, type Calibration } from './core/calibration'
 import { HistoryStack, cloneBoxes } from './core/history'
@@ -47,6 +52,25 @@ const layout = ref<'cloud' | 'split' | 'camera'>('cloud')
 const calib = ref<Calibration | null>(null)
 const imageUrl = ref('')
 const camViewRef = ref<InstanceType<typeof CameraView> | null>(null)
+
+// ---- 相机导演（借鉴 rviz_cinematographer）----
+/** 镜头时间线与帧时间线彼此独立：这里管"相机在哪、看哪里、看多久" */
+const cameraTrajectory = ref<CameraTrajectory>(createDefaultTrajectory())
+const activeKeyframe = ref(0)
+const cameraElapsed = ref(0)
+const isCameraPlaying = ref(false)
+const trajectoryInput = ref<HTMLInputElement | null>(null)
+let cameraRaf = 0
+let cameraLastTs = 0
+
+// ---- 视频录制：渲染方产出帧，录制方消费并回执（对应 rviz 的 Recorder）----
+const recordState = ref<'idle' | 'recording' | 'finishing'>('idle')
+const recordFps = ref(30)
+const recordCodec = ref('vp9')
+const addWatermark = ref(true)
+let mediaRecorder: MediaRecorder | null = null
+let recordedChunks: Blob[] = []
+let recordedStream: MediaStream | null = null
 
 // ---- P0-1 撤销重做 ----
 // 用 Box3D[] 的完整快照作为命令状态：框数据很小，快照比逐字段写逆操作更可靠
@@ -101,6 +125,14 @@ const trackDemo = ref<{
 } | null>(null)
 
 const selectedBox = computed(() => boxes.value.find((b) => b.id === selectedId.value) ?? null)
+const cameraDuration = computed(() => trajectoryDuration(cameraTrajectory.value))
+const activePose = computed<CameraPose | null>(() =>
+  cameraTrajectory.value.frames[activeKeyframe.value]?.pose ?? null)
+const recordingEstimate = computed(() => {
+  const d = cameraDuration.value
+  const count = Math.max(1, Math.round(d * recordFps.value))
+  return `预计 ${d.toFixed(1)}s · ${count} 帧 · ${recordCodec.value.toUpperCase()}`
+})
 
 // ---- BEV 拖拽画框相关状态 ----
 let dragging = false
@@ -808,6 +840,271 @@ function setMode(m: ViewMode) {
   viewer?.setMode(m)
 }
 
+// ---- 相机导演：关键帧编辑、时间线播放、轨迹存盘 ----
+function ensureCameraVisible() {
+  if (mode.value !== '3d') setMode('3d')
+}
+
+function syncCameraVisual() {
+  viewer?.setCameraTrajectory(cameraTrajectory.value, activeKeyframe.value)
+}
+
+/** 把当前 3D 视角追加为关键帧（对应 rviz 的 Append at Cam Pose） */
+function captureCurrentPose() {
+  if (!viewer) return
+  ensureCameraVisible()
+  cameraTrajectory.value = appendKeyframe(cameraTrajectory.value, viewer.getCameraPose())
+  activeKeyframe.value = cameraTrajectory.value.frames.length - 1
+  syncCameraVisual()
+  statusText.value = `已记录第 ${activeKeyframe.value + 1} 个镜头关键帧（共 ${cameraTrajectory.value.frames.length} 个）`
+}
+
+function selectKeyframe(i: number) {
+  const frames = cameraTrajectory.value.frames
+  if (!frames.length) return
+  activeKeyframe.value = clamp(i, 0, frames.length - 1)
+  ensureCameraVisible()
+  viewer?.applyCameraPose(frames[activeKeyframe.value].pose)
+  syncCameraVisual()
+  statusText.value = `镜头 #${activeKeyframe.value + 1}/${frames.length} · 转场 ${frames[activeKeyframe.value].transition}s`
+}
+
+function stepKeyframe(delta: number) {
+  selectKeyframe(activeKeyframe.value + delta)
+}
+
+function applyActivePose() {
+  const pose = activePose.value
+  if (!pose) return
+  ensureCameraVisible()
+  viewer?.applyCameraPose(pose)
+  statusText.value = `相机已回到关键帧 #${activeKeyframe.value + 1}`
+}
+
+function deleteActiveKeyframe() {
+  const frames = cameraTrajectory.value.frames
+  if (!frames.length) return
+  pauseTrajectory()
+  const next = frames.filter((_, i) => i !== activeKeyframe.value)
+  cameraTrajectory.value = { ...cameraTrajectory.value, frames: next }
+  activeKeyframe.value = clamp(activeKeyframe.value, 0, Math.max(0, next.length - 1))
+  cameraElapsed.value = 0
+  if (activePose.value) viewer?.applyCameraPose(activePose.value)
+  syncCameraVisual()
+  statusText.value = `已删除关键帧，剩余 ${next.length} 个`
+}
+
+function clearCameraTrajectory() {
+  pauseTrajectory()
+  cameraTrajectory.value = createDefaultTrajectory()
+  activeKeyframe.value = 0
+  cameraElapsed.value = 0
+  viewer?.setCameraTrajectory(null)
+  statusText.value = '相机运镜轨迹已清空'
+}
+
+function setKeyframeTime(field: 'transition' | 'hold', e: Event) {
+  const value = clamp(Number((e.target as HTMLInputElement).value) || 0, 0, 60)
+  const frames = cameraTrajectory.value.frames.map((f, i) =>
+    i === activeKeyframe.value ? { ...f, [field]: value } : f)
+  cameraTrajectory.value = { ...cameraTrajectory.value, frames }
+  syncCameraVisual()
+  statusText.value = `关键帧 #${activeKeyframe.value + 1} ${field === 'transition' ? '转场' : '停留'}时间 ${value}s`
+}
+
+function saveTrajectory() {
+  downloadJson('camera-trajectory.json', serializeTrajectory(cameraTrajectory.value))
+  statusText.value = `已导出 ${cameraTrajectory.value.frames.length} 个镜头关键帧`
+}
+
+async function openTrajectory(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    pauseTrajectory()
+    cameraTrajectory.value = parseTrajectory(await file.text())
+    activeKeyframe.value = 0
+    cameraElapsed.value = 0
+    ensureCameraVisible()
+    if (activePose.value) viewer?.applyCameraPose(activePose.value)
+    syncCameraVisual()
+    statusText.value = `已导入运镜「${cameraTrajectory.value.name}」· ${cameraTrajectory.value.frames.length} 个关键帧`
+  } catch (err) {
+    statusText.value = `轨迹导入失败：${(err as Error).message}`
+  }
+  input.value = ''
+}
+
+/** 一键生成绕演示场景的 4 个镜头位姿，配合 ?data=sequence&cinema=1 直达 */
+function loadCinematicDemo() {
+  const kf = (
+    id: string,
+    position: CameraPose['position'],
+    target: CameraPose['target'],
+    transition: number,
+  ): CameraTrajectory['frames'][number] => ({
+    id, pose: { position, target, roll: 0 }, transition, hold: 1,
+  })
+  pauseTrajectory()
+  cameraTrajectory.value = {
+    ...createDefaultTrajectory('4D 演示运镜'),
+    frames: [
+      kf('1', { x: 55, y: -55, z: 40 }, { x: 0, y: 0, z: 0 }, 0),
+      kf('2', { x: 5, y: -70, z: 22 }, { x: 0, y: 0, z: 2 }, 2.5),
+      kf('3', { x: -55, y: -30, z: 30 }, { x: 0, y: 0, z: 1 }, 2),
+      kf('4', { x: 25, y: 35, z: 55 }, { x: 0, y: 0, z: 0 }, 2.5),
+    ],
+  }
+  activeKeyframe.value = 0
+  cameraElapsed.value = 0
+  ensureCameraVisible()
+  if (activePose.value) viewer?.applyCameraPose(activePose.value)
+  syncCameraVisual()
+  statusText.value = '已加载演示运镜：4 个关键帧，点「▶ 播放运镜」或「● 录制视频」'
+}
+
+/** 让镜头停到指定时间点；拖动进度条和播放循环共用 */
+function applyCameraAtTime(t: number) {
+  cameraElapsed.value = Math.max(0, t)
+  if (!viewer) return
+  const sample = sampleTrajectoryInfo(cameraTrajectory.value, cameraElapsed.value)
+  viewer.applyCameraPose(sample.pose)
+  // 只在关键帧切换时重建 marker 几何体，避免每帧 dispose/create
+  if (sample.keyframeIndex >= 0 && sample.keyframeIndex !== activeKeyframe.value) {
+    activeKeyframe.value = sample.keyframeIndex
+    if (recordState.value === 'idle') syncCameraVisual()
+  }
+}
+
+function pauseTrajectory() {
+  if (cameraRaf) cancelAnimationFrame(cameraRaf)
+  cameraRaf = 0
+  isCameraPlaying.value = false
+}
+
+function playTrajectory(opts: { oneShot?: boolean; onDone?: () => void } = {}) {
+  if (!viewer || cameraTrajectory.value.frames.length < 2 || isCameraPlaying.value) return
+  ensureCameraVisible()
+  isCameraPlaying.value = true
+  cameraLastTs = performance.now()
+  const total = cameraDuration.value
+  const tick = (ts: number) => {
+    if (!isCameraPlaying.value) return
+    const dt = Math.max(0, (ts - cameraLastTs) / 1000)
+    cameraLastTs = ts
+    let next = cameraElapsed.value + dt
+    if (total > 0 && next >= total) {
+      // loop 录制只跑一圈：在结束前 1 帧停下，避免末帧直接跳回首帧
+      const endT = opts.oneShot && cameraTrajectory.value.options.loop
+        ? Math.max(0, total - 1 / Math.max(1, recordFps.value))
+        : total
+      applyCameraAtTime(endT)
+      cameraElapsed.value = total
+      isCameraPlaying.value = false
+      opts.onDone?.()
+      if (opts.oneShot) return
+      if (!cameraTrajectory.value.options.loop) {
+        statusText.value = `运镜播放结束 · ${total.toFixed(1)}s`
+        return
+      }
+      next = 0
+    }
+    applyCameraAtTime(next)
+    cameraRaf = requestAnimationFrame(tick)
+  }
+  cameraRaf = requestAnimationFrame(tick)
+}
+
+function toggleCameraPlay() {
+  if (isCameraPlaying.value) {
+    pauseTrajectory()
+    statusText.value = `运镜已暂停 · ${cameraElapsed.value.toFixed(1)}s / ${cameraDuration.value.toFixed(1)}s`
+    return
+  }
+  if (cameraTrajectory.value.frames.length < 2) {
+    statusText.value = '至少需要 2 个关键帧才能播放运镜'
+    return
+  }
+  playTrajectory()
+  statusText.value = `运镜播放中 · ${cameraDuration.value.toFixed(1)}s（与数据帧回放相互独立）`
+}
+
+function stopTrajectory() {
+  pauseTrajectory()
+  cameraElapsed.value = 0
+  activeKeyframe.value = 0
+  if (activePose.value) viewer?.applyCameraPose(activePose.value)
+  syncCameraVisual()
+  statusText.value = '运镜已复位到第 1 个关键帧'
+}
+
+function onCameraScrub(e: Event) {
+  pauseTrajectory()
+  applyCameraAtTime(Number((e.target as HTMLInputElement).value))
+}
+
+function finishRecording() {
+  if (recordState.value !== 'recording') return
+  recordState.value = 'finishing'
+  pauseTrajectory()
+  mediaRecorder?.stop()
+  statusText.value = '录制结束，正在封装视频…'
+}
+
+/** canvas.captureStream + MediaRecorder：渲染方与录制方解耦，结束时用 onDone 回执 */
+function toggleRecording() {
+  if (recordState.value === 'recording') { finishRecording(); return }
+  if (recordState.value === 'finishing') return
+  if (!viewer || cameraTrajectory.value.frames.length < 2) {
+    statusText.value = '录制运镜需要至少 2 个关键帧'
+    return
+  }
+  const canvas = viewer.renderLoopElement()
+  const captureStream = (canvas as HTMLCanvasElement & {
+    captureStream?: (fps?: number) => MediaStream
+  }).captureStream
+  if (typeof captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
+    statusText.value = '当前浏览器不支持 canvas.captureStream / MediaRecorder，请使用 Chrome 或 Edge'
+    return
+  }
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+    .find((m) => MediaRecorder.isTypeSupported(m))
+  if (!mime) {
+    statusText.value = '当前浏览器没有可用的 WebM 编码器'
+    return
+  }
+  try {
+    recordedStream = captureStream.call(canvas, recordFps.value)
+    mediaRecorder = new MediaRecorder(recordedStream, {
+      mimeType: mime,
+      videoBitsPerSecond: 8_000_000,
+    })
+  } catch (err) {
+    statusText.value = `录制启动失败：${(err as Error).message}`
+    return
+  }
+  recordedChunks = []
+  mediaRecorder.ondataavailable = (ev) => { if (ev.data.size) recordedChunks.push(ev.data) }
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(recordedChunks, { type: mime })
+    downloadBlob(`cinematic-${Date.now()}.webm`, blob)
+    recordedStream?.getTracks().forEach((track) => track.stop())
+    recordedStream = null
+    mediaRecorder = null
+    recordState.value = 'idle'
+    viewer?.setWatermark(false)
+    statusText.value = `视频已导出：${(blob.size / 1024 / 1024).toFixed(1)} MB · ${recordFps.value} FPS`
+  }
+  mediaRecorder.start(250)
+  recordState.value = 'recording'
+  viewer.setWatermark(addWatermark.value)
+  cameraElapsed.value = 0
+  ensureCameraVisible()
+  playTrajectory({ oneShot: true, onDone: finishRecording })
+  statusText.value = `录制中：按运镜轨迹播放一圈（${cameraDuration.value.toFixed(1)}s），再点一次可提前结束`
+}
+
 function selectBox(id: string) {
   selectedId.value = id
   const b = boxes.value.find((x) => x.id === id)
@@ -851,6 +1148,7 @@ onMounted(async () => {
   if (!viewportRef.value) return
   viewer = new PointCloudViewer(viewportRef.value)
   viewer.setMode(mode.value)
+  syncCameraVisual()
   const el = viewer.renderLoopElement()
   el.addEventListener('mousedown', onMouseDown)
   el.addEventListener('mousemove', onMouseMove)
@@ -869,6 +1167,7 @@ onMounted(async () => {
     if (params.get('autoplay') === '1') play()
   } else if (demo === 'sequence') {
     loadSequence()
+    if (params.get('cinema') === '1') loadCinematicDemo()
     if (params.get('autoplay') === '1') play()
   } else if (demo === 'perf') {
     await runPerfTest()
@@ -889,6 +1188,13 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   pausePlay()
+  pauseTrajectory()
+  if (mediaRecorder?.state === 'recording') {
+    mediaRecorder.onstop = null
+    mediaRecorder.stop()
+  }
+  recordedStream?.getTracks().forEach((track) => track.stop())
+  viewer?.setWatermark(false)
   if (viewer) {
     const el = viewer.renderLoopElement()
     el.removeEventListener('mousedown', onMouseDown)
@@ -1024,6 +1330,91 @@ onBeforeUnmount(() => {
             <div class="qa-row"><span>Kalman+Hungarian</span><b class="qa-good">{{ trackDemo.kalmanText }}</b></div>
             <div class="qa-row"><span>门控拒绝的错误配对</span><b>{{ trackDemo.gated }}</b></div>
             <div class="track-conclusion">{{ trackDemo.greedySwapped ? '贪心总距离=0 却把两个 ID 串了；Kalman 用速度预测出正确位置' : '两种算法结果一致' }}</div>
+          </div>
+        </section>
+
+        <!-- 相机导演：镜头时间线与数据帧时间线解耦 -->
+        <section class="cinema-section">
+          <h3>相机导演 <span class="count">{{ cameraTrajectory.frames.length }}</span></h3>
+          <div class="replay-row">
+            <button class="ghost" @click="captureCurrentPose">＋ 记录当前视角</button>
+            <button class="ghost" @click="applyActivePose">↩ 回到关键帧</button>
+          </div>
+          <div class="cam-kf-list">
+            <div
+              v-for="(kf, i) in cameraTrajectory.frames"
+              :key="kf.id"
+              class="cam-kf"
+              :class="{ active: activeKeyframe === i }"
+              @click="selectKeyframe(i)"
+            >
+              <span class="cam-kf-id">#{{ i + 1 }}</span>
+              <span class="cam-kf-meta">转 {{ kf.transition }}s · 停 {{ kf.hold }}s</span>
+            </div>
+            <div v-if="!cameraTrajectory.frames.length" class="empty">切到 3D 视角，摆好相机后点「记录当前视角」</div>
+          </div>
+          <div class="replay-row">
+            <button class="ghost" :disabled="!cameraTrajectory.frames.length" @click="stepKeyframe(-1)">◀ 上一个</button>
+            <button class="ghost" :disabled="!cameraTrajectory.frames.length" @click="stepKeyframe(1)">下一个 ▶</button>
+          </div>
+          <div class="replay-row" style="margin-top:6px">
+            <label>转场<input type="number" min="0" max="60" step="0.5" :value="cameraTrajectory.frames[activeKeyframe]?.transition ?? 0" @input="setKeyframeTime('transition', $event)" /></label>
+            <label>停留<input type="number" min="0" max="60" step="0.5" :value="cameraTrajectory.frames[activeKeyframe]?.hold ?? 0" @input="setKeyframeTime('hold', $event)" /></label>
+          </div>
+          <div class="replay-row" style="margin-top:6px">
+            <button class="ghost" :disabled="!cameraTrajectory.frames.length" @click="deleteActiveKeyframe">删除</button>
+            <button class="ghost" :disabled="!cameraTrajectory.frames.length" @click="clearCameraTrajectory">清空</button>
+            <button class="ghost" @click="loadCinematicDemo">演示运镜</button>
+          </div>
+          <div class="cinema-options">
+            <label><input type="checkbox" v-model="cameraTrajectory.options.spline" /> 样条</label>
+            <label><input type="checkbox" v-model="cameraTrajectory.options.smoothVelocity" /> 缓入缓出</label>
+            <label><input type="checkbox" v-model="cameraTrajectory.options.allowRoll" /> 允许 roll</label>
+            <label><input type="checkbox" v-model="cameraTrajectory.options.loop" /> 循环</label>
+          </div>
+          <div class="replay-row">
+            <button class="play-btn" @click="toggleCameraPlay">{{ isCameraPlaying ? '⏸ 暂停运镜' : '▶ 播放运镜' }}</button>
+            <button class="ghost" @click="stopTrajectory">⏹ 复位</button>
+          </div>
+          <input
+            class="cam-scrub" type="range" min="0" :max="cameraDuration || 1" step="0.01"
+            :value="cameraElapsed" @input="onCameraScrub" :disabled="cameraDuration === 0"
+          />
+          <div class="hint-small">{{ cameraElapsed.toFixed(1) }}s / {{ cameraDuration.toFixed(1) }}s · 镜头运动与数据帧回放独立计时</div>
+          <div class="replay-row" style="margin-top:8px">
+            <button class="ghost" @click="saveTrajectory">保存轨迹 ↓</button>
+            <button class="ghost" @click="trajectoryInput?.click()">打开轨迹 ↑</button>
+            <input ref="trajectoryInput" type="file" accept=".json" hidden @change="openTrajectory" />
+          </div>
+          <div class="record-box">
+            <div class="record-title">
+              <span>视频录制</span>
+              <span class="record-state" :class="{ on: recordState !== 'idle' }">
+                {{ recordState === 'recording' ? '● 录制中' : recordState === 'finishing' ? '◌ 封装中' : '○ 就绪' }}
+              </span>
+            </div>
+            <div class="replay-row">
+              <label>fps
+                <select v-model.number="recordFps">
+                  <option :value="15">15</option>
+                  <option :value="30">30</option>
+                  <option :value="60">60</option>
+                </select>
+              </label>
+              <label>编码
+                <select v-model="recordCodec">
+                  <option value="vp9">VP9</option>
+                  <option value="vp8">VP8</option>
+                </select>
+              </label>
+            </div>
+            <label class="record-watermark"><input type="checkbox" v-model="addWatermark" /> 右下角水印</label>
+            <button
+              class="record-btn"
+              :disabled="cameraTrajectory.frames.length < 2 || recordState === 'finishing'"
+              @click="toggleRecording"
+            >{{ recordState === 'recording' ? '■ 结束录制' : '● 录制视频' }}</button>
+            <div class="hint-small">{{ recordingEstimate }} · {{ recordState === 'recording' ? '再点一次可提前结束' : '播放一圈运镜后自动导出 WebM' }}</div>
           </div>
         </section>
 
