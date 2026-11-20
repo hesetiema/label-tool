@@ -17,6 +17,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Box3D, PointCloud } from '../core/types'
+import type { Trajectory, TrackPoint } from '../core/sequence'
 import { boxToVertices } from '../core/box'
 import { DEFAULT_CATEGORIES } from '../core/types'
 
@@ -40,6 +41,10 @@ export class PointCloudViewer {
   private boxVisuals = new Map<string, { a: BoxVisual; b: BoxVisual }>()
   private bevFrustum = 60 // BEV 正交相机视野大小（米），可缩放
   private mode: ViewMode = '3d'
+
+  /** 轨迹叠加层：同一 id 的多帧中心点连成线，展示目标的运动路径 */
+  private trajLines3d?: THREE.Group
+  private trajLinesBev?: THREE.Group
 
   /** 当用户在 BEV 上拖拽画框时，用于实时显示的临时矩形 */
   private draftLine?: THREE.Line
@@ -215,6 +220,93 @@ export class PointCloudViewer {
         this.boxVisuals.delete(id)
       }
     }
+  }
+
+  /**
+   * 轨迹叠加：把每条轨迹的多帧中心点连成线，叠加到 3D 与 BEV 场景。
+   * @param tracks 轨迹数据（extractTrajectories 的输出）
+   * @param currentFrame 当前帧号，用于高亮"已走过"与"当前点"
+   * @param selectedId 选中的目标，高亮其整条轨迹
+   */
+  setTrajectories(tracks: Trajectory[], currentFrame: number, selectedId: string | null) {
+    // 先清掉旧的轨迹层，避免重复添加导致内存泄漏与叠影
+    for (const sc of [this.scene3d, this.sceneBev]) {
+      const old = sc.children.find((o) => o.userData.isTrajectoryLayer) as THREE.Group | undefined
+      if (old) {
+        old.traverse((o) => {
+          const line = o as THREE.Line
+          if (line.geometry) line.geometry.dispose()
+          const mat = line.material as THREE.Material | undefined
+          if (mat) mat.dispose()
+        })
+        sc.remove(old)
+      }
+    }
+
+    if (!tracks.length) {
+      this.trajLines3d = undefined
+      this.trajLinesBev = undefined
+      return
+    }
+
+    // 每个目标一条独立颜色（按 id 稳定哈希），同类不同车也能一眼分清轨迹
+    const colorOf = (id: string): number => {
+      const palette = [0x4fc3f7, 0xff7043, 0x66bb6a, 0xab47bc, 0xffca28, 0x26c6da, 0xff4081, 0x8bc34a]
+      let h = 0
+      for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+      return palette[Math.abs(h) % palette.length]
+    }
+
+    const buildLayer = (isBev: boolean): THREE.Group => {
+      const group = new THREE.Group()
+      group.userData.isTrajectoryLayer = true
+      const zOf = (p: TrackPoint) => (isBev ? 0.35 : p.z) // BEV 贴地显示，3D 用真实高度
+
+      for (const tr of tracks) {
+        const color = colorOf(tr.id)
+        const selected = selectedId === tr.id
+
+        // 1) 完整轨迹：半透明细线，表示"整条路径"
+        const allPts = tr.points.map((p) => new THREE.Vector3(p.x, p.y, zOf(p)))
+        const full = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(allPts),
+          new THREE.LineBasicMaterial({ color, transparent: true, opacity: selected ? 0.95 : 0.6, depthTest: false }),
+        )
+        group.add(full)
+
+        // 2) 已走过的段（frame <= currentFrame）：亮实线，直观看到"走过哪了"
+        const passed = tr.points.filter((p) => p.frame <= currentFrame)
+        if (passed.length >= 2) {
+          const lit = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(passed.map((p) => new THREE.Vector3(p.x, p.y, zOf(p)))),
+            new THREE.LineBasicMaterial({ color, transparent: true, opacity: selected ? 1 : 0.9, depthTest: false }),
+          )
+          group.add(lit)
+        }
+
+        // 3) 采样点小球；当前帧的点放大并染成高亮色
+        for (const p of tr.points) {
+          const isNow = p.frame === currentFrame
+          const dot = new THREE.Mesh(
+            new THREE.SphereGeometry(isNow ? (isBev ? 0.7 : 0.55) : 0.3, 10, 8),
+            new THREE.MeshBasicMaterial({
+              color: isNow ? 0xffffff : color,
+              transparent: true,
+              opacity: isNow ? 1 : (p.frame <= currentFrame ? 0.95 : 0.45),
+              depthTest: false,
+            }),
+          )
+          dot.position.set(p.x, p.y, zOf(p))
+          group.add(dot)
+        }
+      }
+      return group
+    }
+
+    this.trajLines3d = buildLayer(false)
+    this.trajLinesBev = buildLayer(true)
+    this.scene3d.add(this.trajLines3d)
+    this.sceneBev.add(this.trajLinesBev)
   }
 
   /** 显示 BEV 上拖拽时的临时矩形（p0,p1 为世界 xy 两点） */

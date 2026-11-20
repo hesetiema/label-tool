@@ -23,7 +23,7 @@ npm run dev        # 打开 http://127.0.0.1:5173
 
 | 链接 | 演示内容 |
 |---|---|
-| `?data=sequence` | 5 帧时序序列：目标会移动，3 条轨迹只标了首末帧。点「轨迹插值补全」可自动补出 9 个中间帧框 |
+| `?data=sequence` | 5 帧时序序列：目标会移动，默认叠加显示跨帧轨迹线。点「轨迹插值补全」可补出 9 个中间帧框；点「回放」逐帧播放（白点=当前帧），加 `&autoplay=1` 进入即自动播放 |
 | `?data=perf` | 百万点性能压测：生成 100 万点 → 体素下采样 → 距离 LOD → 实测 FPS |
 | `?data=qa` | 质检演示：生成扰动版标注并自动出报告（IoU / kappa / 漏标率） |
 | `?data=track` | 关联演示：贪心串 ID vs Kalman+Hungarian 正确保持的交叉案例 |
@@ -52,6 +52,7 @@ npm run typecheck  # 只做类型检查
 | **分屏视图** | 点云 / 分屏 / 相机 三种布局，框两边联动高亮 | — |
 | **撤销重做** | 命令模式 + 状态快照，`Ctrl+Z` / `Ctrl+Shift+Z`；连续操作自动合并 | — |
 | **多帧时序** | 5 帧演示序列、obj_id 跨帧保持一致、首末帧轨迹插值补全中间帧 | batch 模式 |
+| **4D 轨迹叠加回放** | 同目标多帧中心点连成轨迹线（已走过段高亮），播放/暂停/调速逐帧回放，选中目标整条轨迹高亮 | — |
 | **全局最优关联** | Kalman 预测 + 门控 + Hungarian 匹配；交叉案例演示贪心如何串 ID | — |
 | **性能优化** | 体素网格下采样 + 距离 LOD；实测 100 万点→27 万点、3.7× 压缩 | — |
 | **质检与一致性** | BEV 旋转框 IoU、目标匹配、漏标/误标率、F1、Cohen's kappa；可叠加显示待评估框 | — |
@@ -74,6 +75,7 @@ npm run typecheck  # 只做类型检查
 | ⑧ | [工程化能力：撤销重做 / 时序 / 性能](docs/08-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 面试高频追问的三块，命令模式、轨迹插值、体素下采样 |
 | ⑨ | [面试准备：系统设计题与项目话术](docs/09-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、高频追问速查表 |
 | ⑩ | [nuScenes 真实数据集接入](docs/10-nuscenes-dataset.md) | `scripts/convert_nuscenes.py` | 下载/转换真实数据、世界坐标→lidar、四元数→yaw、相机内外参计算 |
+| ⑪ | [4D 轨迹叠加回放](docs/11-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
 
 ---
 

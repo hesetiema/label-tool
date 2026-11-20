@@ -11,7 +11,7 @@ import { serializeLabels, parseLabels } from '../src/core/label.ts'
 import { parsePCD } from '../src/core/pcd.ts'
 import { matVec, projectPoint, projectBox, type Calibration } from '../src/core/calibration.ts'
 import { HistoryStack, cloneBoxes } from '../src/core/history.ts'
-import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, type FrameData } from '../src/core/sequence.ts'
+import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, extractTrajectories, type FrameData } from '../src/core/sequence.ts'
 import { voxelDownsample, distanceLod, generateMassiveCloud } from '../src/core/downsample.ts'
 import { bevIoU, boxIoU3D, matchBoxes, cohenKappa, evaluateQuality, perturbLabels, boxBevCorners } from '../src/core/quality.ts'
 import { hungarian, greedyAssign, KalmanFilter2D, demoCrossingCase } from '../src/core/tracker.ts'
@@ -177,6 +177,13 @@ check('首末帧标注完整', seq[0].boxes.length === 6 && seq[4].boxes.length 
 check('中间帧稀疏标注', seq[2].boxes.length === 3, `实际 ${seq[2].boxes.length}`)
 const addedDemo = interpolateTracks(seq)
 check('演示序列补出 9 个框', addedDemo === 9, `实际 ${addedDemo}`)
+// 4D 轨迹提取
+const trajs = extractTrajectories(generateDemoSequence(5))
+check('演示序列提取出 6 条轨迹', trajs.length === 6, `实际 ${trajs.length}`)
+check('轨迹点按帧号升序', trajs.every((t) => t.points.every((p, i) => i === 0 || p.frame > t.points[i - 1].frame)))
+check('跨帧目标含 5 个采样点', trajs.find((t) => t.id === '1')?.points.length === 5, `实际 ${trajs.find((t) => t.id === '1')?.points.length}`)
+const singleFrame: FrameData[] = [{ index: 0, cloud: { positions: new Float32Array(0), count: 0 }, boxes: [{ id: '9', label: 'Car', position: { x: 0, y: 0, z: 1 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0 }] }]
+check('单帧目标不产生轨迹', extractTrajectories(singleFrame).length === 0)
 
 // ============ P0-3 性能优化 ============
 console.log('\n[10] 大规模点云性能优化')

@@ -90,6 +90,43 @@ export function associateNearest(prev: Box3D[], curr: Box3D[], maxDist = 6): num
   return count
 }
 
+/** 轨迹上的一个采样点：某帧里某个目标的中心位置 */
+export interface TrackPoint {
+  frame: number
+  x: number
+  y: number
+  z: number
+}
+
+/** 一条轨迹：同一 obj_id 跨帧出现的有序点列 */
+export interface Trajectory {
+  id: string
+  label: string
+  points: TrackPoint[]
+}
+
+/**
+ * 轨迹提取：把帧序列里同一 obj_id 的框按帧号串成轨迹线数据。
+ * 这是"轨迹叠加可视化"的数据源 —— 渲染层拿它把同目标的多帧中心点连成线。
+ * 只保留出现 >= 2 帧的目标（单点连不成线）。
+ */
+export function extractTrajectories(frames: FrameData[]): Trajectory[] {
+  const byId = new Map<string, Trajectory>()
+  frames.forEach((frame, fi) => {
+    for (const box of frame.boxes) {
+      let tr = byId.get(box.id)
+      if (!tr) {
+        tr = { id: box.id, label: box.label, points: [] }
+        byId.set(box.id, tr)
+      }
+      tr.points.push({ frame: fi, x: box.position.x, y: box.position.y, z: box.position.z })
+    }
+  })
+  return Array.from(byId.values())
+    .filter((t) => t.points.length >= 2)
+    .map((t) => ({ ...t, points: t.points.sort((a, b) => a.frame - b.frame) }))
+}
+
 /**
  * 轨迹插值：对每个 obj_id，找到它在哪些帧出现过，用相邻两次观测线性插值补全中间缺失帧。
  * 这就是"标首末帧、自动补齐"的核心 —— 标注员工作量从 N 帧降到 2 帧。

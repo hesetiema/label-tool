@@ -12,6 +12,10 @@ public/data/nuscenes/
 # 测试运行时临时文件
 tests/.check.bundle.mjs
 
+# 浏览器自动化临时 profile / 截图
+.tmp-edge-*/
+.traj_*.png
+
 # 编辑器 / 系统文件
 .DS_Store
 Thumbs.db

@@ -17,7 +17,7 @@ import { parseLabels, serializeLabels, downloadJson } from './core/label'
 import { fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from './core/box'
 import { parseCalibration, type Calibration } from './core/calibration'
 import { HistoryStack, cloneBoxes } from './core/history'
-import { generateDemoSequence, interpolateTracks, type FrameData } from './core/sequence'
+import { generateDemoSequence, interpolateTracks, extractTrajectories, type FrameData } from './core/sequence'
 import { voxelDownsample, distanceLod, generateMassiveCloud } from './core/downsample'
 import {
   evaluateQuality,
@@ -65,6 +65,12 @@ const currentFrame = ref(0)
 const perfBusy = ref(false)
 const perfStats = ref('')
 
+// ---- 4D 轨迹叠加回放 ----
+const showTrajectories = ref(false)
+const isPlaying = ref(false)
+const playSpeed = ref(0.6) // 每帧间隔（秒）
+let playTimer: number | undefined
+
 // ---- 质检相关（DeepSeek 第7项：质检、指标与数据治理）----
 /** 待评估版本（模拟第二位标注员 / 模型预标注的结果） */
 const reviewBoxes = ref<Box3D[]>([])
@@ -105,6 +111,12 @@ function syncViewer() {
     ? [...boxes.value, ...reviewBoxes.value]
     : boxes.value
   viewer.setBoxes(display, selectedId.value)
+  // 4D 轨迹叠加：从帧序列提取轨迹，按当前帧高亮。关闭时传空数组清掉轨迹层
+  viewer.setTrajectories(
+    showTrajectories.value ? extractTrajectories(frames.value) : [],
+    currentFrame.value,
+    selectedId.value,
+  )
   // 相机视图会在 props 变化时自动重绘（watch deep）
 }
 
@@ -145,9 +157,10 @@ function doRedo() {
 }
 
 /** 加载新数据集时清空历史：不同数据集之间不应该能互相撤销 */
-function resetHistory() {
+function resetHistory(clearPlayback = true) {
   history.clear()
   syncHistoryUi()
+  if (clearPlayback) pausePlay()
   // 数据集切换时清空质检结果，避免拿 A 帧的报告去解释 B 帧
   reviewBoxes.value = []
   qaReport.value = null
@@ -171,6 +184,7 @@ function missingTrackCount(): number {
 
 /** 加载 5 帧演示序列：目标会动，且部分目标只标了首末帧 */
 function loadSequence() {
+  pausePlay()
   frames.value = generateDemoSequence(5)
   currentFrame.value = 0
   cloud.value = frames.value[0].cloud
@@ -178,6 +192,7 @@ function loadSequence() {
   selectedId.value = null
   calib.value = null
   imageUrl.value = ''
+  showTrajectories.value = true // 4D 演示默认打开轨迹叠加，进入即可看到运动路径
   setLayout('cloud')
   resetHistory()
   lastCloudRef = null
@@ -196,7 +211,7 @@ function gotoFrame(fi: number) {
   cloud.value = frames.value[target].cloud
   boxes.value = cloneBoxes(frames.value[target].boxes)
   selectedId.value = null
-  resetHistory() // 跨帧撤销语义复杂，教学版切帧即清空（生产中会按帧维护独立历史）
+  resetHistory(false) // 跨帧撤销语义复杂，教学版切帧即清空历史；但不打断回放
   syncViewer()
   statusText.value = `第 ${target + 1}/${frames.value.length} 帧 · ${boxes.value.length} 个框`
 }
@@ -213,6 +228,53 @@ function doInterpolate() {
   statusText.value = added > 0
     ? `轨迹插值完成：补出 ${added} 个中间帧框（obj_id 跨帧一致）`
     : '所有轨迹的中间帧都已完整，无需插值'
+}
+
+/** 4D 轨迹叠加开关 */
+function toggleTrajectories() {
+  showTrajectories.value = !showTrajectories.value
+  syncViewer()
+  statusText.value = showTrajectories.value
+    ? `轨迹叠加已开启：${extractTrajectories(frames.value).length} 条轨迹`
+    : '轨迹叠加已关闭'
+}
+
+/** 停止回放（切数据集 / 卸载 / 手动暂停时调用） */
+function pausePlay() {
+  if (playTimer !== undefined) {
+    window.clearInterval(playTimer)
+    playTimer = undefined
+  }
+  isPlaying.value = false
+}
+
+/** 逐帧回放：到末帧后从头循环，直到手动暂停 */
+function play() {
+  if (frames.value.length < 2 || isPlaying.value) return
+  isPlaying.value = true
+  playTimer = window.setInterval(() => {
+    const next = currentFrame.value + 1
+    gotoFrame(next >= frames.value.length ? 0 : next)
+  }, playSpeed.value * 1000)
+}
+
+function togglePlay() {
+  if (isPlaying.value) {
+    pausePlay()
+    statusText.value = `回放已暂停 · 第 ${currentFrame.value + 1}/${frames.value.length} 帧`
+  } else {
+    play()
+    statusText.value = `回放中 · ${frames.value.length} 帧循环 · 间隔 ${playSpeed.value}s`
+  }
+}
+
+/** 调速时若正在播放，重启定时器以应用新间隔 */
+function onSpeedChange(e: Event) {
+  playSpeed.value = Number((e.target as HTMLSelectElement).value)
+  if (isPlaying.value) {
+    pausePlay()
+    play()
+  }
 }
 
 /** 用 requestAnimationFrame 实测渲染帧率 —— 用数据说话，而不是凭感觉说"优化后更快" */
@@ -657,13 +719,15 @@ onMounted(async () => {
   el.addEventListener('wheel', onWheel, { passive: false })
   window.addEventListener('keydown', onKeyDown)
   // URL 参数直达不同演示场景（便于分享与自动化验证）
-  const demo = new URLSearchParams(location.search).get('data')
+  const params = new URLSearchParams(location.search)
+  const demo = params.get('data')
   if (demo === 'real') {
     await loadRealData()
   } else if (demo === 'nuscenes') {
     await loadNuScenes()
   } else if (demo === 'sequence') {
     loadSequence()
+    if (params.get('autoplay') === '1') play()
   } else if (demo === 'perf') {
     await runPerfTest()
   } else if (demo === 'qa') {
@@ -682,6 +746,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  pausePlay()
   if (viewer) {
     const el = viewer.renderLoopElement()
     el.removeEventListener('mousedown', onMouseDown)
@@ -749,6 +814,27 @@ onBeforeUnmount(() => {
           </div>
           <button class="ghost wide" @click="doInterpolate">⟲ 轨迹插值补全</button>
           <div class="hint-small">前 3 个目标逐帧标注，后 3 个只标首末帧 —— 插值可自动补全中间帧</div>
+
+          <!-- 4D 轨迹叠加回放 -->
+          <div class="replay-box">
+            <div class="replay-row">
+              <button
+                class="ghost"
+                :class="{ active: showTrajectories }"
+                @click="toggleTrajectories"
+              >{{ showTrajectories ? '◉ 轨迹已显示' : '◌ 显示轨迹' }}</button>
+              <button class="play-btn" @click="togglePlay">{{ isPlaying ? '⏸ 暂停' : '▶ 回放' }}</button>
+            </div>
+            <div class="replay-row">
+              <label>速度</label>
+              <select :value="playSpeed" @change="onSpeedChange">
+                <option value="1.2">慢</option>
+                <option value="0.6">中</option>
+                <option value="0.25">快</option>
+              </select>
+              <span class="replay-hint">同目标跨帧连成轨迹线，白点=当前帧</span>
+            </div>
+          </div>
           <button class="ghost wide" style="margin-top:8px" @click="runTrackingDemo">⚯ 贪心 vs Hungarian 关联演示</button>
           <div v-if="trackDemo" class="track-demo">
             <div class="qa-row"><span>观测距离（上一帧→当前帧）</span></div>
