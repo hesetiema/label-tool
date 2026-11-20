@@ -17,7 +17,7 @@ npm run dev        # 打开 http://127.0.0.1:5173
 
 想看**真实数据**？点顶部绿色的 **「◉ 真实数据」** 按钮，即可一键加载 SUSTechPOINTS 官方样例：**66,899 个真实激光雷达点 + 24 个标注框**，能看到 LiDAR 特有的同心圆扫描线、真实车辆/行人点云。加载后自动进入**分屏模式**：左边点云、右边前视相机图，并把 3D 框投影到图像上（约 10 个框在前视可见），直观验证多传感器对齐。也可直接访问 `http://127.0.0.1:5173/?data=real` 直达。
 
-左侧"视图"栏可在 **点云 / 分屏 / 相机** 三种布局间切换（相机布局需先加载真实数据）。
+左侧"标注" Tab 下的"视图"栏可在 **点云 / 分屏 / 相机** 三种布局间切换（相机布局需先加载真实数据）。侧栏顶部有三个 Tab：**标注 / 时序 / 演示与质检**，相关功能已按场景归组；URL 演示参数会自动切到对应 Tab。
 
 另外三个直达链接，分别演示面试导向的 P0 能力：
 
@@ -94,28 +94,37 @@ npm run typecheck  # 只做类型检查
 
 ```
 src/
-├── core/                 # 纯数据层，不依赖任何 UI / 渲染
+├── core/                 # 纯数据层，不依赖任何 UI / 渲染（按职责分子目录）
 │   ├── types.ts          # 类型定义 + 坐标系约定
-│   ├── pcd.ts            # PCD 解析器
-│   ├── box.ts            # OBB 几何 + 自动拟合 + PCA
-│   ├── label.ts          # 与 SUSTechPOINTS 兼容的序列化
-│   ├── calibration.ts    # 相机标定：3D框投影到像素（外参/内参/透视除法）
 │   ├── sample.ts         # 程序化演示点云
 │   ├── history.ts        # 撤销重做：命令模式 + 状态快照
-│   ├── sequence.ts       # 多帧时序：跟踪关联 + 轨迹插值
-│   ├── cameraTrajectory.ts # 相机运镜：关键帧 + 样条采样 + JSON 序列化
-│   ├── downsample.ts     # 性能：体素下采样 + 距离 LOD
-│   ├── quality.ts        # 质检：IoU / 目标匹配 / kappa / 漏误标率
-│   └── tracker.ts        # 关联：Hungarian 全局匹配 + Kalman 运动预测
+│   ├── io/               # pcd.ts（PCD 解析）· label.ts（SUSTechPOINTS 序列化）· calibration.ts（3D框→像素投影）
+│   ├── geometry/         # box.ts（OBB + 自动拟合 + PCA）· downsample.ts（体素下采样 + 距离 LOD）
+│   ├── sequence/         # sequence.ts（多帧关联 + 轨迹插值）· temporalQA.ts（时序质检）· tracker.ts（Hungarian + Kalman）
+│   ├── quality/          # quality.ts（IoU / 匹配 / kappa / 漏误标率）
+│   └── camera/           # cameraTrajectory.ts（关键帧 + 样条采样 + JSON 序列化）
+├── state/                # 状态层：单一 useStudio 承载全部业务状态与操作，provide 给面板共享
+│   ├── useStudio.ts      # 标注/时序/质检/相机导演/数据加载的全部状态与函数
+│   └── studioContext.ts  # provide/inject 注入键
 ├── viewer/               # Three.js 渲染层
 │   └── PointCloudViewer.ts
-├── components/
-│   └── CameraView.vue    # 相机图像视图 + 投影框叠加
-├── App.vue               # 主界面 + 交互编排
+├── components/           # UI 组件层
+│   ├── TopBar.vue / Stage.vue / HelpPanel.vue / StatusBar.vue
+│   ├── CameraView.vue    # 相机图像视图 + 投影框叠加
+│   └── panels/           # ViewPanel · CategoryPanel · ObjectPanel · PropertyPanel · DataPanel
+│                         # SequencePanel · CameraDirectorPanel · PerformancePanel · QualityPanel
+├── styles/               # 按职责拆分的样式
+│   ├── index.css         # 汇总入口
+│   ├── base.css          # 变量 / 重置 / 基础控件
+│   ├── layout.css        # 三栏布局 / 顶栏 / 侧栏 Tab / 主视口 / 状态栏
+│   ├── annotation.css    # 标注面板
+│   └── feature.css       # 相机导演 / 录制 / 各类质检面板
+├── App.vue               # 界面骨架：装配顶层组件 + 侧栏三 Tab（标注 / 时序 / 演示与质检）
 ├── main.ts
-└── styles.css
 docs/                     # 学习文档（见上方路线）
 ```
+
+> 文档中的 `core/xxx.ts` 路径为模块简写，实际文件按上表位于对应子目录（例如 `core/box.ts` → `core/geometry/box.ts`）。
 
 数据流非常清晰，值得反复体会：
 
@@ -139,10 +148,10 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 - **编辑选中框**：`W/A/S/D` 平移、`Q/E` 旋转、`R/F` 调长度，按住 `Shift` 加大步长；也可在左侧属性面板精确输入。
 - **删除**：`Delete` / `Backspace`。
 - **撤销/重做**：`Ctrl+Z` / `Ctrl+Shift+Z`（或 `Ctrl+Y`）。所有编辑（画框、删除、快捷键、属性面板）都可撤销；连续拖动滑杆合并为一次撤销。
-- **多帧时序**：点「加载 5 帧序列」，用时间轴切帧；点「轨迹插值补全」看首末帧标注如何自动补全中间帧。
-- **相机导演**：切到「3D 透视」摆好视角，点「＋ 记录当前视角」追加关键帧；设置每段的转场/停留时间后点「▶ 播放运镜」。镜头运动与数据帧回放独立计时，轨迹可保存/打开。也可直接访问 `?data=sequence&cinema=1` 加载演示运镜。
-- **录制演示视频**：左侧「视频录制」面板选择 fps / 编码 / 水印，点「● 录制视频」自动播放一圈运镜并导出 WebM；再点一次可提前结束（需 Chrome / Edge）。
-- **性能压测**：点「⚡ 生成 100 万点压测」，看体素下采样 + LOD 的实时效果与实测 FPS。
+- **多帧时序**：切到「时序」Tab，点「加载 5 帧序列」（在「标注」Tab 底部），用时间轴切帧；点「轨迹插值补全」看首末帧标注如何自动补全中间帧。
+- **相机导演**：切到「演示与质检」Tab；先回「标注」Tab 切到「3D 透视」摆好视角，再点「＋ 记录当前视角」追加关键帧；设置每段的转场/停留时间后点「▶ 播放运镜」。镜头运动与数据帧回放独立计时，轨迹可保存/打开。也可直接访问 `?data=sequence&cinema=1` 加载演示运镜（会自动切到「演示与质检」Tab）。
+- **录制演示视频**：在「演示与质检」Tab 的「相机导演」面板里选 fps / 编码 / 水印，点「● 录制视频」自动播放一圈运镜并导出 WebM；再点一次可提前结束（需 Chrome / Edge）。
+- **性能压测 / 质检报告**：都在「演示与质检」Tab；点「⚡ 生成 100 万点压测」看体素下采样 + LOD 的实测 FPS，点「✓ 生成质检报告」看 IoU / kappa 等指标。
 - **导出**：点"导出 JSON"或 `Ctrl+S`，得到可直接被 SUSTechPOINTS 读取的标注文件。
 
 ---

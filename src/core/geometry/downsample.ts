@@ -18,8 +18,8 @@
  *   JS 普通数组存的是指针+double，内存和 GC 压力大；Float32Array 是连续二进制块，
  *   正好是 WebGL 顶点缓冲需要的格式，可以直接交给 GPU，无需转换。
  */
-import type { PointCloud } from './types'
-import { makeRng } from './sample'
+import type { PointCloud } from '../types'
+import { makeRng } from '../sample'
 
 export interface DownsampleResult {
   cloud: PointCloud

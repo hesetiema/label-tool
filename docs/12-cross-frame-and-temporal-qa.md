@@ -96,8 +96,8 @@ UI 里每条问题可点击跳到对应帧。
 
 ## 四、相关文件
 
-- 跨帧编辑：`src/core/sequence.ts` — `propagateBox` / `PropagateScope`
-- 时序质检：`src/core/temporalQA.ts` — `evaluateTemporal` / `injectTemporalDefects` / `TemporalReport`
-- 交互层：`src/App.vue` — `doPropagate` / `runTemporalQA` / `runTemporalDemo`
+- 跨帧编辑：`src/core/sequence/sequence.ts` — `propagateBox` / `PropagateScope`
+- 时序质检：`src/core/sequence/temporalQA.ts` — `evaluateTemporal` / `injectTemporalDefects` / `TemporalReport`
+- 交互层：`src/state/useStudio.ts` — `doPropagate` / `runTemporalQA` / `runTemporalDemo`
 - 测试：`tests/core-check.ts` — 12 项 4D 断言
 - 前序：[⑪ 4D 轨迹叠加回放](11-4d-trajectory-replay.md) · [⑧ 工程化能力](08-engineering-p0.md)

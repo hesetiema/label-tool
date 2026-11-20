@@ -5,27 +5,27 @@
  * 它验证 core 层最关键的几个算法是否数学正确。既是测试，也是学习材料：
  * 你可以改参数、加断言，直观看到算法的行为。
  */
-import { boxToVertices, fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from '../src/core/box.ts'
+import { boxToVertices, fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from '../src/core/geometry/box.ts'
 import { generateDemoScene } from '../src/core/sample.ts'
-import { serializeLabels, parseLabels } from '../src/core/label.ts'
-import { parsePCD } from '../src/core/pcd.ts'
-import { matVec, projectPoint, projectBox, type Calibration } from '../src/core/calibration.ts'
+import { serializeLabels, parseLabels } from '../src/core/io/label.ts'
+import { parsePCD } from '../src/core/io/pcd.ts'
+import { matVec, projectPoint, projectBox, type Calibration } from '../src/core/io/calibration.ts'
 import { HistoryStack, cloneBoxes } from '../src/core/history.ts'
-import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, extractTrajectories, propagateBox, type FrameData } from '../src/core/sequence.ts'
-import { evaluateTemporal, injectTemporalDefects, markOccluded } from '../src/core/temporalQA.ts'
-import { voxelDownsample, distanceLod, generateMassiveCloud } from '../src/core/downsample.ts'
-import { bevIoU, boxIoU3D, matchBoxes, cohenKappa, evaluateQuality, perturbLabels, boxBevCorners } from '../src/core/quality.ts'
+import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, extractTrajectories, propagateBox, type FrameData } from '../src/core/sequence/sequence.ts'
+import { evaluateTemporal, injectTemporalDefects, markOccluded } from '../src/core/sequence/temporalQA.ts'
+import { voxelDownsample, distanceLod, generateMassiveCloud } from '../src/core/geometry/downsample.ts'
+import { bevIoU, boxIoU3D, matchBoxes, cohenKappa, evaluateQuality, perturbLabels, boxBevCorners } from '../src/core/quality/quality.ts'
 import {
   hungarian, greedyAssign, KalmanFilter2D, demoCrossingCase,
   initTracks, associateHungarianKalman, stepTrackState, coastOccludedTracks,
   demoOcclusionCase,
-} from '../src/core/tracker.ts'
+} from '../src/core/sequence/tracker.ts'
 import type { Box3D } from '../src/core/types.ts'
 import {
   createDefaultTrajectory, appendKeyframe, sampleTrajectory, sampleTrajectoryInfo,
   trajectoryDuration, serializeTrajectory, parseTrajectory,
   type CameraTrajectory, type CameraPose, type CameraKeyframe,
-} from '../src/core/cameraTrajectory.ts'
+} from '../src/core/camera/cameraTrajectory.ts'
 
 let passed = 0
 let failed = 0
@@ -131,7 +131,7 @@ check('框投影得到8个点', !!proj && proj.length === 8)
 const backBox: Box3D = { ...frontBox, position:{x:0,y:0,z:-10} }
 check('相机后方框不可见', projectBox(backBox, calib) === null)
 
-// ============ P0-1 撤销重做 ============
+// ============ 撤销重做 ============
 console.log('\n[8] 撤销重做（命令模式）')
 const h = new HistoryStack<Box3D[]>({ mergeWindowMs: 0 })
 const s0: Box3D[] = [{ id: '1', label: 'Car', position: { x: 0, y: 0, z: 1 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0 }]
@@ -158,7 +158,7 @@ hm.commit(s1, cloneBoxes([{ ...s1[0], position: { x: 9, y: 0, z: 1 } }]), '平�
 check('连续同类操作合并为一条', hm.undoCount === 1, `实际 ${hm.undoCount}`)
 check('合并后撤销回到最初', close(hm.undo()![0].position.x, 0))
 
-// ============ P0-2 多帧时序 ============
+// ============ 多帧时序 ============
 console.log('\n[9] 多帧时序与轨迹插值')
 // 3.1 → -3.1 的最短弧是 +0.083 rad（跨过 +π 到 -π），中点正好是 π 附近
 check('角度插值走最短弧(跨界)', close(Math.abs(lerpAngle(3.1, -3.1, 0.5)), Math.PI, 0.02), `得到 ${lerpAngle(3.1, -3.1, 0.5)}`)
@@ -238,7 +238,7 @@ check('注入缺陷后检出轨迹断裂', badReport.counts.track_gap >= 1, `实
 check('缺陷序列健康分下降', badReport.score < 100)
 check('缺陷注入不改原始数据', cleanSeq[2].boxes.find((b) => b.id === '1')?.position.x === 18 + 6)
 
-// ============ P0-3 性能优化 ============
+// ============ 性能优化 ============
 console.log('\n[10] 大规模点云性能优化')
 const massive = generateMassiveCloud(100000)
 check('生成百万点接口正确(测试用10万)', massive.count === 100000 && massive.positions.length === 300000)
@@ -254,7 +254,7 @@ check('LOD 保留近处剔除远处', lodRes.outputCount === 3, `实际 ${lodRes
 const keepAll = distanceLod({ positions: denseRegion, count: 4 }, { nearRadius: 200, farKeep: 0 })
 check('LOD 近处全保留', keepAll.outputCount === 4)
 
-// ===== 质检与一致性度量（DeepSeek 第7项）=====
+// ===== 质检与一致性度量 =====
 console.log('\n--- 质检与一致性 ---')
 const qaBox = (x: number, y: number, l = 4, w = 2, yaw = 0, label = 'Car'): Box3D => ({
   id: `q${x}_${y}`, label,

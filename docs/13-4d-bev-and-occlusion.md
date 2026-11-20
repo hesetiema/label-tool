@@ -103,4 +103,4 @@ p_world = R_ego · (R_lidar · p_lidar + t_lidar) + t_ego
 | `core/temporalQA.ts` | 遮挡点统计、断裂豁免 |
 | `core/label.ts` | visibility 扩展字段的序列化往返 |
 | `viewer/PointCloudViewer.ts` | 虚线渲染遮挡框 |
-| `src/App.vue` | `?data=world` 入口、遮挡标记按钮 |
+| `src/state/useStudio.ts` | `?data=world` 入口、遮挡标记按钮 |

@@ -17,8 +17,8 @@
  *   生产系统用 Hungarian 匹配 + Kalman 滤波预测位置，处理遮挡与密集目标；
  *   这里用贪心最近邻 + 线性插值，算法简单但能讲清楚问题的本质。
  */
-import type { Box3D, PointCloud } from './types'
-import { addBoxSurface, makeRng } from './sample'
+import type { Box3D, PointCloud } from '../types'
+import { addBoxSurface, makeRng } from '../sample'
 
 /** 一帧数据：点云 + 这一帧的标注框 */
 export interface FrameData {

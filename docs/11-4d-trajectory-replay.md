@@ -22,7 +22,7 @@
 
 ## 2. 数据层：轨迹提取是一个纯函数
 
-核心在 `src/core/sequence.ts` 的 `extractTrajectories`：把帧序列按 `obj_id` 分组，
+核心在 `src/core/sequence/sequence.ts` 的 `extractTrajectories`：把帧序列按 `obj_id` 分组，
 每组收集"第几帧 + 中心点坐标"，再按帧号排序。
 
 ```ts
@@ -102,8 +102,8 @@ function play() {
 
 ## 6. 相关文件
 
-- 数据层：`src/core/sequence.ts` — `extractTrajectories` / `TrackPoint` / `Trajectory`
+- 数据层：`src/core/sequence/sequence.ts` — `extractTrajectories` / `TrackPoint` / `Trajectory`
 - 渲染层：`src/viewer/PointCloudViewer.ts` — `setTrajectories`
-- 交互层：`src/App.vue` — `toggleTrajectories` / `play` / `pausePlay` / `onSpeedChange`
+- 交互层：`src/state/useStudio.ts` — `toggleTrajectories` / `play` / `pausePlay` / `onSpeedChange`
 - 测试：`tests/core-check.ts` — 4 项轨迹提取断言
 - 本系列前序：多帧时序与关联见 [08 工程化能力](08-engineering-p0.md)，面试话术见 [09 面试准备](09-interview-prep.md)

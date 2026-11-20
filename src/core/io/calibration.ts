@@ -17,8 +17,8 @@
  *  - 采用列向量右乘：P' = M · P
  *  - 相机坐标系：z 轴沿光轴向前，因此投影要求 z>0（点在相机前方）
  */
-import type { Box3D } from './types'
-import { boxToVertices } from './box'
+import type { Box3D } from '../types'
+import { boxToVertices } from '../geometry/box'
 
 /** 单个像素点坐标 */
 export interface PixelPoint { u: number; v: number }

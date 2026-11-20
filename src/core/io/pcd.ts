@@ -21,7 +21,7 @@
  * 我们这里支持 ascii 与 binary 两种（覆盖绝大多数场景）。
  * 教学版刻意写得直白，方便你看懂每行在做什么。
  */
-import type { PointCloud } from './types'
+import type { PointCloud } from '../types'
 
 interface PcdHeader {
   fields: string[]

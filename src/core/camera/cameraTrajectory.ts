@@ -14,7 +14,7 @@
  * 对标注工具来说「相机在哪、看向哪个点」比「绕任意轴转了多少度」直观得多，
  * 也更容易做 shortest-arc 的角度插值（roll 是绕视线方向的旋转）。
  */
-import type { Vec3 } from './types'
+import type { Vec3 } from '../types'
 
 /** 一帧相机位姿：相机位置、注视点、绕视线的滚转角（弧度） */
 export interface CameraPose {

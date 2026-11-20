@@ -29,7 +29,7 @@ View Controller 按帧率插值移动相机，Recorder 把渲染结果编码成�
 
 ## 2. 数据层：关键帧模型
 
-核心在 `src/core/cameraTrajectory.ts`。位姿没有用四元数，而是用
+核心在 `src/core/camera/cameraTrajectory.ts`。位姿没有用四元数，而是用
 `position + target + roll`——对标注工具来说"相机在哪、看向哪个点"比"绕任意轴转了多少度"直观得多。
 
 ```ts

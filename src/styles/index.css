@@ -1,0 +1,5 @@
+/* 样式汇总入口：按base → layout → annotation → feature 顺序引入 */
+@import './base.css';
+@import './layout.css';
+@import './annotation.css';
+@import './feature.css';

@@ -17,9 +17,9 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Box3D, PointCloud } from '../core/types'
-import type { Trajectory, TrackPoint } from '../core/sequence'
-import type { CameraPose, CameraTrajectory } from '../core/cameraTrajectory'
-import { boxToVertices } from '../core/box'
+import type { Trajectory, TrackPoint } from '../core/sequence/sequence'
+import type { CameraPose, CameraTrajectory } from '../core/camera/cameraTrajectory'
+import { boxToVertices } from '../core/geometry/box'
 import { DEFAULT_CATEGORIES } from '../core/types'
 
 export type ViewMode = '3d' | 'bev'
@@ -490,11 +490,6 @@ export class PointCloudViewer {
     const ny = -((clientY - rect.top) / rect.height) * 2 + 1
     const v = new THREE.Vector3(nx, ny, 0).unproject(this.cameraBev)
     return { x: v.x, y: v.y }
-  }
-
-  /** BEV 视图的米/像素换算，供鼠标拖拽阈值使用 */
-  getBevScale(): number {
-    return this.bevFrustum / this.renderer.domElement.clientHeight
   }
 
   /** 暴露底层 canvas，供上层绑定交互事件 */

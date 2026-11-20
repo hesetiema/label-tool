@@ -30,7 +30,7 @@
  *   （考虑协方差）、JPDA/多假设跟踪处理密集遮挡。本实现用于讲清原理。
  */
 
-import type { Box3D } from './types'
+import type { Box3D } from '../types'
 
 /** 分配结果：第 row 个 track 匹配第 col 个 detection */
 export interface Assignment {

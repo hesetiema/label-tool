@@ -10,7 +10,7 @@
  *  1) boxToVertices : 框 → 8 个角点（用于渲染线框、导出 JSON）
  *  2) fitBoxToPoints: 一堆点 → 最贴合的框（用于"拖拽自动拟合"）
  */
-import type { Box3D, Vec3 } from './types'
+import type { Box3D, Vec3 } from '../types'
 
 /** 绕竖直轴(z)旋转一个 xy 平面上的点。yaw 为弧度 */
 function rotateYaw(x: number, y: number, yaw: number): [number, number] {

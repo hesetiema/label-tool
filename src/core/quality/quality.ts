@@ -20,7 +20,7 @@
  *   - 目标匹配用贪心最大 IoU 优先。生产系统用 Hungarian 算法求全局最优
  *     （贪心在密集目标时会陷入局部最优），这里为教学保持简单。
  */
-import type { Box3D } from './types'
+import type { Box3D } from '../types'
 
 /** 二维点（BEV 平面上的 x/y） */
 type Pt = { x: number; y: number }

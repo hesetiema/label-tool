@@ -14,10 +14,9 @@
  * 同时把投影点从"图片像素坐标"换算到"canvas 坐标"。
  */
 import { ref, watch, onMounted, nextTick } from 'vue'
-import type { Box3D } from '../core/types'
-import type { Calibration } from '../core/calibration'
-import { projectBox, BOX_EDGES } from '../core/calibration'
-import { DEFAULT_CATEGORIES } from '../core/types'
+import type { Calibration } from '../core/io/calibration'
+import { projectBox, BOX_EDGES } from '../core/io/calibration'
+import { DEFAULT_CATEGORIES, type Box3D } from '../core/types'
 
 const props = defineProps<{
   boxes: Box3D[]

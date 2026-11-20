@@ -7,9 +7,9 @@
  * 这里实现我们的 Box3D <-> 原仓库 label JSON 的双向转换，
  * 这样你标的结果可以直接喂给原仓库、或用它已有的数据来学习。
  */
-import type { Box3D } from './types'
-import type { RawLabelObject } from './types'
-import { boxToVertices } from './box'
+import type { Box3D } from '../types'
+import type { RawLabelObject } from '../types'
+import { boxToVertices } from '../geometry/box'
 
 /** 内部模型 → 原仓库 JSON 对象 */
 export function toRawLabel(box: Box3D): RawLabelObject {
