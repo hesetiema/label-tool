@@ -1,5 +1,5 @@
 {
-  "name": "point-cloud-label-studio",
+  "name": "label-tool",
   "private": true,
   "version": "0.1.0",
   "type": "module",

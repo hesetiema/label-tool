@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-nuScenes mini -> point-cloud-label-studio 格式转换器
+nuScenes mini -> label-tool 标注格式转换器
 
 支持两种坐标系模式（环境变量 MODE 或命令行 --mode）：
   lidar（默认）：所有帧保持在各自 ego/lidar 系 —— 适合逐帧对照相机图
