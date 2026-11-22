@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hesetiema/label-tool.git"
+  },
   "description": "A learning-oriented 3D point cloud annotation tool built with Vue3 + TS + Three.js, inspired by SUSTechPOINTS",
   "scripts": {
     "dev": "vite",

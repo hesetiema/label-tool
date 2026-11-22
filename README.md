@@ -187,4 +187,17 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 
 这份数据的 PCD 头部字段是 `FIELDS x y z _ intensity _ timestamp _ ring _`，带多个 `COUNT>1` 的填充字段——我们的解析器靠 `fields.indexOf()` 计算字段偏移，能正确跳过这些填充，是很好的健壮性验证案例。
 
-> 许可证说明：本项目为学习用途原创实现；SUSTechPOINTS 原仓库为 GPL-3.0，样例数据来自该仓库，使用时请遵守其协议。
+> 许可证说明：上述样例数据来自 SUSTechPOINTS（GPL-3.0），仅作学习演示，按其协议使用；其余代码与文档的授权见下方「许可证」。
+
+---
+
+## 8. 许可证
+
+本项目采用 [MIT License](LICENSE)：可自由使用、修改、分发，保留版权与许可声明即可。
+
+需要注意两类**非 MIT** 的内容：
+
+| 内容 | 授权 | 说明 |
+|---|---|---|
+| `public/data/` 下的 SUSTechPOINTS 样例（`000970.pcd` / `000970.json` / `calib_front.json` / `front_000970.jpg`） | GPL-3.0 | 随原仓库分发，仅作学习演示；如需纯 MIT 副本，删除这四个文件即可 |
+| `scripts/convert_nuscenes.py` 产出的 nuScenes 聚合数据 | CC BY-NC-SA 4.0 | 源自 nuScenes 数据集，不得商用 |
