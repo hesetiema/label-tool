@@ -19,21 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Note on bundled data
-====================
-
-The MIT license above covers the source code, stylesheets and documentation of
-this project (`src/`, `scripts/`, `tests/`, `docs/`, `README.md`).
-
-The real-world sample data under `public/data/` (`000970.pcd`, `000970.json`,
-`calib_front.json`, `front_000970.jpg`) is copied from SUSTechPOINTS
-(https://github.com/sustech-isus/SUSTechPOINTS), which is licensed under
-GPL-3.0. Those files remain under GPL-3.0 and are included here for study and
-demonstration only. Remove them if you need a purely MIT-licensed copy.
-
-Aggregated data produced by `scripts/convert_nuscenes.py` derives from the
-nuScenes dataset (https://www.nuscenes.org/), which is distributed under
-CC BY-NC-SA 4.0 and is not part of this repository's license.

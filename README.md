@@ -195,7 +195,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 
 本项目采用 [MIT License](LICENSE)：可自由使用、修改、分发，保留版权与许可声明即可。
 
-需要注意两类**非 MIT** 的内容：
+需要注意两类**非 MIT** 的内容，细节见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)：
 
 | 内容 | 授权 | 说明 |
 |---|---|---|
