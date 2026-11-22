@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hesetiema/label-tool.git"
@@ -11,10 +15,11 @@
   "description": "A learning-oriented 3D point cloud annotation tool built with Vue3 + TS + Three.js, inspired by SUSTechPOINTS",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "pnpm typecheck && vite build",
+    "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test:core": "esbuild tests/core-check.ts --bundle --platform=node --format=esm --outfile=tests/.check.bundle.mjs && node tests/.check.bundle.mjs && node -e \"require('fs').unlinkSync('tests/.check.bundle.mjs')\"",
-    "preview": "vite preview"
+    "test": "pnpm test:core",
+    "test:core": "esbuild tests/core-check.ts --bundle --platform=node --format=esm --outfile=tests/.check.bundle.mjs && node tests/.check.bundle.mjs"
   },
   "dependencies": {
     "three": "^0.171.0",
@@ -23,8 +28,14 @@
   "devDependencies": {
     "@types/three": "^0.171.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "esbuild": "^0.25.12",
     "typescript": "~5.6.3",
     "vite": "^6.0.7",
     "vue-tsc": "^2.2.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

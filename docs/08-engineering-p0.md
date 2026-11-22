@@ -136,7 +136,7 @@ return a + d * t
 
 本项目 `syncViewer()` 里用 `lastCloudRef` 比较引用：只有点云真的换了才重新 `setPointCloud`，编辑框时只更新框的几何体。这是很容易被忽略但收益极大的优化。
 
-### 实测数据（本项目 `npm run test:core` 验证过算法，`?data=perf` 页面实测帧率）
+### 实测数据（本项目 `pnpm test:core` 验证过算法，`?data=perf` 页面实测帧率）
 
 | 阶段 | 点数 | 耗时 | 内存 |
 |---|---|---|---|
@@ -165,7 +165,7 @@ return a + d * t
 ## 5. 动手验证
 
 ```bash
-npm run test:core          # 54 项算法自检，含三个新模块
+pnpm test:core             # 130 项算法自检，覆盖几何 / 时序 / 质检 / 运镜
 ```
 
 浏览器打开：

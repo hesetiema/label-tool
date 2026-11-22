@@ -1,9 +1,10 @@
 /**
  * 核心算法自检脚本 —— 不需要浏览器，直接跑：
- *   node --experimental-strip-types tests/core-check.ts
+ *   pnpm test:core
  *
- * 它验证 core 层最关键的几个算法是否数学正确。既是测试，也是学习材料：
- * 你可以改参数、加断言，直观看到算法的行为。
+ * 由 esbuild 打包成单文件后在 Node 里执行（src 内部是无扩展名的 TS 导入，
+ * Node 原生无法直接加载）。它验证 core 层最关键的几个算法是否数学正确。
+ * 既是测试，也是学习材料：你可以改参数、加断言，直观看到算法的行为。
  */
 import { boxToVertices, fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from '../src/core/geometry/box.ts'
 import { generateDemoScene } from '../src/core/sample.ts'

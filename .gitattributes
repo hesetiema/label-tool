@@ -1,0 +1,12 @@
+# 统一换行符：仓库内一律 LF，Windows 检出也不会产生全文件 diff
+* text=auto eol=lf
+
+# 二进制资源不做换行转换与 diff
+*.pcd binary
+*.jpg binary
+*.png binary
+*.glb binary
+*.tgz binary
+
+# 锁文件在 review 里折叠
+pnpm-lock.yaml linguist-generated=true
