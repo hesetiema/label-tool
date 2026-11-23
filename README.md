@@ -77,8 +77,8 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | ⑤ | [交互与序列化](docs/05-interaction-and-io.md) | `App.vue` / `core/label.ts` | 拖拽画框、快捷键、label JSON 互通 |
 | ⑥ | [相机标定与投影（进阶）](docs/06-calibration-and-projection.md) | — | 3D 框如何投到图像、LiDAR 与相机融合 |
 | ⑦ | [从学习到生产](docs/07-from-learning-to-production.md) | — | 还缺什么、如何演进成工业级系统 |
-| ⑧ | [工程化能力：撤销重做 / 时序 / 性能](docs/08-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 面试高频追问的三块，命令模式、轨迹插值、体素下采样 |
-| ⑨ | [面试准备：系统设计题与项目话术](docs/09-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、高频追问速查表 |
+| ⑧ | [工程化能力：撤销重做 / 时序 / 性能](docs/08-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 快照 vs 差量的取舍、轨迹关联与插值、体素下采样与 LOD 的实测数据、简化边界 |
+| ⑨ | [面试准备：系统设计题与项目话术](docs/09-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、其他追问速查 |
 | ⑩ | [4D 轨迹叠加回放](docs/10-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
 | ⑪ | [4D 进阶：跨帧编辑与时序质检](docs/11-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
 | ⑫ | [相机导演：关键帧运镜与视频录制](docs/12-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、Three.js 相机 API、MediaRecorder 录制闭环 |

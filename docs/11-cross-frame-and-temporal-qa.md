@@ -100,4 +100,4 @@ UI 里每条问题可点击跳到对应帧。
 - 时序质检：`src/core/sequence/temporalQA.ts` — `evaluateTemporal` / `injectTemporalDefects` / `TemporalReport`
 - 交互层：`src/state/useSequence.ts` — `doPropagate` / `runTemporalQA` / `runTemporalDemo`
 - 测试：`tests/core-check.ts` — 12 项 4D 断言
-- 前序：[⑪ 4D 轨迹叠加回放](11-4d-trajectory-replay.md) · [⑧ 工程化能力](08-engineering-p0.md)
+- 前序：[⑩ 4D 轨迹叠加回放](10-4d-trajectory-replay.md) · [⑧ 工程化能力](08-engineering-p0.md)
