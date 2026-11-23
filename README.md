@@ -15,11 +15,13 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 
 打开后会**自动加载一个程序化生成的演示场景**（地面 + 车道线 + 车辆/行人点云），无需任何外部数据即可体验完整流程。
 
-想看**真实数据**？点顶部绿色的 **「◉ 真实数据」** 按钮，即可一键加载 SUSTechPOINTS 官方样例：**66,899 个真实激光雷达点 + 24 个标注框**，能看到 LiDAR 特有的同心圆扫描线、真实车辆/行人点云。加载后自动进入**分屏模式**：左边点云、右边前视相机图，并把 3D 框投影到图像上（约 10 个框在前视可见），直观验证多传感器对齐。也可直接访问 `http://127.0.0.1:5173/?data=real` 直达。
+界面按 **CVAT 3D 的交互骨架**组织：顶部是数据集菜单与帧导航，左侧是图标工具条，中间是 3D 透视视口，底部是 **Top / Side / Front 三联正交视图**，右侧是 **对象 / 标签 / 外观** 面板。画框不再在 BEV 里凭空拖拽，而是对齐 CVAT 的两步法：**在 Top 视图拖出底面矩形 → 在 Side 视图拖绿点调高度**。
 
-左侧"标注" Tab 下的"视图"栏可在 **点云 / 分屏 / 相机** 三种布局间切换（相机布局需先加载真实数据）。侧栏顶部有三个 Tab：**标注 / 时序 / 演示与质检**，相关功能已按场景归组；URL 演示参数会自动切到对应 Tab。
+想看**真实数据**？点左上角 **Point Cloud → 真实数据**，即可一键加载 SUSTechPOINTS 官方样例：**66,899 个真实激光雷达点 + 24 个标注框**，能看到 LiDAR 特有的同心圆扫描线、真实车辆/行人点云。加载后自动进入**分屏模式**：左边点云、右边前视相机图，并把 3D 框投影到图像上（约 10 个框在前视可见），直观验证多传感器对齐。也可直接访问 `http://127.0.0.1:5173/?data=real` 直达。
 
-三个直达链接，覆盖最值得先看的能力：
+> 侧栏不再有 Tab：时序、质检、运镜、性能都收进右侧「更多」的折叠区，主流程只保留标注本身。
+
+三个直达链接，覆盖最值得先看的能力（`?data=real` / `?data=sequence` / `?data=qa`）：
 
 | 链接 | 演示内容 |
 |---|---|
@@ -27,13 +29,14 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 | `?data=sequence` | 5 帧时序序列：目标会移动，默认叠加显示跨帧轨迹线。点「轨迹插值补全」可补出 9 个中间帧框；点「回放」逐帧播放（白点=当前帧），加 `&autoplay=1` 进入即自动播放 |
 | `?data=qa` | 质检演示：生成扰动版标注并自动出报告（IoU / kappa / 漏标率） |
 
-其余能力都从面板进入，不占链接：**百万点压测**在「演示与质检」Tab，**贪心 vs Kalman+Hungarian 关联演示**在「时序」Tab 底部，**相机运镜与录制**在「演示与质检」→ 相机导演面板的「演示运镜」（见 [第 ⑩ 篇](docs/10-camera-cinematography.md)）。
+其余能力从右侧「更多」进入：**百万点压测**、**贪心 vs Kalman+Hungarian 关联演示**、**相机运镜与录制**（见 [第 ⑩ 篇](docs/10-camera-cinematography.md)）。
 
 ```bash
 pnpm build      # 类型检查 + 生产构建
 pnpm typecheck  # 只做类型检查
-pnpm test       # 核心算法自检（130 项断言，无需浏览器）
+pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 ```
+
 
 ---
 
@@ -41,16 +44,19 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 
 | 功能 | 说明 | 对照原仓库 |
 |---|---|---|
-| PCD 加载 | 支持 ascii / binary 两种 PCD，可导入自己的数据 | `PCDLoader` |
-| 双视图渲染 | BEV 鸟瞰（主标注视图）+ 3D 透视（验证用） | `pcd_viewer.js` |
-| 画 3D 框 | BEV 拖拽框选点云，自动拟合出 3D 框 | `mouse.js` + `auto-adjust.js` |
-| 自动拟合 | 用 PCA 估计主方向 + 局部 min/max 拟合尺寸 | `algos/rotation.py` |
-| 框编辑 | WASD 平移、Q/E 旋转、R/F 调长、属性面板精调 | `box_op.js` |
-| 类别与 ID | 多类别配置、颜色区分、obj_id 自动生成 | `obj_cfg.js` |
-| 导入导出 | 完全兼容 SUSTechPOINTS 的 label JSON 格式 | `save.js` |
+| PCD 加载 | ascii / binary；正确处理 CRLF 头偏移、`COUNT>1` 填充字段、rgb 打包颜色 | `PCDLoader` |
+| **CVAT 式三视图** | 3D 透视 + Top / Side / Front 三联正交，单击选中、双击最大化、视图间同步 | `pcd_viewer.js` |
+| **两步画框** | Top 拖底面矩形 → Side 拖绿点调高度，角点缩放、黄点旋转（Shift 吸附 15°） | `mouse.js` + `auto-adjust.js` |
+| 自动拟合 | 用 PCA 估计主方向 + 局部 min/max 拟合尺寸（保留为 `F` 键能力） | `algos/rotation.py` |
+| 框编辑 | 直接拖手柄，或 WASD / QE / RF + 属性面板精调 | `box_op.js` |
+| 类别与 ID | 类别可增删改色；导入未知类别自动登记；obj_id 全局唯一 | `obj_cfg.js` |
+| **对象管理** | 锁定 / 隐藏 / 排序 / 删除，外观可按类别或实例着色、调透明度 | — |
+| 导入导出 | 单帧兼容 SUSTechPOINTS；**整段序列**一键导出（不再只导当前帧） | `save.js` |
+| **本地草稿** | IndexedDB 自动保存 / 刷新恢复 / 离开拦截，无需后端 | — |
+| **多帧导入** | 一次选多个 PCD，按文件名自然排序组成时序；同名 JSON 自动匹配 | — |
 | **相机投影** | 3D 框投影到前视相机图像，多传感器融合对照 | `calib.js` + `image.js` |
 | **分屏视图** | 点云 / 分屏 / 相机 三种布局，框两边联动高亮 | — |
-| **撤销重做** | 命令模式 + 状态快照，`Ctrl+Z` / `Ctrl+Shift+Z`；连续操作自动合并 | — |
+| **撤销重做** | 命令模式 + 状态快照，`Ctrl+Z` / `Ctrl+Shift+Z`；拖拽自动合并为一次 | — |
 | **多帧时序** | 5 帧演示序列、obj_id 跨帧保持一致、首末帧轨迹插值补全中间帧 | batch 模式 |
 | **4D 轨迹叠加回放** | 同目标多帧中心点连成轨迹线（已走过段高亮），播放/暂停/调速逐帧回放，选中目标整条轨迹高亮 | — |
 | **相机运镜** | 关键帧 + 转场/停留时间 + 样条/缓入缓出；镜头时间线与数据帧时间线相互独立，可保存/打开轨迹 JSON | rviz_cinematographer `CameraTrajectory` |
@@ -59,7 +65,7 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | **时序质检** | ID 跳变、速度突变、轨迹抖动、轨迹断裂四类检测，健康分 + 问题列表可跳帧；一键注入缺陷演示 | 智能审核 |
 | **遮挡状态机** | alive/occluded/dead 三态、Kalman coasting 预测续接、虚线渲染遮挡框、质检豁免遮挡缺口 | 4D 工具 |
 | **全局最优关联** | Kalman 预测 + 门控 + Hungarian 匹配；交叉案例演示贪心如何串 ID | — |
-| **性能优化** | 体素网格下采样 + 距离 LOD；实测 100 万点→27 万点、3.7× 压缩 | — |
+| **性能优化** | 体素网格下采样 + 距离 LOD；实测 100 万点→27 万点、3.7× 压缩；按需渲染 + 签名缓存 | — |
 | **质检与一致性** | BEV 旋转框 IoU、目标匹配、漏标/误标率、F1、Cohen's kappa；可叠加显示待评估框 | — |
 
 ---
@@ -73,8 +79,10 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | [① 坐标系与整体架构](docs/01-coordinates-and-architecture.md) | `core/types.ts` | z-up 约定、OBB 表示、数据分层 |
 | [② 点云数据格式 PCD](docs/02-pcd-format.md) | `core/pcd.ts` | PCD 头结构、ascii / binary 解析 |
 | [③ 3D 框与几何算法](docs/03-obb-and-fitting.md) | `core/box.ts` | 8 角点、PCA 主方向、自动拟合 |
-| [④ Three.js 渲染原理](docs/04-threejs-rendering.md) | `viewer/PointCloudViewer.ts` | 正交/透视相机、双视口、屏幕反投影 |
+| [④ Three.js 渲染原理](docs/04-threejs-rendering.md) | `viewer/PointCloudViewer.ts` | 正交/透视相机、屏幕反投影、按需渲染 |
 | [⑤ 交互与序列化](docs/05-interaction-and-io.md) | `state/useAnnotation.ts` / `core/label.ts` | 拖拽画框、快捷键、label JSON 互通 |
+
+> ④⑤ 两篇的正文成文于「BEV 双视口」时期，其中**正交投影、屏幕反投影、按需渲染**的原理部分仍然适用；代码现状是单 3D 视口 + 三个独立 2D canvas 正交视图（`components/OrthoView.vue`），不再开第二个 WebGL 场景。读的时候把「双视口」替换为「三联正交」即可。
 | [⑥ 相机标定与投影](docs/06-calibration-and-projection.md) | `core/calibration.ts` | 3D 框投到图像、LiDAR 与相机对齐 |
 | [⑦ 工程化能力](docs/07-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 快照 vs 差量、轨迹关联与插值、体素 + LOD 实测 |
 | [⑧ 4D 轨迹叠加回放](docs/08-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、轨迹线渲染、回放定时器 |
@@ -94,8 +102,8 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | 维度 | 生产级需要 | 本项目现状 |
 |---|---|---|
 | 存储 | PB 级原始数据放对象存储，元数据进关系库 | 单机 `public/data/`，几十 MB |
-| 任务流转 | 任务切片、分派、回收，状态机驱动 | 无，一帧一帧手工打开 |
-| 版本管理 | 标注多版本、回滚、审计日志 | 无，导出即覆盖 |
+| 任务流转 | 任务切片、分派、回收，状态机驱动 | 无，一帧一帧手工打开；多选导入已按文件名自然排序组成时序 |
+| 版本管理 | 标注多版本、回滚、审计日志 | **本地草稿已做**（IndexedDB 自动保存 + 刷新恢复 + 离开拦截），缺服务端多版本 / 回滚 / 审计日志 |
 | 权限协作 | 标注员 / 质检员 / 管理员分权 | 无，单用户 |
 | 质检流程 | 抽检、返修、通过率统计 | **指标有了**（IoU / kappa / 漏误标率），**流程没有** |
 | 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 只有 3D 框 |
@@ -108,10 +116,12 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| 1 标注体验 | 性能（体素 + LOD）、撤销重做、轨迹插值；待补拖拽微调、多框批量、跨帧复制粘贴 | 大部分完成 |
+| 1 标注体验 | 性能（体素 + LOD + 脏标记）、撤销重做、轨迹插值、**CVAT 式两步画框 + 角点/旋转/高度手柄 + 对象锁定隐藏 + 多帧导入 + 整段序列导出** | 已完成 |
 | 2 多传感器 | 相机投影已完成；待补 radar / 多相机融合与按位置选最佳视角；接入 CenterPoint 预标注，人工只做校正——效率提升最大的一步 | 部分完成 |
 | 3 工程化 | 后端入库与任务分发、角色权限、结果版本化 + 审计日志、服务端并发快照 | 未开始 |
 | 4 质量闭环 | 抽检 → 打回带原因码 → 返修 → 通过率统计；多人一致性复用现有 kappa / IoU；对接训练管线形成数据飞轮 | 未开始 |
+
+阶段 1 已交付的部分直接对标 CVAT 3D：工具条（选择 / 平移 / 画框）、`1`–`9` 切类别、`Ctrl+C/V/D` 复制粘贴与克隆、`H` 隐藏、`L` 锁定、`N` 进画框模式并自动最大化 Top 视图、双击正交视图最大化、`Shift` 吸附旋转。剩余体验类欠账是**多框框选批量移动**和**跨帧框选复制**，这两项在单机场景下优先级低于阶段 2 的预标注。
 
 阶段 3 的并发思路，是把本地 history 栈换成服务端的**版本化快照**：提交携带 baseVersion，冲突时把两人差异交给仲裁。
 
@@ -131,34 +141,40 @@ src/
 │   ├── types.ts          # 类型定义 + 坐标系约定
 │   ├── sample.ts         # 程序化演示点云
 │   ├── history.ts        # 撤销重做：命令模式 + 状态快照
-│   ├── io/               # pcd.ts（PCD 解析）· label.ts（SUSTechPOINTS 序列化）· calibration.ts（3D框→像素投影）
+│   ├── io/               # pcd.ts（PCD 解析）· label.ts（单帧/整段序列化）· calibration.ts（投影）
+│   │                     # session.ts（IndexedDB 草稿）
 │   ├── geometry/         # box.ts（OBB + 自动拟合 + PCA）· downsample.ts（体素下采样 + 距离 LOD）
 │   ├── sequence/         # sequence.ts（多帧关联 + 轨迹插值）· temporalQA.ts（时序质检）· tracker.ts（Hungarian + Kalman）
 │   ├── quality/          # quality.ts（IoU / 匹配 / kappa / 漏误标率）
 │   └── camera/           # cameraTrajectory.ts（关键帧 + 样条采样 + JSON 序列化）
 ├── state/                # 状态层：core 持有共享状态，五个模块各自管一摊业务，useStudio 只做装配
-│   ├── studioCore.ts     # 共享 ref / 历史栈 / viewer 句柄 / 渲染同步（其余模块的唯一依赖）
-│   ├── useAnnotation.ts  # BEV 画框、框编辑、撤销重做、标注导入导出、快捷键
-│   ├── useDataset.ts     # 演示 / 真实数据加载、PCD 导入
+│   ├── studioCore.ts     # 共享 ref / 历史栈 / 工具与外观 / 锁定隐藏 / 渲染同步
+│   ├── useAnnotation.ts  # 建框、直接操作、撤销重做、复制粘贴、导入导出、快捷键
+│   ├── useDataset.ts     # 演示 / 真实数据 / 多帧 PCD 导入 / 草稿恢复
 │   ├── useSequence.ts    # 帧切换、回放、轨迹插值、跨帧传播、时序质检
 │   ├── useQuality.ts     # 质检报告、关联演示、百万点压测
 │   ├── useCameraDirector.ts # 关键帧、运镜播放、WebM 录制
-│   ├── useStudio.ts      # 装配层：创建 viewer、绑定事件、URL 路由、生命周期
+│   ├── useStudio.ts      # 装配层：viewer、事件、URL 路由、自动保存、生命周期
 │   └── studioContext.ts  # provide/inject 注入键
-├── viewer/               # Three.js 渲染层
+├── viewer/               # Three.js 渲染层（单一 3D 视口 + 按需渲染 + 射线拾取）
 │   └── PointCloudViewer.ts
-├── components/           # UI 组件层
-│   ├── TopBar.vue / Stage.vue / HelpPanel.vue / StatusBar.vue
-│   ├── CameraView.vue    # 相机图像视图 + 投影框叠加
-│   └── panels/           # ViewPanel · CategoryPanel · ObjectPanel · PropertyPanel · DataPanel
+├── components/           # UI 组件层（壳体对齐 CVAT）
+│   ├── TopBar.vue        # 文件菜单 / 撤销重做 / 帧导航 / 保存状态
+│   ├── ToolRail.vue      # 左侧图标工具条（选择 / 平移 / 画框 / 缩放 / 视图）
+│   ├── Stage.vue         # 3D 视口 + 三联正交条 + 相机分屏 + 视图切换
+│   ├── OrthoView.vue     # Top/Side/Front 2D 投影、手柄拖拽、滚轮缩放
+│   ├── RightPanel.vue    # 对象 / 标签 / 更多
+│   ├── HelpModal.vue     # 快捷键与工作流
+│   ├── CameraView.vue    # 相机图像 + 投影框
+│   └── panels/           # ObjectPanel · CategoryPanel · PropertyPanel · DataPanel
 │                         # SequencePanel · CameraDirectorPanel · PerformancePanel · QualityPanel
 ├── styles/               # 按职责拆分的样式
 │   ├── index.css         # 汇总入口
 │   ├── base.css          # 变量 / 重置 / 基础控件
-│   ├── layout.css        # 三栏布局 / 顶栏 / 侧栏 Tab / 主视口 / 状态栏
-│   ├── annotation.css    # 标注面板
-│   └── feature.css       # 相机导演 / 录制 / 各类质检面板
-├── App.vue               # 界面骨架：装配顶层组件 + 侧栏三 Tab（标注 / 时序 / 演示与质检）
+│   ├── layout.css        # 壳体布局 / 顶栏 / 工具条 / 正交视图 / 右侧面板
+│   ├── annotation.css    # 对象卡片 / 标签 / 属性 / 外观 / 时序控件
+│   └── feature.css       # 相机导演 / 录制 / 质检面板
+├── App.vue               # 顶层装配
 ├── main.ts
 docs/                     # 学习文档（见上方路线）
 ```
@@ -170,28 +186,58 @@ docs/                     # 学习文档（见上方路线）
 ```
 PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
                                    │
-                    ┌──────────────┴──────────────┐
-                    ▼                             ▼
-          setPointCloud() 渲染          拖拽框选 → fitBoxToPoints()
-                                                  │
-                                                  ▼
-                                            Box3D[]  ──serialize──▶ label JSON
+                                   ▼
+                    Top 视图拖矩形 → Box3D(默认高度)
+                                   │
+                                   ▼
+                    Side 拖绿点调高 → mutate() → 快照入历史
+                                   │
+                                   ▼
+                    IndexedDB 自动保存 / 导出 label JSON
 ```
 
 ---
 
 ## 6. 操作说明
 
-- **BEV 视图**（默认）：在点云上按住左键拖一个矩形，工具会用 PCA 估计朝向并自动拟合出一个贴合的 3D 框；单击框选中。
-- **切换到 3D 透视**：验证框的高度和朝向是否贴准（左键旋转、右键平移、滚轮缩放）。
-- **编辑选中框**：`W/A/S/D` 平移、`Q/E` 旋转、`R/F` 调长度，按住 `Shift` 加大步长；也可在左侧属性面板精确输入。
-- **删除**：`Delete` / `Backspace`。
-- **撤销/重做**：`Ctrl+Z` / `Ctrl+Shift+Z`（或 `Ctrl+Y`）。所有编辑（画框、删除、快捷键、属性面板）都可撤销；连续拖动滑杆合并为一次撤销。
-- **多帧时序**：切到「时序」Tab，点「加载 5 帧序列」（在「标注」Tab 底部），用时间轴切帧；点「轨迹插值补全」看首末帧标注如何自动补全中间帧。
-- **相机导演**：切到「演示与质检」Tab；点「演示运镜」一键生成 4 个镜头关键帧（也可先回「标注」Tab 切到「3D 透视」摆好视角，再点「＋ 记录当前视角」逐帧追加）；设置每段的转场/停留时间后点「▶ 播放运镜」。镜头运动与数据帧回放独立计时，轨迹可保存/打开。
-- **录制演示视频**：在「演示与质检」Tab 的「相机导演」面板里选 fps / 编码 / 水印，点「● 录制视频」自动播放一圈运镜并导出 WebM；再点一次可提前结束（需 Chrome / Edge）。
-- **性能压测 / 质检报告**：都在「演示与质检」Tab；点「⚡ 生成 100 万点压测」看体素下采样 + LOD 的实测 FPS，点「✓ 生成质检报告」看 IoU / kappa 等指标。
-- **导出**：点"导出 JSON"或 `Ctrl+S`，得到可直接被 SUSTechPOINTS 读取的标注文件。
+### 6.1 界面分区
+
+| 区域 | 内容 |
+|---|---|
+| 顶栏 | 左：数据集菜单；中：撤销/重做 + 帧导航（序列时出现）；右：草稿保存状态、相机分屏、帮助 |
+| 左工具条 | 选择 `V` / 平移 `H` / 画框 `N` / 放大缩小 / 适应数据 / 复位 / 正交条开关 |
+| 主视口 | 3D 透视。单击框选中，拖拽旋转/平移，双击复位 |
+| 三联视图 | Top / Side / Front。双击任一视图最大化，顶部出现 Top/Side/Front 切换 |
+| 右侧面板 | 对象（锁定/隐藏/排序 + 详情 + 外观）、标签（增删类别/改色）、更多（数据集/时序/质检/运镜/性能） |
+
+### 6.2 标注流程（CVAT 两步法）
+
+1. 按 `N`（或点工具条 ▭），Top 视图自动最大化。
+2. 在点云上拖一个矩形 → 立即生成带默认高度的 3D 框，并自动选中。
+3. 拖角点改长宽、拖黄点改朝向（`Shift` 吸附 15°）；切到 `Side` 拖绿色圆点调高度。
+4. 右侧「详情」可精确输入 x/y/z/长/宽/高/朝向；数字键 `1-9` 切类别。
+5. 也可按 `N` 后在 Top 画完，回到 3D 视口用 `W/A/S/D`、`Q/E`、`R/F` 微调。
+
+### 6.3 常用快捷键
+
+| 操作 | 快捷键 |
+|---|---|
+| 选择 / 平移 / 画框 | `V` / `H` / `N` |
+| 复制 / 粘贴 / 原地复制 | `Ctrl+C` / `Ctrl+V` / `Ctrl+D` |
+| 撤销 / 重做 | `Ctrl+Z` / `Ctrl+Shift+Z` |
+| 导出当前帧 / 整段序列 | `Ctrl+S` / `Ctrl+Shift+S` |
+| 删除 / 取消选中 | `Delete` / `Esc` |
+| 帮助 | `F1` |
+
+### 6.4 其他
+
+- **多帧时序**：右侧「更多 → 时序与 4D」，可逐帧切换、轨迹叠加、回放、插值补全、跨帧传播、时序质检。
+- **相机导演与录制**：右侧「更多 → 相机导演与录制」，关键帧运镜与 WebM 录制（Chrome / Edge）。
+- **性能压测 / 质检报告**：右侧「更多」，分别看体素下采样 + LOD 的实测 FPS、IoU / kappa 指标。
+- **本地草稿**：改动后约 1.2 秒自动写入 IndexedDB，刷新自动恢复；顶栏右侧显示「未保存 / 保存中 / 已保存 hh:mm」。数据超过 80MB 时会跳过自动保存，请手动导出。
+- **导入自己的数据**：右上菜单「导入 PCD（可多选组成时序）」；同时选中同名 JSON 会自动读取标注。
+- **导出**：单帧是 SUSTechPOINTS 兼容数组；整段序列是 `{ format, frames:[{ index, objects }] }`，脚本可逐帧拆开。
+
 
 ---
 

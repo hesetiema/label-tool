@@ -2,6 +2,8 @@
 
 > 配套源码：`src/state/useAnnotation.ts` / `src/core/io/label.ts`
 
+> **注意**：本篇成文于「在 BEV 里拖矩形建框」的旧交互。当前交互已对齐 **CVAT 3D 的两步法**：`N` 进入画框 → 在 Top 视图拖出底面矩形 → 在 Side 视图拖绿色高度点调高。手柄编辑（8 个角点缩放、黄点旋转、绿点调高）在 `src/components/OrthoView.vue`，业务动作仍由 `useAnnotation.ts` 的 `createBoxFromRect` / `applyBox` 承接。**「鼠标事件 → 数据操作」的翻译链条、撤销栈、序列化格式**这些核心内容不受影响，照读即可。
+
 这一篇讲用户操作如何变成数据修改，以及标注结果如何与算法侧对接。
 
 ---
