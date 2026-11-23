@@ -33,11 +33,12 @@ const tabs: { key: SideTab; label: string }[] = [
   { key: 'demo', label: '演示与质检' },
 ]
 
-/** 按 URL 演示参数决定默认 Tab，保证 ?data=sequence&cinema=1 等直达链接仍能看到对应面板 */
+/** 按 URL 预设决定默认 Tab：序列类数据落在「时序」，质检落在「演示与质检」，其余进「标注」 */
 function initialTab(): SideTab {
   const p = new URLSearchParams(location.search)
-  if (p.get('cinema') === '1' || ['perf', 'qa', 'track'].includes(p.get('data') ?? '')) return 'demo'
-  if (p.get('data') === 'sequence' || p.get('data') === 'world' || p.get('autoplay') === '1') return 'sequence'
+  const data = p.get('data') ?? ''
+  if (data === 'qa') return 'demo'
+  if (data === 'sequence' || data === 'world' || data === 'nuscenes' || p.get('autoplay') === '1') return 'sequence'
   return 'annotate'
 }
 const activeTab = ref<SideTab>(initialTab())

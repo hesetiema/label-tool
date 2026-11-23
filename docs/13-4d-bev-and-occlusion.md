@@ -37,7 +37,7 @@ p_world = R_ego · (R_lidar · p_lidar + t_lidar) + t_ego
 | 静止目标（3 个样本） | **0.00 m** | 世界系对齐生效 ✓ |
 | 运动目标（3 个样本） | 22～27 m | 真实运动被保留 ✓ |
 
-入口：顶部「◉ 4D-BEV」按钮，或 `?data=world`（`&autoplay=1` 自动回放）。
+入口：先 `python scripts/convert_nuscenes.py --mode world` 生成数据，再访问 `?data=world`（`&autoplay=1` 自动回放）。
 
 ## 二、遮挡状态机
 

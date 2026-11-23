@@ -7,11 +7,18 @@ const {
   frames, currentFrame, showTrajectories, isPlaying, playSpeed, temporalReport, trackDemo,
   issueTypeName, gotoFrame, doInterpolate, toggleTrajectories, togglePlay, onSpeedChange,
   runTemporalQA, runOcclusionDemo, runTemporalDemo, gotoIssueFrame, runTrackingDemo,
+  loadSequence,
 } = studio
 </script>
 
 <template>
-  <section v-if="frames.length">
+  <!-- 没有帧序列时给一个加载入口，否则切到「时序」Tab 会是一块空面板 -->
+  <section v-if="!frames.length">
+    <h3>时序帧</h3>
+    <div class="hint-small">当前没有多帧序列。加载后可以逐帧切换、轨迹叠加、插值补全、跨帧传播与时序质检。</div>
+    <button class="ghost wide" @click="loadSequence">加载 5 帧演示序列</button>
+  </section>
+  <section v-else>
     <h3>时序帧 <span class="count">{{ frames.length }}</span></h3>
     <div class="timeline">
       <button :disabled="currentFrame === 0" @click="gotoFrame(currentFrame - 1)">◀</button>

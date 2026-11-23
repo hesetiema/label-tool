@@ -46,7 +46,8 @@ export function useStudio() {
     el.addEventListener('wheel', annotation.onWheel, { passive: false })
     window.addEventListener('keydown', annotation.onKeyDown)
 
-    // URL 参数直达不同演示场景（便于分享与自动化验证）
+    // URL 预设：只保留「换数据集」与「质检」两类直达链接。
+    // 压测 / 关联演示 / 演示运镜都有面板按钮，不再单独占一个 URL 入口。
     const params = new URLSearchParams(location.search)
     const demo = params.get('data')
     if (demo === 'real') {
@@ -58,16 +59,10 @@ export function useStudio() {
       if (params.get('autoplay') === '1') sequence.play()
     } else if (demo === 'sequence') {
       dataset.loadSequence()
-      if (params.get('cinema') === '1') camera.loadCinematicDemo()
       if (params.get('autoplay') === '1') sequence.play()
-    } else if (demo === 'perf') {
-      await quality.runPerfTest()
     } else if (demo === 'qa') {
       dataset.loadDemo()
       quality.runQualityCheck()
-    } else if (demo === 'track') {
-      dataset.loadSequence()
-      quality.runTrackingDemo()
     } else {
       dataset.loadDemo()
     }

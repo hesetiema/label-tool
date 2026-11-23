@@ -145,7 +145,7 @@ export function useCameraDirector(core: StudioCore) {
     input.value = ''
   }
 
-  /** 一键生成绕演示场景的 4 个镜头位姿，配合 ?data=sequence&cinema=1 直达 */
+  /** 一键生成绕演示场景的 4 个镜头位姿（相机面板「演示运镜」按钮） */
   function loadCinematicDemo() {
     const kf = (
       id: string,

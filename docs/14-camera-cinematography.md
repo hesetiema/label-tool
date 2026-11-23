@@ -4,7 +4,7 @@
 > 最后把视角录成 WebM 视频。思路借鉴 ROS 生态的 [rviz_cinematographer](https://github.com/AIS-Bonn/rviz_cinematographer)，
 > 但数据模型和实现完全按本仓库的 Vue 3 + Three.js 技术栈重写。
 
-打开 `?data=sequence&cinema=1` 可直接加载演示运镜：4 个关键帧绕场景一圈，
+打开「演示与质检」Tab，在相机导演面板点「演示运镜」即可加载 4 个关键帧绕场景一圈，
 点「▶ 播放运镜」看镜头运动，点「● 录制视频」自动播放一圈并导出 WebM。
 
 ---

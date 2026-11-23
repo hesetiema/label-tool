@@ -104,16 +104,6 @@ export function useDataset(core: StudioCore) {
     }
   }
 
-  /** 4D-BEV 世界系入口：静止背景已对齐，运动目标拖出轨迹 */
-  function loadWorld() {
-    void loadNuScenes(true)
-  }
-
-  /** 局部坐标系入口：逐帧相机视角，配合分屏对照投影 */
-  function loadLocal() {
-    void loadNuScenes(false)
-  }
-
   /**
    * 加载 nuScenes mini 真实序列（由 scripts/convert_nuscenes.py 转换而来）。
    * 每一帧都是真实激光雷达点云 + 官方 3D 标注 + 真实相机内外参，
@@ -205,7 +195,6 @@ export function useDataset(core: StudioCore) {
   }
 
   return {
-    fileInput, loadDemo, loadSequence, loadRealData, loadWorld, loadLocal,
-    loadNuScenes, onPcdFile,
+    fileInput, loadDemo, loadSequence, loadRealData, loadNuScenes, onPcdFile,
   }
 }
