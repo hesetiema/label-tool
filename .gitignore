@@ -3,12 +3,8 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# 原始大数据集（nuScenes mini 约 4GB，可按需重新下载）
+# 本地数据集 / 大数据文件（不入库）
 datasets/
-
-# 由 datasets/ 转换而来的产物（运行 scripts/convert_nuscenes.py 可再生成）
-public/data/nuscenes/
-public/data/nuscenes_world/
 
 # 测试运行时临时文件
 tests/.check.bundle.mjs

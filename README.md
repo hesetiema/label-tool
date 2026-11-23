@@ -27,7 +27,7 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 | `?data=sequence` | 5 帧时序序列：目标会移动，默认叠加显示跨帧轨迹线。点「轨迹插值补全」可补出 9 个中间帧框；点「回放」逐帧播放（白点=当前帧），加 `&autoplay=1` 进入即自动播放 |
 | `?data=qa` | 质检演示：生成扰动版标注并自动出报告（IoU / kappa / 漏标率） |
 
-其余能力都从面板进入，不占链接：**百万点压测**在「演示与质检」Tab，**贪心 vs Kalman+Hungarian 关联演示**在「时序」Tab 底部，**相机运镜与录制**在「演示与质检」→ 相机导演面板的「演示运镜」（见 [第 14 节](docs/14-camera-cinematography.md)）。nuScenes / 4D-BEV 需要本地转换数据（见 [第 10 节](docs/10-nuscenes-dataset.md) / [第 13 节](docs/13-4d-bev-and-occlusion.md)），转换完成后用 `?data=nuscenes` / `?data=world` 打开。
+其余能力都从面板进入，不占链接：**百万点压测**在「演示与质检」Tab，**贪心 vs Kalman+Hungarian 关联演示**在「时序」Tab 底部，**相机运镜与录制**在「演示与质检」→ 相机导演面板的「演示运镜」（见 [第 12 节](docs/12-camera-cinematography.md)）。
 
 ```bash
 pnpm build      # 类型检查 + 生产构建
@@ -57,7 +57,6 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | **演示视频录制** | `canvas.captureStream` + `MediaRecorder` 导出 WebM，可选 fps、VP9/VP8、右下角水印 | rviz_cinematographer `Recorder` |
 | **跨帧编辑** | 把选中框的改动传播到同 id 框：整框替换 / 增量平移 × 后续/前序/全部帧 | — |
 | **时序质检** | ID 跳变、速度突变、轨迹抖动、轨迹断裂四类检测，健康分 + 问题列表可跳帧；一键注入缺陷演示 | 智能审核 |
-| **4D-BEV 世界系** | ego-pose 把多帧点云对齐到统一世界系，静止背景重合、运动目标拖轨迹（nuScenes 真实数据） | 4D 工具 |
 | **遮挡状态机** | alive/occluded/dead 三态、Kalman coasting 预测续接、虚线渲染遮挡框、质检豁免遮挡缺口 | 4D 工具 |
 | **全局最优关联** | Kalman 预测 + 门控 + Hungarian 匹配；交叉案例演示贪心如何串 ID | — |
 | **性能优化** | 体素网格下采样 + 距离 LOD；实测 100 万点→27 万点、3.7× 压缩 | — |
@@ -80,11 +79,9 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | ⑦ | [从学习到生产](docs/07-from-learning-to-production.md) | — | 还缺什么、如何演进成工业级系统 |
 | ⑧ | [工程化能力：撤销重做 / 时序 / 性能](docs/08-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 面试高频追问的三块，命令模式、轨迹插值、体素下采样 |
 | ⑨ | [面试准备：系统设计题与项目话术](docs/09-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、高频追问速查表 |
-| ⑩ | [nuScenes 真实数据集接入](docs/10-nuscenes-dataset.md) | `scripts/convert_nuscenes.py` | 下载/转换真实数据、世界坐标→lidar、四元数→yaw、相机内外参计算 |
-| ⑪ | [4D 轨迹叠加回放](docs/11-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
-| ⑫ | [4D 进阶：跨帧编辑与时序质检](docs/12-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
-| ⑬ | [4D-BEV 世界系对齐与遮挡状态](docs/13-4d-bev-and-occlusion.md) | `scripts/convert_nuscenes.py` / `core/tracker.ts` | ego-motion 世界系变换、三态遮挡状态机、Kalman coasting、遮挡与质检联动 |
-| ⑭ | [相机导演：关键帧运镜与视频录制](docs/14-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、Three.js 相机 API、MediaRecorder 录制闭环 |
+| ⑩ | [4D 轨迹叠加回放](docs/10-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
+| ⑪ | [4D 进阶：跨帧编辑与时序质检](docs/11-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
+| ⑫ | [相机导演：关键帧运镜与视频录制](docs/12-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、Three.js 相机 API、MediaRecorder 录制闭环 |
 
 ---
 
@@ -104,7 +101,7 @@ src/
 ├── state/                # 状态层：core 持有共享状态，五个模块各自管一摊业务，useStudio 只做装配
 │   ├── studioCore.ts     # 共享 ref / 历史栈 / viewer 句柄 / 渲染同步（其余模块的唯一依赖）
 │   ├── useAnnotation.ts  # BEV 画框、框编辑、撤销重做、标注导入导出、快捷键
-│   ├── useDataset.ts     # 演示 / 真实 / nuScenes 加载
+│   ├── useDataset.ts     # 演示 / 真实数据加载、PCD 导入
 │   ├── useSequence.ts    # 帧切换、回放、轨迹插值、跨帧传播、时序质检
 │   ├── useQuality.ts     # 质检报告、关联演示、百万点压测
 │   ├── useCameraDirector.ts # 关键帧、运镜播放、WebM 录制
@@ -199,9 +196,8 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 
 本项目采用 [MIT License](LICENSE)：可自由使用、修改、分发，保留版权与许可声明即可。
 
-需要注意两类**非 MIT** 的内容，细节见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)：
+需要注意一类**非 MIT** 的内容，细节见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)：
 
 | 内容 | 授权 | 说明 |
 |---|---|---|
 | `public/data/` 下的 SUSTechPOINTS 样例（`000970.pcd` / `000970.json` / `calib_front.json` / `front_000970.jpg`） | GPL-3.0 | 随原仓库分发，仅作学习演示；如需纯 MIT 副本，删除这四个文件即可 |
-| `scripts/convert_nuscenes.py` 产出的 nuScenes 聚合数据 | CC BY-NC-SA 4.0 | 源自 nuScenes 数据集，不得商用 |

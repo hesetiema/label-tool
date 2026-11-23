@@ -6,7 +6,7 @@
  * 业务实现分别在：
  *   studioCore        共享状态 / 历史栈 / 渲染同步
  *   useAnnotation     画框、框编辑、撤销重做、导入导出
- *   useDataset        演示 / 真实 / nuScenes 加载
+ *   useDataset        演示 / 真实数据加载
  *   useSequence       帧切换、回放、插值、跨帧传播、时序质检
  *   useQuality        质检报告、关联演示、性能压测
  *   useCameraDirector 关键帧、运镜播放、视频录制
@@ -52,11 +52,6 @@ export function useStudio() {
     const demo = params.get('data')
     if (demo === 'real') {
       await dataset.loadRealData()
-    } else if (demo === 'nuscenes') {
-      await dataset.loadNuScenes()
-    } else if (demo === 'world') {
-      await dataset.loadNuScenes(true)
-      if (params.get('autoplay') === '1') sequence.play()
     } else if (demo === 'sequence') {
       dataset.loadSequence()
       if (params.get('autoplay') === '1') sequence.play()

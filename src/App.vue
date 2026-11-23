@@ -38,7 +38,7 @@ function initialTab(): SideTab {
   const p = new URLSearchParams(location.search)
   const data = p.get('data') ?? ''
   if (data === 'qa') return 'demo'
-  if (data === 'sequence' || data === 'world' || data === 'nuscenes' || p.get('autoplay') === '1') return 'sequence'
+  if (data === 'sequence' || p.get('autoplay') === '1') return 'sequence'
   return 'annotate'
 }
 const activeTab = ref<SideTab>(initialTab())

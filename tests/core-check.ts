@@ -317,8 +317,8 @@ check('交叉案例：Kalman+Hungarian 保持 ID', kalmanCorrect)
 check('交叉案例：贪心总距离=0（看似完美）', close(sumCost(cross.greedy), 0, 1e-6))
 check('交叉案例：门控拒绝错误配对', cross.kalman.gated === 2, `gated=${cross.kalman.gated}`)
 
-// ===== 遮挡状态机 + 4D-BEV 世界系语义 =====
-console.log('\n--- 遮挡状态机与 4D-BEV ---')
+// ===== 遮挡状态机与可见性语义 =====
+console.log('\n--- 遮挡状态机 ---')
 // 1) visibility 序列化往返
 const occBox: Box3D = { id: 'v1', label: 'Car', position: { x:1,y:2,z:0 }, scale: { x:4,y:2,z:1.6 }, yaw:0, visibility:'occluded' }
 const rtOcc = parseLabels(serializeLabels([occBox]))[0]
