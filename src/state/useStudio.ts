@@ -40,6 +40,8 @@ export function useStudio() {
 
   let saveTimer: number | undefined
   let saving = false
+  /** 视口 DOM 上的监听器回收器：卸载时统一摘掉，避免画布已 dispose 仍在被调用 */
+  const viewportCleanup: (() => void)[] = []
 
   /**
    * IndexedDB 的结构化克隆不接受 Vue 的响应式 Proxy（会抛 DataCloneError），
@@ -175,6 +177,27 @@ export function useStudio() {
     el.addEventListener('mousedown', onDown)
     el.addEventListener('click', onClick)
 
+    // 3D 视口的悬停高亮：射线拾取，限频 ~20Hz。
+    // 拖拽（OrbitControls 旋转/平移）期间不拾取，否则视角一转光晕就乱跳。
+    let lastHoverAt = 0
+    const onHoverMove = (e: MouseEvent) => {
+      if (e.buttons) return
+      const now = performance.now()
+      if (now - lastHoverAt < 45) return
+      lastHoverAt = now
+      core.setHover(viewer.pickBox(e.clientX, e.clientY, core.visibleBoxes.value))
+    }
+    const onHoverLeave = () => core.setHover(null)
+    el.addEventListener('mousemove', onHoverMove)
+    el.addEventListener('mouseleave', onHoverLeave)
+
+    viewportCleanup.push(() => {
+      el.removeEventListener('mousedown', onDown)
+      el.removeEventListener('click', onClick)
+      el.removeEventListener('mousemove', onHoverMove)
+      el.removeEventListener('mouseleave', onHoverLeave)
+    })
+
     window.addEventListener('keydown', annotation.onKeyDown)
     window.addEventListener('keydown', onResizeShortcut)
     window.addEventListener('beforeunload', onBeforeUnload)
@@ -220,6 +243,7 @@ export function useStudio() {
     if (core.saveState.value === 'dirty') void persistNow()
 
     const viewer = core.getViewer()
+    for (const fn of viewportCleanup) fn()
     window.removeEventListener('keydown', annotation.onKeyDown)
     window.removeEventListener('keydown', onResizeShortcut)
     window.removeEventListener('beforeunload', onBeforeUnload)

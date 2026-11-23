@@ -12,8 +12,19 @@ const {
   datasetName, frames, currentFrame, canUndo, canRedo, undoLabel, saveState, lastSavedAt,
   calib, layout, autosaveEnabled, menuOpen, showHelp,
   loadDemo, loadRealData, loadSequence, doUndo, doRedo, doExportFrame, doExportAll,
-  prevFrame, nextFrame, setFrame, setLayout, persistNow, clearDraft, numVal, fileInput, labelInput,
+  prevFrame, nextFrame, setFrame, jumpToBoxFrame, setLayout, persistNow, clearDraft,
+  numVal, fileInput, labelInput,
 } = studio
+
+/** 帧号输入：回车或失焦即跳转，越界按边界夹住并把输入框纠正回来 */
+function onFrameInput(e: Event) {
+  const el = e.target as HTMLInputElement
+  const n = Number(el.value)
+  if (!Number.isFinite(n)) { el.value = String(currentFrame.value + 1); return }
+  const i = Math.max(0, Math.min(frames.value.length - 1, Math.round(n) - 1))
+  setFrame(i)
+  el.value = String(i + 1)
+}
 
 function pickFiles() {
   menuOpen.value = false
@@ -94,9 +105,21 @@ const saveText = () => {
           :value="currentFrame"
           @input="setFrame(numVal($event))"
         />
-        <button class="tb-icon" title="下一帧" @click="nextFrame">▶</button>
+        <button class="tb-icon" title="下一帧 (.)" @click="nextFrame">▶</button>
         <button class="tb-icon" title="最后一帧" @click="setFrame(frames.length - 1)">▶|</button>
-        <span class="frame-count">{{ currentFrame + 1 }} / {{ frames.length }}</span>
+        <span class="frame-count">
+          <input
+            class="frame-input"
+            type="number"
+            min="1"
+            :max="frames.length"
+            :value="currentFrame + 1"
+            title="输入帧号并回车跳转"
+            @change="onFrameInput"
+          /> / {{ frames.length }}
+        </span>
+        <button class="tb-icon jump" title="上一处标注 (Shift+,)" @click="jumpToBoxFrame(-1)">◂▣</button>
+        <button class="tb-icon jump" title="下一处标注 (Shift+.)" @click="jumpToBoxFrame(1)">▣▸</button>
       </div>
       <span v-else class="single-frame">单帧</span>
     </div>

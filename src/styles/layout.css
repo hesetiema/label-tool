@@ -47,7 +47,20 @@
 
 .frame-nav { gap: 4px; padding: 2px 8px; }
 .frame-slider { width: 180px; accent-color: var(--accent); height: 4px; }
-.frame-count { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 44px; text-align: center; }
+.frame-count {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 11px;
+  color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.frame-input {
+  width: 40px; height: 21px; padding: 0 3px; text-align: right;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 3px; font-size: 11px; font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.frame-input:focus { outline: none; border-color: var(--accent); }
+.frame-input::-webkit-outer-spin-button,
+.frame-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.tb-icon.jump { font-size: 11px; letter-spacing: -1px; }
 .single-frame { font-size: 11px; color: var(--muted); }
 
 .save-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
@@ -212,4 +225,29 @@
 .modal-note {
   grid-column: 1 / -1; margin-top: 6px; padding: 10px; font-size: 11px; line-height: 1.7;
   color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+
+/* 状态栏的多选高亮 */
+.status-chip.on { color: #ffe66d; border-color: rgba(255,230,109,.45); background: rgba(255,230,109,.10); }
+
+/* 状态栏光标坐标：等宽数字，宽度固定住，避免鼠标一动整条状态栏抖动 */
+.status-coord {
+  display: inline-flex; gap: 9px; min-width: 176px;
+  color: #b7c3d6; font-variant-numeric: tabular-nums;
+}
+.status-coord-idle { color: var(--muted); opacity: .55; }
+.modal-note kbd {
+  padding: 0 3px; font-size: 9.5px; border-radius: 2px;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+}
+
+/* 状态栏的悬停 chip：跟画布上的浅蓝光晕同色，一眼能对上。
+   内容带尺寸摘要后变长，窄窗口下截断而不是把其他 chip 挤没 */
+.status-chip.hover {
+  color: #9fe8ff;
+  border-color: rgba(159, 232, 255, .45);
+  background: rgba(159, 232, 255, .10);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

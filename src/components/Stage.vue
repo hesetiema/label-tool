@@ -17,9 +17,11 @@ import type { Box3D } from '../core/types'
 
 const studio = inject(StudioKey)!
 const {
-  viewportRef, camViewRef, visibleBoxes, selectedId, tool, layout, calib, imageUrl,
+  viewportRef, camViewRef, visibleBoxes, selectedId, selectedIds, tool, layout, calib, imageUrl,
   showOrtho, orthoMax, cloud, opacity, outlinedBorders, showOrientation, colorOf, colorBy,
-  selectBox, applyBox, createBoxFromRect, currentCategory, categories,
+  selectBox, toggleSelectBox, selectGroup, applyBox, applyBoxes, createBoxFromRect,
+  currentCategory, categories, lockedIds, setCursor, hoverId, setHover,
+  orthoZoom, broadcastZoom,
 } = studio
 
 const views: { axis: OrthoAxis; title: string }[] = [
@@ -30,9 +32,24 @@ const views: { axis: OrthoAxis; title: string }[] = [
 
 const split = computed(() => layout.value !== 'cloud' && !!calib.value)
 const maxView = computed(() => views.find((v) => v.axis === orthoMax.value))
+/** 传给子组件的数组必须稳定引用，否则每次渲染都触发 redraw */
+const selectedIdList = computed(() => [...selectedIds.value])
+const lockedIdList = computed(() => [...lockedIds.value])
+
+function onCursor(p: { x: number; y: number; z: number } | null) {
+  setCursor(p)
+}
+
+function onZoom(e: { from: OrthoAxis; scale: number }) {
+  broadcastZoom(e.from, e.scale)
+}
 
 function onEdit(box: Box3D) {
   applyBox(box.id, box, 'drag:' + box.id)
+}
+
+function onEditMany(list: Box3D[]) {
+  applyBoxes(list, 'drag:' + (selectedId.value ?? 'group'))
 }
 
 function toggleMax(axis: OrthoAxis) {
@@ -46,7 +63,7 @@ function toggleMaxCurrent() {
 const hint = computed(() => {
   if (tool.value === 'draw') return '在 Top 视图拖出一个矩形 → 自动生成 3D 框，再到 Side 拖绿点调高度'
   if (tool.value === 'pan') return '拖拽任意视图平移；滚轮以光标为中心缩放'
-  return '单击选中 · 拖角点缩放 · 拖黄点旋转 · Side/Front 拖绿点调高度 · 双击视图最大化'
+  return '单击选中 · 空白拖拽框选 · Ctrl 点选追加 · 拖角点缩放 · 拖黄点旋转 · Side/Front 拖绿点调高度 · 双击最大化'
 })
 </script>
 
@@ -63,14 +80,24 @@ const hint = computed(() => {
         :cloud="cloud"
         :boxes="visibleBoxes"
         :selected-id="selectedId"
+        :selected-ids="selectedIdList"
+        :locked-ids="lockedIdList"
+        :hover-id="hoverId"
+        :zoom-signal="orthoZoom"
         :tool="tool"
         :color-of="colorOf"
         :opacity="opacity"
         :outlined-borders="outlinedBorders"
         :show-orientation="showOrientation"
         @select="selectBox"
+        @toggle="toggleSelectBox"
+        @band="selectGroup"
         @edit="onEdit"
+        @edit-many="onEditMany"
         @create="createBoxFromRect"
+        @cursor="onCursor"
+        @hover="setHover"
+        @zoom="onZoom"
         @maximize="toggleMaxCurrent"
       />
 
@@ -81,6 +108,7 @@ const hint = computed(() => {
           :calib="calib"
           :image-url="imageUrl"
           :selected-id="selectedId"
+          :hover-id="hoverId"
           :color-of="colorOf"
           :color-key="colorBy"
         />
@@ -97,14 +125,24 @@ const hint = computed(() => {
         :cloud="cloud"
         :boxes="visibleBoxes"
         :selected-id="selectedId"
+        :selected-ids="selectedIdList"
+        :locked-ids="lockedIdList"
+        :hover-id="hoverId"
+        :zoom-signal="orthoZoom"
         :tool="tool"
         :color-of="colorOf"
         :opacity="opacity"
         :outlined-borders="outlinedBorders"
         :show-orientation="showOrientation"
         @select="selectBox"
+        @toggle="toggleSelectBox"
+        @band="selectGroup"
         @edit="onEdit"
+        @edit-many="onEditMany"
         @create="createBoxFromRect"
+        @cursor="onCursor"
+        @hover="setHover"
+        @zoom="onZoom"
         @maximize="toggleMax(v.axis)"
       />
     </div>

@@ -10,7 +10,7 @@
  *
  * 约定：所有会改变标注的编辑动作都走 mutate()，保证撤销栈完整。
  */
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import type { PointCloudViewer } from '../viewer/PointCloudViewer'
 import { HistoryStack, cloneBoxes } from '../core/history'
 import { extractTrajectories, type FrameData } from '../core/sequence/sequence'
@@ -65,7 +65,21 @@ export function createStudioCore() {
 
   // ---- 标注数据 ----
   const boxes = ref<Box3D[]>([])
-  const selectedId = ref<string | null>(null)
+  /**
+   * 选中集合。CVAT 允许 Ctrl 点选与框选多目标，所以内部以 Set 为准；
+   * primaryId 是「主选中」——属性面板、画布手柄、轨迹高亮只认它。
+   * 对外仍暴露 selectedId，写成 computed 是为了让历史上所有
+   * `selectedId.value = x` 的调用点语义不变（赋值即收敛为单选）。
+   */
+  const selectedIds = ref<Set<string>>(new Set())
+  const primaryId = ref<string | null>(null)
+  const selectedId = computed<string | null>({
+    get: () => primaryId.value,
+    set: (id) => {
+      primaryId.value = id
+      selectedIds.value = id ? new Set([id]) : new Set()
+    },
+  })
   const cloud = ref<PointCloud | null>(null)
   const statusText = ref('就绪')
   const datasetName = ref('演示场景')
@@ -126,11 +140,88 @@ export function createStudioCore() {
   /** 跨帧传播的"编辑前"基准：选中框时由标注模块写入，时序模块读取 */
   const origin: { value: Box3D | null } = { value: null }
 
+  /** 光标处的点云坐标（状态栏实时显示）。null 表示光标不在点上 */
+  const cursor = ref<{ x: number; y: number; z: number } | null>(null)
+
+  /**
+   * 全局悬停对象。3D 视口与三张正交视图共用同一个值：
+   * 在任一视图里指向某个框，其余视图与 3D 视口一起高亮——
+   * 24 个框叠在一起时，这是"我到底指着哪一个"的唯一可靠答案。
+   */
+  const hoverId = ref<string | null>(null)
+
+  /** 三视图联动缩放：开着时任一视图缩放，其余视图同步到相同「米/像素」 */
+  const linkZoom = ref(false)
+  /** 联动缩放的广播信号。nonce 保证相同缩放值也能触发（否则 watch 收不到） */
+  const orthoZoom = ref<{ scale: number; from: OrthoAxis; nonce: number } | null>(null)
+  let zoomNonce = 0
+
+  // 切帧后旧的悬停目标多半已经不在这帧了：直接清掉，否则光晕会停在鼠标早已离开的位置
+  watch(currentFrame, () => {
+    hoverId.value = null
+    viewer?.setHover(null)
+  })
+
+  /**
+   * 帧导航回调。切帧要先写回当前帧，逻辑在时序模块里；
+   * 标注模块的键盘快捷键通过这个桥调用，避免两个模块互相 import。
+   */
+  const frameNav: {
+    next?: () => void
+    prev?: () => void
+    jumpToBox?: (dir: 1 | -1) => void
+  } = {}
+
   /** 上一份已上传 GPU 的点云引用。避免每次编辑框都重建几何体（性能优化的关键点之一） */
   let lastCloudRef: PointCloud | null = null
 
-  const selectedBox = computed(() => boxes.value.find((b) => b.id === selectedId.value) ?? null)
+  const selectedBox = computed(() => boxes.value.find((b) => b.id === primaryId.value) ?? null)
+  /** 所有选中的框（多选时为多项，属性面板的批量操作看它） */
+  const selectedBoxes = computed(() => boxes.value.filter((b) => selectedIds.value.has(b.id)))
+  const selectedCount = computed(() => selectedIds.value.size)
   const visibleBoxes = computed(() => boxes.value.filter((b) => !hiddenIds.value.has(b.id)))
+
+  function isSelected(id: string): boolean {
+    return selectedIds.value.has(id)
+  }
+
+  /**
+   * 多选 / 单选统一入口。
+   * @param primary 手柄与属性面板挂在哪个框上；不传则取最后一个
+   */
+  function selectMany(ids: string[], primary?: string | null) {
+    const uniq = [...new Set(ids)]
+    selectedIds.value = new Set(uniq)
+    if (!uniq.length) { primaryId.value = null; return }
+    primaryId.value = primary && uniq.includes(primary) ? primary : uniq[uniq.length - 1]
+  }
+
+  /** Ctrl / Cmd 点选：在集合里增删一个，并把主选中移到它上面 */
+  function toggleSelect(id: string) {
+    const next = new Set(selectedIds.value)
+    if (next.has(id)) {
+      next.delete(id)
+      if (primaryId.value === id) primaryId.value = [...next].pop() ?? null
+    } else {
+      next.add(id)
+      primaryId.value = id
+    }
+    selectedIds.value = next
+  }
+
+  function selectAll() {
+    selectMany(visibleBoxes.value.map((b) => b.id))
+  }
+
+  /** 删除 / 撤销后清掉已不存在的 id，避免选中集合里留幽灵 */
+  function pruneSelection() {
+    const alive = new Set(boxes.value.map((b) => b.id))
+    const stale = [...selectedIds.value].some((id) => !alive.has(id))
+    if (!stale) return
+    const next = new Set([...selectedIds.value].filter((id) => alive.has(id)))
+    selectedIds.value = next
+    if (primaryId.value && !alive.has(primaryId.value)) primaryId.value = [...next].pop() ?? null
+  }
 
   function getViewer() { return viewer }
   function setViewer(v: PointCloudViewer | null) { viewer = v }
@@ -151,8 +242,41 @@ export function createStudioCore() {
     viewer?.requestRender()
   }
 
+  /**
+   * 写光标坐标。鼠标移动每秒几十次，按厘米取整比较，
+   * 值没变就不触发状态栏重渲染（否则整条状态栏跟着鼠标抖）。
+   */
+  function setCursor(p: { x: number; y: number; z: number } | null) {
+    const cur = cursor.value
+    if (!p) { if (cur) cursor.value = null; return }
+    const q = (v: number) => Math.round(v * 100) / 100
+    const nx = q(p.x), ny = q(p.y), nz = q(p.z)
+    if (cur && q(cur.x) === nx && q(cur.y) === ny && q(cur.z) === nz) return
+    cursor.value = { x: nx, y: ny, z: nz }
+  }
+
   function categoryOf(label: string): ObjectCategory | undefined {
     return categories.value.find((c) => c.name === label)
+  }
+
+  /**
+   * 设置全局悬停对象。只推进 3D 视口的高亮层，不走 syncViewer——
+   * 后者会重算轨迹签名，鼠标移动时每秒几十次跑不起。
+   */
+  function setHover(id: string | null) {
+    if (hoverId.value === id) {
+      // 值没变，但悬停中的框可能刚被拖动 / 改尺寸，光晕要跟着走
+      if (id) viewer?.setHover(visibleBoxes.value.find((b) => b.id === id) ?? null)
+      return
+    }
+    hoverId.value = id
+    viewer?.setHover(id ? visibleBoxes.value.find((b) => b.id === id) ?? null : null)
+  }
+
+  /** 三视图联动缩放：把某个视图的「像素/米」广播给其余视图 */
+  function broadcastZoom(from: OrthoAxis, scale: number) {
+    if (!linkZoom.value) return
+    orthoZoom.value = { scale, from, nonce: ++zoomNonce }
   }
 
   /** 统一的取色入口：3D 视口、正交视图、对象列表、相机投影都调它 */
@@ -201,12 +325,14 @@ export function createStudioCore() {
       outlinedBorders: outlinedBorders.value,
       showOrientation: showOrientation.value,
     })
-    viewer.setBoxes(display, selectedId.value, colorOf)
+    viewer.setBoxes(display, selectedIds.value, primaryId.value, colorOf)
+    // 悬停光晕单独一层：它的几何体不随框重建，框被拖动时要跟着挪
+    viewer.setHover(hoverId.value ? visibleBoxes.value.find((b) => b.id === hoverId.value) ?? null : null)
     // 4D 轨迹叠加：关闭时传空数组清掉轨迹层
     viewer.setTrajectories(
       showTrajectories.value ? currentTrajectories() : [],
       currentFrame.value,
-      selectedId.value,
+      primaryId.value,
     )
     viewer.requestRender()
   }
@@ -365,20 +491,26 @@ export function createStudioCore() {
     orthoMax.value = null
     hiddenIds.value = new Set()
     lockedIds.value = new Set()
+    selectedIds.value = new Set()
+    primaryId.value = null
+    hoverId.value = null
     tool.value = 'select'
   }
 
   return {
-    viewportRef, camViewRef, boxes, selectedId, cloud, statusText, datasetName, frames, currentFrame,
+    viewportRef, camViewRef, boxes, selectedId, selectedIds, selectedBoxes, selectedCount,
+    cloud, statusText, datasetName, frames, currentFrame,
     layout, calib, imageUrl, tool, showOrtho, orthoMax,
     colorBy, opacity, outlinedBorders, showOrientation,
     hiddenIds, lockedIds, categories, showTrajectories, reviewBoxes, showReview,
     qaReport, temporalReport, canUndo, canRedo, undoLabel, origin, selectedBox, visibleBoxes,
-    saveState, lastSavedAt, dirtyVersion, autosaveEnabled,
-    getViewer, setViewer, invalidateCloud, mutate, syncViewer, syncHistoryUi, markDirty,
+    saveState, lastSavedAt, dirtyVersion, autosaveEnabled, cursor, frameNav,
+    hoverId, setHover, linkZoom, orthoZoom, broadcastZoom,
+    getViewer, setViewer, invalidateCloud, mutate, syncViewer, syncHistoryUi, markDirty, setCursor,
     undoState, redoState, resetHistory, onReset, setLayout,
     categoryOf, colorOf, trajectoryKey, currentTrajectories,
     nextBoxId, toggleHidden, toggleLocked, toggleAllLocked, isLocked,
+    isSelected, selectMany, toggleSelect, selectAll, pruneSelection,
     upsertCategory, removeCategory, ensureCategories, resetViewerState,
   }
 }

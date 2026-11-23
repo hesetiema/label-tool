@@ -23,17 +23,22 @@ export interface DrawRect {
   width: number
 }
 
+/** 跨帧复制的目标范围：下一帧 / 后续全部 / 全部其他帧 */
+export type CopyScope = 'next' | 'forward' | 'all'
+
 export function useAnnotation(core: StudioCore) {
   const {
-    boxes, selectedId, cloud, statusText, origin, mutate, syncViewer, resetHistory,
+    boxes, selectedId, selectedIds, selectedBoxes, selectedCount,
+    cloud, statusText, origin, mutate, syncViewer, resetHistory,
     frames, currentFrame, categories, categoryOf, nextBoxId, markDirty,
+    selectMany, toggleSelect, selectAll, pruneSelection,
   } = core
 
   const currentCategory = ref('Car')
   const labelInput = ref<HTMLInputElement | null>(null)
 
-  /** 内部剪贴板：跨帧粘贴同一目标时保留 label 与尺寸，只换 id */
-  let clipboard: Box3D | null = null
+  /** 内部剪贴板：支持多选，跨帧粘贴时保留 label 与尺寸，只换 id */
+  let clipboard: Box3D[] = []
 
   function nextId(): string {
     return nextBoxId()
@@ -91,19 +96,54 @@ export function useAnnotation(core: StudioCore) {
   }
 
   /** 选中框时记录"编辑前"快照，供跨帧传播计算增量 */
-  function selectBox(id: string | null) {
-    selectedId.value = id
-    const b = id ? boxes.value.find((x) => x.id === id) : null
+  function rememberOrigin() {
+    const b = core.selectedBox.value
     origin.value = b ? cloneBoxes([b])[0] : null
-    syncViewer()
   }
 
-  /** 3D 视口点击拾取 */
+  function selectBox(id: string | null) {
+    selectedId.value = id // 可写 computed：赋值即收敛为单选
+    rememberOrigin()
+    syncViewer()
+    const b = core.selectedBox.value
+    if (b) statusText.value = `选中 ${b.label} #${b.id}`
+    else statusText.value = '未选中对象'
+  }
+
+  /** Ctrl / Cmd 点选：在选中集合里增删一个 */
+  function toggleSelectBox(id: string) {
+    toggleSelect(id)
+    rememberOrigin()
+    syncViewer()
+    statusText.value = selectedCount.value > 1
+      ? `已选 ${selectedCount.value} 个对象`
+      : `选中 #${id}`
+  }
+
+  /** 橡皮筋框选：一次选中一批 */
+  function selectGroup(ids: string[]) {
+    if (!ids.length) return
+    selectMany(ids)
+    rememberOrigin()
+    syncViewer()
+    statusText.value = ids.length > 1 ? `框选 ${ids.length} 个对象` : `选中 #${ids[0]}`
+  }
+
+  function selectAllBoxes() {
+    selectAll()
+    rememberOrigin()
+    syncViewer()
+    statusText.value = `已全选 ${selectedCount.value} 个对象`
+  }
+
+  /** 3D 视口点击拾取；带 Ctrl / Shift 时是追加 */
   function onViewerClick(e: MouseEvent) {
     const viewer = core.getViewer()
     if (!viewer || e.button !== 0) return
     const id = viewer.pickBox(e.clientX, e.clientY, core.visibleBoxes.value)
-    selectBox(id)
+    if (!id) { selectBox(null); return }
+    if (e.ctrlKey || e.metaKey || e.shiftKey) toggleSelectBox(id)
+    else selectBox(id)
   }
 
   /**
@@ -121,6 +161,81 @@ export function useAnnotation(core: StudioCore) {
       cur.label = next.label
       if (next.visibility) cur.visibility = next.visibility
     }, mergeKey)
+  }
+
+  /**
+   * 多选整体拖动：一次 mutate 写完，mergeKey 让整段拖拽只合成一步撤销。
+   * 锁定的成员直接跳过（对齐 CVAT：锁住的对象不参与任何编辑）。
+   */
+  function applyBoxes(list: Box3D[], mergeKey: string, label = '拖动多个框') {
+    mutate(label, () => {
+      for (const next of list) {
+        if (core.isLocked(next.id)) continue
+        const cur = boxes.value.find((b) => b.id === next.id)
+        if (!cur) continue
+        cur.position = { ...next.position }
+        cur.scale = { ...next.scale }
+        cur.yaw = next.yaw
+      }
+    }, mergeKey)
+  }
+
+  /** 数字键 / 类别下拉：改所有选中对象的类别；没有选中时只改"下一个新框"的默认类别 */
+  function relabelSelected(label: string) {
+    const targets = selectedBoxes.value.filter((b) => !core.isLocked(b.id))
+    if (!targets.length) {
+      currentCategory.value = label
+      statusText.value = `当前类别：${label}`
+      return
+    }
+    mutate('修改类别', () => {
+      for (const b of targets) b.label = label
+    })
+    currentCategory.value = label
+    statusText.value = targets.length > 1
+      ? `已把 ${targets.length} 个对象改为 ${label}`
+      : `#${targets[0].id} 改为 ${label}`
+  }
+
+  /**
+   * 用框内的点云重新拟合选中框（PCA 主方向 + 局部 min/max）。
+   * 这是 CVAT 改造时丢掉的能力：`createBoxFromPoints` 至今没有调用点，
+   * 所以改由「选中已有框 → Shift+F」触发，语义更直接。
+   */
+  function refitSelected() {
+    const targets = selectedBoxes.value.filter((b) => !core.isLocked(b.id))
+    if (!targets.length) {
+      statusText.value = '先选中要拟合的框'
+      return
+    }
+    const cv = cloud.value
+    if (!cv) return
+    const pos = cv.positions
+    const next: Box3D[] = []
+    let fittedCount = 0
+    for (const b of targets) {
+      const idx: number[] = []
+      for (let i = 0; i < cv.count; i++) {
+        if (pointInBoxBev(b, pos[i * 3], pos[i * 3 + 1])) idx.push(i)
+      }
+      const nb = cloneBoxes([b])[0]
+      if (idx.length >= 5) {
+        const fitted = fitBoxToPoints(pos, idx, estimateYawByPCA(pos, idx))
+        if (fitted) {
+          nb.position = fitted.position
+          nb.scale = fitted.scale
+          nb.yaw = fitted.yaw
+          fittedCount++
+        }
+      }
+      next.push(nb)
+    }
+    if (!fittedCount) {
+      statusText.value = '框内点太少，无法拟合（至少需要 5 个点）'
+      return
+    }
+    applyBoxes(next, `fit:${targets.map((b) => b.id).join(',')}`, '自动拟合')
+    statusText.value = `已用点云重新拟合 ${fittedCount} 个对象`
   }
 
   function setBoxProp(prop: string, value: number | string) {
@@ -143,51 +258,114 @@ export function useAnnotation(core: StudioCore) {
     }, `prop:${id}:${prop}`)
   }
 
-  function duplicateSelected() {
-    const b = core.selectedBox.value
-    if (!b) return
-    const copy: Box3D = {
+  /** 克隆选中的一批框，并把 id 换成新的、整体偏移 2m（避免与原框完全重叠） */
+  function cloneAsNew(src: Box3D[]): Box3D[] {
+    return src.map((b) => ({
       ...cloneBoxes([b])[0],
       id: nextId(),
       position: { ...b.position, x: b.position.x + 2, y: b.position.y + 2 },
-    }
+    }))
+  }
+
+  function adoptSelection(ids: string[]) {
+    selectMany(ids)
+    rememberOrigin()
+    syncViewer()
+  }
+
+  function duplicateSelected() {
+    const src = selectedBoxes.value
+    if (!src.length) return
+    const copies = cloneAsNew(src)
     mutate('复制框', () => {
-      boxes.value.push(copy)
-      selectedId.value = copy.id
-      origin.value = cloneBoxes([copy])[0]
+      boxes.value.push(...copies)
     })
-    statusText.value = `已复制为 #${copy.id}`
+    adoptSelection(copies.map((c) => c.id))
+    statusText.value = copies.length > 1 ? `已复制 ${copies.length} 个对象` : `已复制为 #${copies[0].id}`
   }
 
   function copySelected() {
-    const b = core.selectedBox.value
-    if (!b) return
-    clipboard = cloneBoxes([b])[0]
-    statusText.value = `已复制 #${b.id}，Ctrl+V 粘贴到当前帧`
+    const src = selectedBoxes.value
+    if (!src.length) return
+    clipboard = cloneBoxes(src)
+    statusText.value = src.length > 1
+      ? `已复制 ${src.length} 个对象，Ctrl+V 粘贴到当前帧`
+      : `已复制 #${src[0].id}，Ctrl+V 粘贴到当前帧`
   }
 
   function pasteClipboard() {
-    if (!clipboard) return
-    const copy: Box3D = {
-      ...cloneBoxes([clipboard])[0],
-      id: nextId(),
-      position: { ...clipboard.position, x: clipboard.position.x + 2, y: clipboard.position.y + 2 },
-    }
+    if (!clipboard.length) return
+    const copies = cloneAsNew(clipboard)
     mutate('粘贴框', () => {
-      boxes.value.push(copy)
-      selectedId.value = copy.id
-      origin.value = cloneBoxes([copy])[0]
+      boxes.value.push(...copies)
     })
-    statusText.value = `已粘贴为 #${copy.id}`
+    adoptSelection(copies.map((c) => c.id))
+    statusText.value = copies.length > 1 ? `已粘贴 ${copies.length} 个对象` : `已粘贴为 #${copies[0].id}`
   }
 
+  /**
+   * 把当前帧选中的框复制到其他帧，**保持 id 不变**——同 id 跨帧就是同一条轨迹。
+   * 这是 CVAT 里「一次画好、往后铺」的做法：先标好一帧，再逐帧微调。
+   * 目标帧已有同 id 的框就跳过，不覆盖已经手工调过的标注。
+   */
+  function copyToFrames(scope: CopyScope) {
+    if (!frames.value.length) {
+      statusText.value = '跨帧复制需要先加载多帧序列'
+      return
+    }
+    const src = selectedBoxes.value
+    if (!src.length) {
+      statusText.value = '先选中要复制的框'
+      return
+    }
+    // 当前帧的工作副本必须先写回序列，否则复制出去的可能是删改前的旧框
+    frames.value[currentFrame.value].boxes = cloneBoxes(boxes.value)
+    const from = currentFrame.value
+    const targets: number[] = []
+    for (let i = 0; i < frames.value.length; i++) {
+      if (i === from) continue
+      if (scope === 'next' && i !== from + 1) continue
+      if (scope === 'forward' && i <= from) continue
+      targets.push(i)
+    }
+    if (!targets.length) {
+      statusText.value = scope === 'next' ? '当前已经是最后一帧' : '没有可复制的目标帧'
+      return
+    }
+    let added = 0
+    let skipped = 0
+    for (const ti of targets) {
+      const frame = frames.value[ti]
+      const have = new Set(frame.boxes.map((b) => b.id))
+      for (const b of src) {
+        if (have.has(b.id)) { skipped++; continue }
+        frame.boxes.push(cloneBoxes([b])[0])
+        added++
+      }
+    }
+    markDirty()
+    syncViewer()
+    const scopeText = scope === 'next' ? '下一帧' : scope === 'forward' ? '后续帧' : '全部帧'
+    statusText.value = added
+      ? `已把 ${src.length} 个对象复制到${scopeText}：新增 ${added} 个框${skipped ? `，跳过 ${skipped} 个已存在` : ''}`
+      : `${scopeText}里都已经有这些对象（跳过 ${skipped} 个），未新增`
+  }
+
+  /** 删除所有选中；锁定的自动跳过，并明确告诉用户跳过了几个 */
   function deleteSelected() {
-    const id = selectedId.value
-    if (!id || core.isLocked(id)) return
-    mutate('删除框', () => {
-      boxes.value = boxes.value.filter((b) => b.id !== id)
+    const ids = [...selectedIds.value].filter((id) => !core.isLocked(id))
+    if (!ids.length) {
+      if (selectedCount.value) statusText.value = '选中的对象都已锁定，先解锁再删除'
+      return
+    }
+    const skipped = selectedCount.value - ids.length
+    mutate(ids.length > 1 ? `删除 ${ids.length} 个框` : '删除框', () => {
+      boxes.value = boxes.value.filter((b) => !ids.includes(b.id))
       selectedId.value = null
     })
+    statusText.value = ids.length > 1
+      ? `已删除 ${ids.length} 个对象${skipped ? `（跳过 ${skipped} 个锁定）` : ''}`
+      : `已删除 #${ids[0]}`
   }
 
   // ---- 撤销重做 ----
@@ -195,7 +373,7 @@ export function useAnnotation(core: StudioCore) {
     const step = core.undoState()
     if (!step) return
     boxes.value = step.state
-    if (selectedId.value && !boxes.value.some((b) => b.id === selectedId.value)) selectedId.value = null
+    pruneSelection()
     core.syncHistoryUi()
     syncViewer()
     markDirty()
@@ -206,7 +384,7 @@ export function useAnnotation(core: StudioCore) {
     const step = core.redoState()
     if (!step) return
     boxes.value = step.state
-    if (selectedId.value && !boxes.value.some((b) => b.id === selectedId.value)) selectedId.value = null
+    pruneSelection()
     core.syncHistoryUi()
     syncViewer()
     markDirty()
@@ -278,39 +456,58 @@ export function useAnnotation(core: StudioCore) {
   }
 
   // ---- 键盘快捷键：编辑选中的框 ----
+  /** 方向键微调：多选时整组一起动，锁定成员跳过 */
+  function nudge(dx: number, dy: number, dz: number, step: number) {
+    const targets = selectedBoxes.value.filter((b) => !core.isLocked(b.id))
+    if (!targets.length) return
+    const next = cloneBoxes(targets)
+    for (const b of next) {
+      b.position.x += dx * step
+      b.position.y += dy * step
+      b.position.z += dz * step
+    }
+    applyBoxes(next, `nudge:${targets.map((b) => b.id).join(',')}`, '微调位置')
+    statusText.value = `微调 ${targets.length} 个对象（步长 ${step} m）`
+  }
+
+  /** Tab / Shift+Tab 在对象之间前后切换（CVAT 同款） */
+  function cycleSelection(dir: 1 | -1) {
+    const list = core.visibleBoxes.value
+    if (!list.length) return
+    const at = list.findIndex((b) => b.id === selectedId.value)
+    const i = at < 0
+      ? (dir > 0 ? 0 : list.length - 1)
+      : (at + dir + list.length) % list.length
+    selectBox(list[i].id)
+    statusText.value = `选中 ${list[i].label} #${list[i].id}`
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement)?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-    const box = core.selectedBox.value
     const key = e.key.toLowerCase()
+    const ctrl = e.ctrlKey || e.metaKey
 
-    if ((e.ctrlKey || e.metaKey) && key === 's') {
+    if (ctrl && key === 's') {
       e.preventDefault()
       if (e.shiftKey) doExportAll(); else doExportFrame()
       return
     }
-    if ((e.ctrlKey || e.metaKey) && key === 'z') {
+    if (ctrl && key === 'z') {
       e.preventDefault()
       if (e.shiftKey) doRedo(); else doUndo()
       return
     }
-    if ((e.ctrlKey || e.metaKey) && key === 'y') {
-      e.preventDefault()
-      doRedo()
-      return
-    }
-    if ((e.ctrlKey || e.metaKey) && key === 'c') {
-      e.preventDefault(); copySelected(); return
-    }
-    if ((e.ctrlKey || e.metaKey) && key === 'v') {
-      e.preventDefault(); pasteClipboard(); return
-    }
-    if ((e.ctrlKey || e.metaKey) && key === 'd') {
-      e.preventDefault(); duplicateSelected(); return
-    }
+    if (ctrl && key === 'y') { e.preventDefault(); doRedo(); return }
+    if (ctrl && key === 'a') { e.preventDefault(); selectAllBoxes(); return }
+    if (ctrl && key === 'c') { e.preventDefault(); copySelected(); return }
+    if (ctrl && key === 'v') { e.preventDefault(); pasteClipboard(); return }
+    if (ctrl && key === 'd') { e.preventDefault(); duplicateSelected(); return }
+    // Ctrl+B：把选中框广播到后续所有帧（同 id，构成轨迹）
+    if (ctrl && key === 'b') { e.preventDefault(); copyToFrames('forward'); return }
 
     // 工具切换：V 选择 / H 平移 / N 画框（与 CVAT 一致）
-    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (!ctrl && !e.altKey) {
       if (key === 'v') { core.tool.value = 'select'; statusText.value = '工具：选择'; return }
       if (key === 'h') { core.tool.value = 'pan'; statusText.value = '工具：平移'; return }
       if (key === 'n') {
@@ -319,34 +516,69 @@ export function useAnnotation(core: StudioCore) {
         statusText.value = '工具：画框（在 Top 视图拖拽）'
         return
       }
-      if (key === 'escape') { selectBox(null); core.tool.value = 'select'; return }
-      // 数字键 1-9 快速切换当前类别（CVAT 同样用数字选 label）
+      if (key === 'escape') {
+        selectBox(null)
+        core.tool.value = 'select'
+        return
+      }
+      // , / . 切帧；按住 Shift 直接跳到上一处 / 下一处有标注的帧。
+      // 用 e.code 而不是 e.key：Shift+. 的 key 是 '>'，按字符判断会漏掉
+      if (e.code === 'Comma' || e.code === 'Period') {
+        e.preventDefault()
+        const dir = e.code === 'Period' ? 1 : -1
+        if (e.shiftKey) core.frameNav.jumpToBox?.(dir)
+        else if (dir > 0) core.frameNav.next?.()
+        else core.frameNav.prev?.()
+        return
+      }
+      // 数字键 1-9：有选中就改选中对象的类别，没选中只改「下一个新框」的默认类别
       if (/^[1-9]$/.test(key)) {
         const cat = categories.value[Number(key) - 1]
-        if (cat) {
-          currentCategory.value = cat.name
-          statusText.value = `当前类别：${cat.name}`
-          return
-        }
+        if (cat) { relabelSelected(cat.name); return }
       }
     }
 
-    if (!box) return
-    if (core.isLocked(box.id)) {
-      statusText.value = `#${box.id} 已锁定，先解锁再编辑`
+    // 方向键 / Tab：不依赖"有选中"，先处理
+    if (!ctrl && !e.altKey) {
+      const step = e.shiftKey ? 0.5 : 0.1
+      if (key === 'arrowleft') { e.preventDefault(); nudge(-1, 0, 0, step); return }
+      if (key === 'arrowright') { e.preventDefault(); nudge(1, 0, 0, step); return }
+      if (key === 'arrowup') { e.preventDefault(); nudge(0, 1, 0, step); return }
+      if (key === 'arrowdown') { e.preventDefault(); nudge(0, -1, 0, step); return }
+      if (key === 'pageup') { e.preventDefault(); nudge(0, 0, 1, step); return }
+      if (key === 'pagedown') { e.preventDefault(); nudge(0, 0, -1, step); return }
+      if (key === 'tab') { e.preventDefault(); cycleSelection(e.shiftKey ? -1 : 1); return }
+    }
+
+    const targets = selectedBoxes.value.filter((b) => !core.isLocked(b.id))
+    if (!targets.length) {
+      if (selectedCount.value) statusText.value = '选中的对象都已锁定，先解锁再编辑'
       return
     }
     const step = e.shiftKey ? 0.5 : 0.1
-    const mk = (suffix: string) => `k:${box.id}:${suffix}`
+    const gk = (s: string) => `k:${targets.map((b) => b.id).join(',')}:${s}`
+    // Shift+F：用框内点云重新拟合（F 单独按下仍是缩短长度）
+    if (key === 'f' && e.shiftKey) {
+      e.preventDefault()
+      refitSelected()
+      return
+    }
+    /** 对整组做同一个变换：改快照再整组提交 */
+    const edit = (label: string, fn: (b: Box3D) => void, suffix: string) => {
+      const next = cloneBoxes(targets)
+      next.forEach(fn)
+      applyBoxes(next, gk(suffix), label)
+    }
+
     switch (key) {
-      case 'w': mutate('平移框', () => { box.position.x += step }, mk('x+')); break
-      case 's': mutate('平移框', () => { box.position.x -= step }, mk('x-')); break
-      case 'a': mutate('平移框', () => { box.position.y += step }, mk('y+')); break
-      case 'd': mutate('平移框', () => { box.position.y -= step }, mk('y-')); break
-      case 'q': mutate('旋转框', () => { box.yaw += 0.05 }, mk('yaw+')); break
-      case 'e': mutate('旋转框', () => { box.yaw -= 0.05 }, mk('yaw-')); break
-      case 'r': mutate('缩放框', () => { box.scale.x = Math.max(0.2, box.scale.x + step) }, mk('len+')); break
-      case 'f': mutate('缩放框', () => { box.scale.x = Math.max(0.2, box.scale.x - step) }, mk('len-')); break
+      case 'w': edit('平移框', (b) => { b.position.x += step }, 'x+'); break
+      case 's': edit('平移框', (b) => { b.position.x -= step }, 'x-'); break
+      case 'a': edit('平移框', (b) => { b.position.y += step }, 'y+'); break
+      case 'd': edit('平移框', (b) => { b.position.y -= step }, 'y-'); break
+      case 'q': edit('旋转框', (b) => { b.yaw += 0.05 }, 'yaw+'); break
+      case 'e': edit('旋转框', (b) => { b.yaw -= 0.05 }, 'yaw-'); break
+      case 'r': edit('缩放框', (b) => { b.scale.x = Math.max(0.2, b.scale.x + step) }, 'len+'); break
+      case 'f': edit('缩放框', (b) => { b.scale.x = Math.max(0.2, b.scale.x - step) }, 'len-'); break
       case 'delete':
       case 'backspace':
         deleteSelected()
@@ -363,7 +595,9 @@ export function useAnnotation(core: StudioCore) {
 
   return {
     currentCategory, labelInput, createBoxFromRect, createBoxFromPoints, selectBox, onViewerClick,
-    applyBox, setBoxProp, duplicateSelected, copySelected, pasteClipboard, deleteSelected,
+    toggleSelectBox, selectGroup, selectAllBoxes, relabelSelected, refitSelected,
+    applyBox, applyBoxes, setBoxProp, duplicateSelected, copySelected, pasteClipboard, deleteSelected,
+    copyToFrames,
     doUndo, doRedo, doExportFrame, doExportAll, onLabelFile, onKeyDown, pickAt,
   }
 }

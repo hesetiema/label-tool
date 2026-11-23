@@ -18,7 +18,7 @@ import { strVal, type StudioCore } from './studioCore'
 export function useSequence(core: StudioCore) {
   const {
     boxes, selectedId, cloud, frames, currentFrame, statusText, showTrajectories,
-    temporalReport, origin, mutate, syncViewer, resetHistory, onReset, markDirty,
+    temporalReport, origin, mutate, syncViewer, resetHistory, onReset, markDirty, frameNav,
   } = core
 
   // ---- 回放 ----
@@ -74,6 +74,28 @@ export function useSequence(core: StudioCore) {
     if (!Number.isFinite(i)) return
     gotoFrame(Math.round(i))
   }
+
+  /**
+   * 跳到上 / 下一处有标注的帧。
+   * 500 帧的序列里一帧帧翻是最耗时的动作，按"有没有框"跳能省掉大量空帧。
+   */
+  function jumpToBoxFrame(dir: 1 | -1) {
+    if (!frames.value.length) return
+    frames.value[currentFrame.value].boxes = cloneBoxes(boxes.value)
+    for (let i = currentFrame.value + dir; i >= 0 && i < frames.value.length; i += dir) {
+      if (frames.value[i].boxes.length) {
+        gotoFrame(i)
+        statusText.value = `第 ${i + 1} 帧有 ${frames.value[i].boxes.length} 个标注`
+        return
+      }
+    }
+    statusText.value = dir > 0 ? '后面没有带标注的帧了' : '前面没有带标注的帧了'
+  }
+
+  // 键盘快捷键（标注模块）通过这个桥切帧，避免两个模块互相 import
+  frameNav.next = nextFrame
+  frameNav.prev = prevFrame
+  frameNav.jumpToBox = jumpToBoxFrame
 
   /** 逐帧回放：到末帧后从头循环，直到手动暂停 */
   function play() {
@@ -248,6 +270,7 @@ export function useSequence(core: StudioCore) {
   return {
     isPlaying, playSpeed, propagateScope, propagateStrategy,
     pausePlay, play, togglePlay, onSpeedChange, gotoFrame, prevFrame, nextFrame, setFrame,
+    jumpToBoxFrame,
     doInterpolate, toggleTrajectories,
     onScopeChange, onStrategyChange, doPropagate,
     runTemporalQA, runOcclusionDemo, toggleSelectedVisibility, runTemporalDemo, gotoIssueFrame,

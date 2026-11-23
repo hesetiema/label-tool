@@ -56,6 +56,8 @@ export class PointCloudViewer {
   private container: HTMLElement
   private cloudPoints?: THREE.Points
   private boxVisuals = new Map<string, BoxVisual>()
+  /** 悬停光晕：单独一层，不进框的签名缓存（否则鼠标每掠过一次就重建一个框的材质） */
+  private hoverVisual?: { sig: string; obj: THREE.LineSegments }
 
   private trajLayer?: THREE.Group
   private lastTracks: Trajectory[] | null = null
@@ -253,28 +255,38 @@ export class PointCloudViewer {
     return line
   }
 
-  private boxSignature(box: Box3D, color: number, selected: boolean): string {
+  /** selLevel：0 未选中 / 1 次选中 / 2 主选中。进签名才能让多选变化触发重建 */
+  private boxSignature(box: Box3D, color: number, selLevel: number): string {
     return [
       box.position.x, box.position.y, box.position.z,
       box.scale.x, box.scale.y, box.scale.z, box.yaw,
-      box.label, box.visibility ?? 'visible', color, selected ? 1 : 0,
+      box.label, box.visibility ?? 'visible', color, selLevel,
       this.appearance.outlinedBorders ? 1 : 0,
       this.appearance.showOrientation ? 1 : 0,
       this.appearance.opacity,
     ].join('|')
   }
 
-  /** 同步所有框到场景（增量更新，签名不变直接跳过） */
-  setBoxes(boxes: Box3D[], selectedId: string | null, colorOf: (box: Box3D) => number) {
+  /**
+   * 同步所有框到场景（增量更新，签名不变直接跳过）。
+   * 多选时主选中用黄、次选中用白，和正交视图的配色保持一致。
+   */
+  setBoxes(
+    boxes: Box3D[],
+    selectedIds: ReadonlySet<string>,
+    primaryId: string | null,
+    colorOf: (box: Box3D) => number,
+  ) {
     const seen = new Set<string>()
     let changed = false
 
     for (const box of boxes) {
       if (!Number.isFinite(box.position.x) || !Number.isFinite(box.scale.x)) continue
       seen.add(box.id)
-      const selected = selectedId === box.id
-      const color = selected ? 0xffee58 : colorOf(box)
-      const sig = this.boxSignature(box, color, selected)
+      const primary = primaryId === box.id
+      const selected = primary || selectedIds.has(box.id)
+      const color = primary ? 0xffee58 : selected ? 0xffffff : colorOf(box)
+      const sig = this.boxSignature(box, color, primary ? 2 : selected ? 1 : 0)
       let vis = this.boxVisuals.get(box.id)
 
       if (!vis) {
@@ -344,6 +356,50 @@ export class PointCloudViewer {
     }
 
     if (changed) this.needsRender = true
+  }
+
+  /**
+   * 悬停高亮：在框外面套一圈更亮的线框。
+   * 不做成「改这个框自己的描边颜色」是有意为之——那会破坏 boxSignature 缓存，
+   * 鼠标每掠过一格都要重建一次材质。放在独立层里，只有悬停目标变了才重建一条 12 段的线。
+   */
+  setHover(box: Box3D | null) {
+    if (!box) {
+      this.clearHover()
+      return
+    }
+    const sig = [
+      box.id, box.position.x, box.position.y, box.position.z,
+      box.scale.x, box.scale.y, box.scale.z, box.yaw,
+    ].join('|')
+    if (this.hoverVisual?.sig === sig) return
+    this.clearHover()
+
+    // 放大 6% + 固定外扩，视觉上像一圈外发光，也不会被框自己的描边压住
+    const halo: Box3D = {
+      ...box,
+      scale: {
+        x: box.scale.x * 1.06 + 0.08,
+        y: box.scale.y * 1.06 + 0.08,
+        z: box.scale.z * 1.06 + 0.08,
+      },
+    }
+    const obj = this.makeEdges(halo, 0x9fe8ff) as THREE.LineSegments
+    obj.renderOrder = 12
+    const mat = obj.material as THREE.LineBasicMaterial
+    mat.opacity = 0.95
+    this.scene.add(obj)
+    this.hoverVisual = { sig, obj }
+    this.needsRender = true
+  }
+
+  private clearHover() {
+    if (!this.hoverVisual) return
+    this.scene.remove(this.hoverVisual.obj)
+    this.hoverVisual.obj.geometry.dispose()
+    ;(this.hoverVisual.obj.material as THREE.Material).dispose()
+    this.hoverVisual = undefined
+    this.needsRender = true
   }
 
   /**
@@ -631,6 +687,7 @@ export class PointCloudViewer {
     this.renderer.domElement.removeEventListener('dblclick', this.onDoubleClickFit)
     this.setWatermark(false)
     this.setCameraTrajectory(null)
+    this.clearHover()
     for (const vis of this.boxVisuals.values()) {
       vis.edges.geometry.dispose()
       ;(vis.edges.material as THREE.Material).dispose()

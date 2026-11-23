@@ -10,7 +10,8 @@ import type { Box3D } from '../../core/types'
 
 const studio = inject(StudioKey)!
 const {
-  boxes, selectedId, lockedIds, hiddenIds, selectBox, toggleLocked, toggleHidden,
+  boxes, selectedId, selectedIds, selectedCount, lockedIds, hiddenIds,
+  selectBox, toggleSelectBox, toggleLocked, toggleHidden,
   toggleAllLocked, deleteSelected, colorOf,
 } = studio
 
@@ -30,8 +31,10 @@ function css(box: Box3D) {
   return '#' + colorOf(box).toString(16).padStart(6, '0')
 }
 
-function pick(id: string) {
-  selectBox(id)
+/** Ctrl / Cmd / Shift 点选 = 在集合里增删；普通点击 = 单选 */
+function pick(id: string, e: MouseEvent) {
+  if (e.ctrlKey || e.metaKey || e.shiftKey) toggleSelectBox(id)
+  else selectBox(id)
 }
 
 function remove(id: string) {
@@ -51,7 +54,10 @@ function posText(b: { position: { x: number; y: number; z: number } }) {
 <template>
   <section class="panel-sec objects">
     <div class="panel-head">
-      <span class="panel-title">对象 <b>{{ boxes.length }}</b></span>
+      <span class="panel-title">
+        对象 <b>{{ boxes.length }}</b>
+        <em v-if="selectedCount > 1" class="panel-count">选中 {{ selectedCount }}</em>
+      </span>
       <div class="panel-actions">
         <select v-model="sortBy" class="mini-select" title="排序">
           <option value="id">按 ID</option>
@@ -68,8 +74,12 @@ function posText(b: { position: { x: number; y: number; z: number } }) {
         v-for="b in sorted"
         :key="b.id"
         class="obj-card"
-        :class="{ active: selectedId === b.id, muted: hiddenIds.has(b.id) }"
-        @click="pick(b.id)"
+        :class="{
+          active: selectedIds.has(b.id),
+          primary: selectedId === b.id,
+          muted: hiddenIds.has(b.id),
+        }"
+        @click="pick(b.id, $event)"
       >
         <span class="obj-stripe" :style="{ background: css(b) }"></span>
         <div class="obj-main">
