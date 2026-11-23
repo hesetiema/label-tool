@@ -18,7 +18,7 @@ import { strVal, type StudioCore } from './studioCore'
 export function useSequence(core: StudioCore) {
   const {
     boxes, selectedId, cloud, frames, currentFrame, statusText, showTrajectories,
-    temporalReport, origin, mutate, syncViewer, resetHistory, onReset,
+    temporalReport, origin, mutate, syncViewer, resetHistory, onReset, markDirty,
   } = core
 
   // ---- 回放 ----
@@ -56,7 +56,23 @@ export function useSequence(core: StudioCore) {
     // 跨帧撤销语义复杂，教学版切帧即清空历史；但不打断回放，也保留质检报告
     resetHistory({ keepPlayback: true, keepQA: true })
     syncViewer()
+    markDirty()
     statusText.value = `第 ${target + 1}/${frames.value.length} 帧 · ${boxes.value.length} 个框`
+  }
+
+  /** 顶部帧导航：前后一帧 */
+  function prevFrame() {
+    if (currentFrame.value > 0) gotoFrame(currentFrame.value - 1)
+  }
+
+  function nextFrame() {
+    if (currentFrame.value < frames.value.length - 1) gotoFrame(currentFrame.value + 1)
+  }
+
+  /** 滑块 / 数字输入直接跳帧 */
+  function setFrame(i: number) {
+    if (!Number.isFinite(i)) return
+    gotoFrame(Math.round(i))
   }
 
   /** 逐帧回放：到末帧后从头循环，直到手动暂停 */
@@ -97,6 +113,7 @@ export function useSequence(core: StudioCore) {
     selectedId.value = null
     resetHistory()
     syncViewer()
+    markDirty()
     statusText.value = added > 0
       ? `轨迹插值完成：补出 ${added} 个中间帧框（obj_id 跨帧一致）`
       : '所有轨迹的中间帧都已完整，无需插值'
@@ -145,6 +162,7 @@ export function useSequence(core: StudioCore) {
     origin.value = cloneBoxes([edited])[0] // 更新基准为"本次编辑后"
     resetHistory()
     syncViewer()
+    markDirty()
     const scopeText = { all: '全部帧', forward: '后续帧', backward: '前序帧' }[propagateScope.value]
     const strategyText = propagateStrategy.value === 'replace' ? '整框替换' : '增量平移'
     statusText.value = changed > 0
@@ -194,6 +212,7 @@ export function useSequence(core: StudioCore) {
     statusText.value = `已把 ${gap.objId} 在第 ${gap.frame} 帧标记为遮挡：健康分 ${before.score} → ${after.score}，该处断裂不再误报（遮挡点 ${after.occludedPoints} 个）`
     gotoFrame(gap.frame)
     syncViewer()
+    markDirty()
   }
 
   /** 把当前选中框切换 可见 / 遮挡 状态（插入历史，可撤销） */
@@ -228,7 +247,8 @@ export function useSequence(core: StudioCore) {
 
   return {
     isPlaying, playSpeed, propagateScope, propagateStrategy,
-    pausePlay, play, togglePlay, onSpeedChange, gotoFrame, doInterpolate, toggleTrajectories,
+    pausePlay, play, togglePlay, onSpeedChange, gotoFrame, prevFrame, nextFrame, setFrame,
+    doInterpolate, toggleTrajectories,
     onScopeChange, onStrategyChange, doPropagate,
     runTemporalQA, runOcclusionDemo, toggleSelectedVisibility, runTemporalDemo, gotoIssueFrame,
   }

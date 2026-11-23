@@ -3,59 +3,76 @@
  * Three.js 渲染器 —— 把数据与交互连起来的桥梁
  * ============================================================
  *
- * 我们维护两个视口（视口 = viewport，一个渲染区域）：
- *  1) 3D 透视视图：可自由旋转的立体视图，符合直觉
- *  2) BEV 鸟瞰视图(Bird's Eye View)：从上往下的正交投影，标注主要在这里做
+ * 只有「一个」3D 透视视口。顶视 / 侧视 / 正视由 Stage 底部的
+ * 三联正交视图负责（2D 投影，见 components/OrthoView.vue）。
  *
- * 为什么需要 BEV？因为在顶视图里，xy 平面和屏幕平面一一对应，
- * 拖拽鼠标画矩形 = 在世界上框定一个 xy 区域，非常直观。
- * 3D 视图则用来验证高度、朝向是否贴准。
+ * 为什么砍掉原来的 BEV WebGL 场景：
+ *  1. CVAT 的工作流是「3D 看整体，Top 画框，Side 调高度」，顶视只需要 2D 投影；
+ *  2. 一个场景少一半几何体与材质，同步逻辑也少一半；
+ *  3. 正交视图用 2D canvas 画点云，拖拽手柄的命中测试直接用屏幕距离，比 raycast 稳。
  *
- * 关键点：因为我们的坐标系 z-up，而 Three.js 默认 y-up，
- * 所以所有相机都要 camera.up.set(0,0,1)。
+ * 坐标系仍是 z-up（KITTI 约定），所以相机显式 camera.up.set(0,0,1)。
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Box3D, PointCloud } from '../core/types'
-import type { Trajectory, TrackPoint } from '../core/sequence/sequence'
+import type { Trajectory } from '../core/sequence/sequence'
 import type { CameraPose, CameraTrajectory } from '../core/camera/cameraTrajectory'
 import { boxToVertices } from '../core/geometry/box'
-import { DEFAULT_CATEGORIES } from '../core/types'
 
-export type ViewMode = '3d' | 'bev'
+export interface AppearanceOptions {
+  colorBy: 'label' | 'instance'
+  opacity: number
+  outlinedBorders: boolean
+  showOrientation: boolean
+}
 
 interface BoxVisual {
   edges: THREE.LineSegments
+  faces: THREE.Mesh
   label: THREE.Sprite
+  orientation: THREE.Line
+  /** 变换 / 选中 / 颜色签名，没变就跳过重建 */
+  sig: string
+  labelText: string
+  color: number
 }
+
+const EDGE_INDICES: [number, number][] = [
+  [0, 1], [1, 2], [2, 3], [3, 0],
+  [4, 5], [5, 6], [6, 7], [7, 4],
+  [0, 4], [1, 5], [2, 6], [3, 7],
+]
+
+const tmpMatrix = new THREE.Matrix4()
+const tmpQuat = new THREE.Quaternion()
+const tmpVec = new THREE.Vector3()
 
 export class PointCloudViewer {
   private renderer: THREE.WebGLRenderer
-  private scene3d = new THREE.Scene()
-  private sceneBev = new THREE.Scene()
-  private camera3d: THREE.PerspectiveCamera
-  private cameraBev: THREE.OrthographicCamera
+  private scene = new THREE.Scene()
+  private camera: THREE.PerspectiveCamera
   private controls: OrbitControls
   private container: HTMLElement
-  private cloudPoints3d?: THREE.Points
-  private cloudPointsBev?: THREE.Points
-  private boxVisuals = new Map<string, { a: BoxVisual; b: BoxVisual }>()
-  private bevFrustum = 60 // BEV 正交相机视野大小（米），可缩放
-  private mode: ViewMode = '3d'
+  private cloudPoints?: THREE.Points
+  private boxVisuals = new Map<string, BoxVisual>()
 
-  /** 目标轨迹叠加层：同一 id 的多帧中心点连成线，展示目标的运动路径 */
-  private trajLines3d?: THREE.Group
-  private trajLinesBev?: THREE.Group
+  private trajLayer?: THREE.Group
+  private lastTracks: Trajectory[] | null = null
+  private lastTrackFrame = -1
+  private lastTrackSelected: string | null = null
 
-  /** 相机运镜关键帧叠加层（只在 3D 视口显示，因为运镜本身发生在透视相机上） */
   private cameraTrajLayer?: THREE.Group
-  /** 当前 roll。OrbitControls 不修改 camera.up，所以由我们显式记录 */
   private cameraRoll = 0
-  /** 录制水印：挂在相机下的 Sprite，因此会被 canvas.captureStream 一起录进去 */
   private watermarkSprite?: THREE.Sprite
 
-  /** 当用户在 BEV 上拖拽画框时，用于实时显示的临时矩形 */
-  private draftLine?: THREE.Line
+  private appearance: AppearanceOptions = {
+    colorBy: 'label', opacity: 0.9, outlinedBorders: true, showOrientation: true,
+  }
+
+  /** 脏标记：只有数据 / 相机变化时才重绘，空闲时不再满帧跑 GPU */
+  private needsRender = true
+  private disposed = false
 
   constructor(container: HTMLElement) {
     this.container = container
@@ -64,280 +81,338 @@ export class PointCloudViewer {
     this.renderer.setSize(container.clientWidth, container.clientHeight)
     container.appendChild(this.renderer.domElement)
 
-    // 3D 相机：透视投影，up 设为 z
-    this.camera3d = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 2000)
-    this.camera3d.up.set(0, 0, 1)
-    this.camera3d.position.set(30, -40, 30)
-    this.camera3d.lookAt(0, 0, 0)
+    this.camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 3000)
+    this.camera.up.set(0, 0, 1)
+    this.camera.position.set(30, -40, 30)
+    this.camera.lookAt(0, 0, 0)
 
-    // BEV 相机：正交投影，从正上方向下看（沿 -z），up 指向 +y
-    const aspect = container.clientWidth / container.clientHeight
-    const f = this.bevFrustum / 2
-    this.cameraBev = new THREE.OrthographicCamera(-f * aspect, f * aspect, f, -f, 0.1, 1000)
-    this.cameraBev.up.set(0, 1, 0)
-    this.cameraBev.position.set(0, 0, 200)
-    this.cameraBev.lookAt(0, 0, 0)
-
-    // OrbitControls 让 3D 视图可以用鼠标旋转/缩放/平移
-    this.controls = new OrbitControls(this.camera3d, this.renderer.domElement)
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
+    this.controls.dampingFactor = 0.12
     this.controls.target.set(0, 0, 0)
+    this.controls.addEventListener('change', () => { this.needsRender = true })
 
-    // 把相机挂进场景图：这样挂在相机下的水印 Sprite 才会被渲染/录制
-    this.scene3d.add(this.camera3d)
+    this.scene.add(this.camera)
+    this.scene.background = new THREE.Color(0x0f1219)
 
-    // 两个场景都加网格与坐标轴，帮助建立空间感
-    for (const sc of [this.scene3d, this.sceneBev]) {
-      sc.background = new THREE.Color(0x10141c)
-      const grid = new THREE.GridHelper(200, 40, 0x2a3550, 0x1a2030)
-      // GridHelper 默认在 xz 平面（y-up），旋转到 xy 平面（z-up）
-      grid.rotation.x = Math.PI / 2
-      sc.add(grid)
-      sc.add(new THREE.AxesHelper(5))
-    }
+    const grid = new THREE.GridHelper(200, 40, 0x2a3550, 0x1a2030)
+    grid.rotation.x = Math.PI / 2
+    this.scene.add(grid)
+    this.scene.add(new THREE.AxesHelper(4))
 
     window.addEventListener('resize', this.onResize)
+    this.renderer.domElement.addEventListener('dblclick', this.onDoubleClickFit)
   }
 
   private onResize = () => {
     const w = this.container.clientWidth
     const h = this.container.clientHeight
-    if (w === 0 || h === 0) return
+    if (!w || !h) return
     this.renderer.setSize(w, h)
-    this.camera3d.aspect = w / h
-    this.camera3d.updateProjectionMatrix()
-    const aspect = w / h
-    const f = this.bevFrustum / 2
-    this.cameraBev.left = -f * aspect
-    this.cameraBev.right = f * aspect
-    this.cameraBev.top = f
-    this.cameraBev.bottom = -f
-    this.cameraBev.updateProjectionMatrix()
+    this.camera.aspect = w / h
+    this.camera.updateProjectionMatrix()
+    this.needsRender = true
   }
 
-  /** 供外部（布局切换）触发尺寸重算 */
+  private onDoubleClickFit = () => {
+    this.controls.target.set(0, 0, 0)
+    this.camera.position.set(30, -40, 30)
+    this.controls.update()
+    this.needsRender = true
+  }
+
   resize() { this.onResize() }
-
-  setMode(mode: ViewMode) {
-    this.mode = mode
-    if (mode === '3d') {
-      this.controls.enabled = true
-      this.renderer.domElement.style.cursor = 'grab'
-    } else {
-      this.controls.enabled = false
-      this.renderer.domElement.style.cursor = 'crosshair'
-    }
-  }
+  requestRender() { this.needsRender = true }
 
   /** 加载/替换点云。用 BufferGeometry 一次性上传 GPU，避免逐点绘制 */
   setPointCloud(cloud: PointCloud) {
-    for (const sc of [this.scene3d, this.sceneBev]) {
-      const old = sc.children.find((o) => o.userData.isCloud) as THREE.Points | undefined
-      if (old) {
-        old.geometry.dispose()
-        sc.remove(old)
-      }
+    if (this.cloudPoints) {
+      this.scene.remove(this.cloudPoints)
+      this.cloudPoints.geometry.dispose()
+      ;(this.cloudPoints.material as THREE.Material).dispose()
     }
-    const make = () => {
-      const geo = new THREE.BufferGeometry()
-      geo.setAttribute('position', new THREE.BufferAttribute(cloud.positions, 3))
-      if (cloud.colors) geo.setAttribute('color', new THREE.BufferAttribute(cloud.colors, 3))
-      const mat = new THREE.PointsMaterial({
-        size: 0.12,
-        color: cloud.colors ? 0xffffff : 0x8fd4ff,
-        vertexColors: !!cloud.colors,
-        sizeAttenuation: true,
-      })
-      const points = new THREE.Points(geo, mat)
-      points.userData.isCloud = true
-      return points
-    }
-    this.cloudPoints3d = make()
-    this.cloudPointsBev = make()
-    this.scene3d.add(this.cloudPoints3d)
-    this.sceneBev.add(this.cloudPointsBev)
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(cloud.positions, 3))
+    if (cloud.colors) geo.setAttribute('color', new THREE.BufferAttribute(cloud.colors, 3))
+    const mat = new THREE.PointsMaterial({
+      size: 0.12,
+      color: cloud.colors ? 0xffffff : 0xa9c2dd,
+      vertexColors: !!cloud.colors,
+      sizeAttenuation: true,
+    })
+    this.cloudPoints = new THREE.Points(geo, mat)
+    this.cloudPoints.userData.isCloud = true
+    this.scene.add(this.cloudPoints)
+    this.needsRender = true
   }
 
-  /** 生成文字标签精灵，显示类别+ID */
-  private makeLabelSprite(box: Box3D): THREE.Sprite {
+  setAppearance(opts: AppearanceOptions) {
+    const changed = opts.colorBy !== this.appearance.colorBy
+      || opts.opacity !== this.appearance.opacity
+      || opts.outlinedBorders !== this.appearance.outlinedBorders
+      || opts.showOrientation !== this.appearance.showOrientation
+    this.appearance = { ...opts }
+    if (changed) {
+      // 外观变了：让签名失效，下一轮 setBoxes 重建材质
+      for (const v of this.boxVisuals.values()) v.sig = ''
+    }
+  }
+
+  private makeLabelSprite(box: Box3D, color: number): THREE.Sprite {
     const canvas = document.createElement('canvas')
-    canvas.width = 256; canvas.height = 64
+    canvas.width = 256
+    canvas.height = 64
     const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = 'rgba(0,0,0,0.65)'
+    const css = '#' + color.toString(16).padStart(6, '0')
+    ctx.fillStyle = 'rgba(8,12,18,0.78)'
     ctx.fillRect(0, 0, 256, 64)
-    ctx.fillStyle = '#ffffff'
-    ctx.font = '30px sans-serif'
-    const tag = box.visibility === 'predicted' ? '预测' : box.visibility === 'occluded' ? '遮挡' : ''
-    ctx.fillText(`${box.label} #${box.id}${tag ? ' [' + tag + ']' : ''}`, 8, 42)
+    ctx.fillStyle = css
+    ctx.fillRect(0, 0, 4, 64)
+    ctx.fillStyle = '#eef4fb'
+    ctx.font = '500 28px system-ui, sans-serif'
+    const tag = box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : ''
+    ctx.fillText(`${box.label} #${box.id}${tag}`, 14, 42)
     const tex = new THREE.CanvasTexture(canvas)
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }))
-    sprite.scale.set(6, 1.5, 1)
-    sprite.position.set(box.position.x, box.position.y, box.position.z + box.scale.z / 2 + 1)
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }))
+    sprite.scale.set(5.6, 1.4, 1)
+    sprite.renderOrder = 20
     return sprite
   }
 
-  /** 用一个框生成线框对象。用 vertices 保证与原仓库顶点顺序一致。
-   *  occluded/predicted 用虚线 + 半透明表示"这是推断出来的框，不是真实观测" */
-  private makeBoxEdges(box: Box3D, color: number): THREE.LineSegments {
+  private paintLabelSprite(sprite: THREE.Sprite, box: Box3D, color: number) {
+    const tex = (sprite.material as THREE.SpriteMaterial).map as THREE.CanvasTexture
+    const canvas = tex.image as HTMLCanvasElement
+    const ctx = canvas.getContext('2d')!
+    const css = '#' + color.toString(16).padStart(6, '0')
+    ctx.clearRect(0, 0, 256, 64)
+    ctx.fillStyle = 'rgba(8,12,18,0.78)'
+    ctx.fillRect(0, 0, 256, 64)
+    ctx.fillStyle = css
+    ctx.fillRect(0, 0, 4, 64)
+    ctx.fillStyle = '#eef4fb'
+    ctx.font = '500 28px system-ui, sans-serif'
+    const tag = box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : ''
+    ctx.fillText(`${box.label} #${box.id}${tag}`, 14, 42)
+    tex.needsUpdate = true
+  }
+
+  /** 用 8 角点生成线框，顶点顺序与原仓库一致 */
+  private makeEdges(box: Box3D, color: number): THREE.LineSegments {
     const v = boxToVertices(box)
     const pts: number[] = []
     const p = (i: number) => [v[i * 4], v[i * 4 + 1], v[i * 4 + 2]]
-    // 车头面 0-1-2-3，车尾面 4-5-6-7，连线：0-1-2-3-0 与 4-5-6-7-4 与 0-4,1-5,2-6,3-7
-    const edges: [number, number][] = [
-      [0,1],[1,2],[2,3],[3,0],
-      [4,5],[5,6],[6,7],[7,4],
-      [0,4],[1,5],[2,6],[3,7],
-    ]
-    for (const [a, b] of edges) pts.push(...p(a), ...p(b))
+    for (const [a, b] of EDGE_INDICES) pts.push(...p(a), ...p(b))
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
     const predicted = box.visibility === 'occluded' || box.visibility === 'predicted'
     if (predicted) {
       const dashed = new THREE.LineSegments(geo, new THREE.LineDashedMaterial({
-        color, linewidth: 1, dashSize: 0.4, gapSize: 0.3,
-        transparent: true, opacity: 0.55, depthTest: false,
+        color, dashSize: 0.4, gapSize: 0.3, transparent: true, opacity: 0.75, depthTest: false,
       }))
-      dashed.computeLineDistances() // LineDashedMaterial 必需：计算每条线的累积长度
+      dashed.computeLineDistances()
       return dashed
     }
-    return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, linewidth: 2, depthTest: false }))
+    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color, transparent: true, opacity: 1, depthTest: false,
+    }))
+    line.renderOrder = 10
+    return line
   }
 
-  /** 同步所有框到两个场景（增量更新） */
-  setBoxes(boxes: Box3D[], selectedId: string | null) {
+  private makeFaces(box: Box3D, color: number): THREE.Mesh {
+    const geo = new THREE.BoxGeometry(box.scale.x, box.scale.y, box.scale.z)
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: Math.min(0.32, 0.06 + this.appearance.opacity * 0.12),
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.position.set(box.position.x, box.position.y, box.position.z)
+    mesh.rotation.z = box.yaw
+    mesh.renderOrder = 5
+    return mesh
+  }
+
+  /** 朝向短线：从框中心指向车头，长度随框长变化 */
+  private makeOrientation(box: Box3D, color: number): THREE.Line {
+    const half = box.scale.x / 2
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(box.position.x, box.position.y, box.position.z + box.scale.z / 2 + 0.02),
+      new THREE.Vector3(
+        box.position.x + Math.cos(box.yaw) * (half + 0.7),
+        box.position.y + Math.sin(box.yaw) * (half + 0.7),
+        box.position.z + box.scale.z / 2 + 0.02,
+      ),
+    ])
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({
+      color, transparent: true, opacity: 0.95, depthTest: false,
+    }))
+    line.renderOrder = 11
+    return line
+  }
+
+  private boxSignature(box: Box3D, color: number, selected: boolean): string {
+    return [
+      box.position.x, box.position.y, box.position.z,
+      box.scale.x, box.scale.y, box.scale.z, box.yaw,
+      box.label, box.visibility ?? 'visible', color, selected ? 1 : 0,
+      this.appearance.outlinedBorders ? 1 : 0,
+      this.appearance.showOrientation ? 1 : 0,
+      this.appearance.opacity,
+    ].join('|')
+  }
+
+  /** 同步所有框到场景（增量更新，签名不变直接跳过） */
+  setBoxes(boxes: Box3D[], selectedId: string | null, colorOf: (box: Box3D) => number) {
     const seen = new Set<string>()
+    let changed = false
+
     for (const box of boxes) {
+      if (!Number.isFinite(box.position.x) || !Number.isFinite(box.scale.x)) continue
       seen.add(box.id)
-      const cat = DEFAULT_CATEGORIES.find((c) => c.name === box.label)
-      const color = selectedId === box.id ? 0xffee58 : (cat?.color ?? 0x4fc3f7)
+      const selected = selectedId === box.id
+      const color = selected ? 0xffee58 : colorOf(box)
+      const sig = this.boxSignature(box, color, selected)
       let vis = this.boxVisuals.get(box.id)
+
       if (!vis) {
-        vis = { a: { edges: this.makeBoxEdges(box, color), label: this.makeLabelSprite(box) }, b: { edges: this.makeBoxEdges(box, color), label: this.makeLabelSprite(box) } }
+        const edges = this.makeEdges(box, color)
+        const faces = this.makeFaces(box, color)
+        const label = this.makeLabelSprite(box, color)
+        const orientation = this.makeOrientation(box, color)
+        vis = { edges, faces, label, orientation, sig, labelText: `${box.label}#${box.id}`, color }
         this.boxVisuals.set(box.id, vis)
-        this.scene3d.add(vis.a.edges, vis.a.label)
-        this.sceneBev.add(vis.b.edges, vis.b.label)
-      } else {
-        // 替换几何体以反映编辑后的框；材质也要在 basic/dashed 间正确切换
-        for (const v of [vis.a, vis.b]) {
-          v.edges.geometry.dispose()
-          const replacement = this.makeBoxEdges(box, color)
-          v.edges.geometry = replacement.geometry
-          ;(v.edges.material as THREE.Material).dispose()
-          v.edges.material = replacement.material
-          v.label.position.set(box.position.x, box.position.y, box.position.z + box.scale.z / 2 + 1)
-          const tex = (v.label.material as THREE.SpriteMaterial).map as THREE.CanvasTexture
-          const canvas = tex.image as HTMLCanvasElement
-          const ctx = canvas.getContext('2d')!
-          ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, 0, 256, 64)
-          ctx.fillStyle = '#ffffff'; ctx.font = '30px sans-serif'
-          const tag = box.visibility === 'predicted' ? '预测' : box.visibility === 'occluded' ? '遮挡' : ''
-          ctx.fillText(`${box.label} #${box.id}${tag ? ' [' + tag + ']' : ''}`, 8, 42)
-          tex.needsUpdate = true
+        this.scene.add(faces, edges, label, orientation)
+        changed = true
+      } else if (vis.sig !== sig) {
+        // 几何体原地重建（框很小，比维护顶点差量简单可靠）
+        vis.edges.geometry.dispose()
+        const nextEdges = this.makeEdges(box, color)
+        vis.edges.geometry = nextEdges.geometry
+        ;(vis.edges.material as THREE.Material).dispose()
+        vis.edges.material = nextEdges.material
+        if (nextEdges instanceof THREE.LineSegments) {
+          (vis.edges as THREE.LineSegments).computeLineDistances?.()
         }
+
+        vis.faces.geometry.dispose()
+        const nextFaces = this.makeFaces(box, color)
+        vis.faces.geometry = nextFaces.geometry
+        ;(vis.faces.material as THREE.Material).dispose()
+        vis.faces.material = nextFaces.material
+        vis.faces.position.copy(nextFaces.position)
+        vis.faces.rotation.copy(nextFaces.rotation)
+
+        vis.orientation.geometry.dispose()
+        const nextOrient = this.makeOrientation(box, color)
+        vis.orientation.geometry = nextOrient.geometry
+        ;(vis.orientation.material as THREE.Material).dispose()
+        vis.orientation.material = nextOrient.material
+
+        const text = `${box.label}#${box.id}`
+        if (vis.labelText !== text || vis.color !== color) {
+          this.paintLabelSprite(vis.label, box, color)
+          vis.labelText = text
+          vis.color = color
+        }
+        vis.sig = sig
+        changed = true
       }
+
+      const zTop = box.position.z + box.scale.z / 2 + Math.max(0.9, box.scale.z * 0.35)
+      vis.label.position.set(box.position.x, box.position.y, zTop)
+      vis.faces.visible = !this.appearance.outlinedBorders
+      vis.orientation.visible = this.appearance.showOrientation
     }
-    // 删除已不存在的框
+
     for (const [id, vis] of this.boxVisuals) {
-      if (!seen.has(id)) {
-        for (const v of [vis.a, vis.b]) {
-          v.edges.geometry.dispose(); v.label.material.dispose()
-          this.scene3d.remove(v.edges, v.label); this.sceneBev.remove(v.edges, v.label)
-        }
-        this.boxVisuals.delete(id)
-      }
+      if (seen.has(id)) continue
+      this.scene.remove(vis.edges, vis.faces, vis.label, vis.orientation)
+      vis.edges.geometry.dispose()
+      ;(vis.edges.material as THREE.Material).dispose()
+      vis.faces.geometry.dispose()
+      ;(vis.faces.material as THREE.Material).dispose()
+      const labMat = vis.label.material as THREE.SpriteMaterial
+      labMat.map?.dispose()   // 之前漏了这一步，CanvasTexture 会一直留在显存
+      labMat.dispose()
+      vis.orientation.geometry.dispose()
+      ;(vis.orientation.material as THREE.Material).dispose()
+      this.boxVisuals.delete(id)
+      changed = true
     }
+
+    if (changed) this.needsRender = true
   }
 
   /**
-   * 轨迹叠加：把每条轨迹的多帧中心点连成线，叠加到 3D 与 BEV 场景。
-   * @param tracks 轨迹数据（extractTrajectories 的输出）
-   * @param currentFrame 当前帧号，用于高亮"已走过"与"当前点"
-   * @param selectedId 选中的目标，高亮其整条轨迹
+   * 轨迹叠加：整条路径细线 + 已走过段亮线 + 采样点。
+   * 采样点用 Points 一次画完，不再「每个点一个 Mesh」——那是拖动时掉帧的主因。
    */
   setTrajectories(tracks: Trajectory[], currentFrame: number, selectedId: string | null) {
-    // 先清掉旧的轨迹层，避免重复添加导致内存泄漏与叠影
-    for (const sc of [this.scene3d, this.sceneBev]) {
-      const old = sc.children.find((o) => o.userData.isTrajectoryLayer) as THREE.Group | undefined
-      if (old) {
-        old.traverse((o) => {
-          const line = o as THREE.Line
-          if (line.geometry) line.geometry.dispose()
-          const mat = line.material as THREE.Material | undefined
-          if (mat) mat.dispose()
-        })
-        sc.remove(old)
+    if (tracks === this.lastTracks && currentFrame === this.lastTrackFrame && selectedId === this.lastTrackSelected) return
+    this.lastTracks = tracks
+    this.lastTrackFrame = currentFrame
+    this.lastTrackSelected = selectedId
+
+    if (this.trajLayer) {
+      this.scene.remove(this.trajLayer)
+      this.trajLayer.traverse((o) => {
+        const anyObj = o as THREE.Line | THREE.Points
+        anyObj.geometry?.dispose?.()
+        const mat = anyObj.material as THREE.Material | THREE.Material[] | undefined
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
+        else mat?.dispose?.()
+      })
+      this.trajLayer = undefined
+    }
+    if (!tracks.length) { this.needsRender = true; return }
+
+    const group = new THREE.Group()
+    group.userData.isTrajectoryLayer = true
+
+    for (const tr of tracks) {
+      const color = colorOfTrack(tr.id)
+      const selected = selectedId === tr.id
+      const allPts = tr.points.map((p) => new THREE.Vector3(p.x, p.y, p.z))
+
+      group.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(allPts),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: selected ? 0.95 : 0.55, depthTest: false }),
+      ))
+
+      const passed = tr.points.filter((p) => p.frame <= currentFrame)
+      if (passed.length >= 2) {
+        group.add(new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(passed.map((p) => new THREE.Vector3(p.x, p.y, p.z))),
+          new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95, depthTest: false }),
+        ))
+      }
+
+      const dots = new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints(allPts),
+        new THREE.PointsMaterial({ color, size: 0.32, transparent: true, opacity: 0.9, depthTest: false }),
+      )
+      group.add(dots)
+
+      const now = tr.points.find((p) => p.frame === currentFrame)
+      if (now) {
+        group.add(new THREE.Points(
+          new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(now.x, now.y, now.z)]),
+          new THREE.PointsMaterial({ color: 0xffffff, size: 0.75, depthTest: false }),
+        ))
       }
     }
 
-    if (!tracks.length) {
-      this.trajLines3d = undefined
-      this.trajLinesBev = undefined
-      return
-    }
-
-    // 每个目标一条独立颜色（按 id 稳定哈希），同类不同车也能一眼分清轨迹
-    const colorOf = (id: string): number => {
-      const palette = [0x4fc3f7, 0xff7043, 0x66bb6a, 0xab47bc, 0xffca28, 0x26c6da, 0xff4081, 0x8bc34a]
-      let h = 0
-      for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
-      return palette[Math.abs(h) % palette.length]
-    }
-
-    const buildLayer = (isBev: boolean): THREE.Group => {
-      const group = new THREE.Group()
-      group.userData.isTrajectoryLayer = true
-      const zOf = (p: TrackPoint) => (isBev ? 0.35 : p.z) // BEV 贴地显示，3D 用真实高度
-
-      for (const tr of tracks) {
-        const color = colorOf(tr.id)
-        const selected = selectedId === tr.id
-
-        // 1) 完整轨迹：半透明细线，表示"整条路径"
-        const allPts = tr.points.map((p) => new THREE.Vector3(p.x, p.y, zOf(p)))
-        const full = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(allPts),
-          new THREE.LineBasicMaterial({ color, transparent: true, opacity: selected ? 0.95 : 0.6, depthTest: false }),
-        )
-        group.add(full)
-
-        // 2) 已走过的段（frame <= currentFrame）：亮实线，直观看到"走过哪了"
-        const passed = tr.points.filter((p) => p.frame <= currentFrame)
-        if (passed.length >= 2) {
-          const lit = new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints(passed.map((p) => new THREE.Vector3(p.x, p.y, zOf(p)))),
-            new THREE.LineBasicMaterial({ color, transparent: true, opacity: selected ? 1 : 0.9, depthTest: false }),
-          )
-          group.add(lit)
-        }
-
-        // 3) 采样点小球；当前帧的点放大并染成高亮色
-        for (const p of tr.points) {
-          const isNow = p.frame === currentFrame
-          const dot = new THREE.Mesh(
-            new THREE.SphereGeometry(isNow ? (isBev ? 0.7 : 0.55) : 0.3, 10, 8),
-            new THREE.MeshBasicMaterial({
-              color: isNow ? 0xffffff : color,
-              transparent: true,
-              opacity: isNow ? 1 : (p.frame <= currentFrame ? 0.95 : 0.45),
-              depthTest: false,
-            }),
-          )
-          dot.position.set(p.x, p.y, zOf(p))
-          group.add(dot)
-        }
-      }
-      return group
-    }
-
-    this.trajLines3d = buildLayer(false)
-    this.trajLinesBev = buildLayer(true)
-    this.scene3d.add(this.trajLines3d)
-    this.sceneBev.add(this.trajLinesBev)
+    this.trajLayer = group
+    this.scene.add(group)
+    this.needsRender = true
   }
 
   /** 读取当前 3D 相机位姿，供上层「记录当前视角」使用 */
   getCameraPose(): CameraPose {
-    const p = this.camera3d.position
+    const p = this.camera.position
     const t = this.controls.target
     return {
       position: { x: p.x, y: p.y, z: p.z },
@@ -346,10 +421,7 @@ export class PointCloudViewer {
     }
   }
 
-  /**
-   * 应用一个相机位姿。roll 通过绕视线方向旋转 camera.up 实现，
-   * 这样 OrbitControls 仍可用，同时 z-up 的世界约定不受破坏。
-   */
+  /** 应用一个相机位姿。roll 通过绕视线方向旋转 camera.up 实现 */
   applyCameraPose(pose: CameraPose) {
     const pos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z)
     const target = new THREE.Vector3(pose.target.x, pose.target.y, pose.target.z)
@@ -357,7 +429,6 @@ export class PointCloudViewer {
     if (dir.lengthSq() < 1e-8) dir.set(0, -1, 0)
     dir.normalize()
 
-    // 视线接近垂直时 z-up 会与视线共线，退化成 y-up 作为基准
     const baseUp = Math.abs(dir.z) > 0.98
       ? new THREE.Vector3(0, 1, 0)
       : new THREE.Vector3(0, 0, 1)
@@ -365,26 +436,27 @@ export class PointCloudViewer {
       new THREE.Quaternion().setFromAxisAngle(dir, pose.roll || 0),
     ).normalize()
 
-    this.camera3d.up.copy(rolledUp)
-    this.camera3d.position.copy(pos)
+    this.camera.up.copy(rolledUp)
+    this.camera.position.copy(pos)
     this.controls.target.copy(target)
     this.cameraRoll = pose.roll || 0
     this.controls.update()
+    this.needsRender = true
   }
 
   /** 在 3D 视口画出运镜关键帧：连线 + 小球 + 注视方向短线 */
   setCameraTrajectory(traj: CameraTrajectory | null, activeIndex = -1) {
     if (this.cameraTrajLayer) {
+      this.scene.remove(this.cameraTrajLayer)
       this.cameraTrajLayer.traverse((o) => {
         const line = o as THREE.Line
-        if (line.geometry) line.geometry.dispose()
+        line.geometry?.dispose?.()
         const mat = line.material as THREE.Material | undefined
-        if (mat) mat.dispose()
+        mat?.dispose?.()
       })
-      this.scene3d.remove(this.cameraTrajLayer)
       this.cameraTrajLayer = undefined
     }
-    if (!traj || !traj.frames.length) return
+    if (!traj || !traj.frames.length) { this.needsRender = true; return }
 
     const group = new THREE.Group()
     group.userData.isCameraTrajectoryLayer = true
@@ -402,15 +474,13 @@ export class PointCloudViewer {
     traj.frames.forEach((kf, i) => {
       const active = i === activeIndex
       const dot = new THREE.Mesh(
-        new THREE.SphereGeometry(active ? 0.95 : 0.6, 12, 10),
+        new THREE.SphereGeometry(active ? 0.9 : 0.55, 12, 10),
         new THREE.MeshBasicMaterial({ color: active ? 0x00e5ff : 0xffca28, depthTest: false }),
       )
       dot.position.copy(positions[i])
       group.add(dot)
 
-      const target = new THREE.Vector3(
-        kf.pose.target.x, kf.pose.target.y, kf.pose.target.z,
-      )
+      const target = new THREE.Vector3(kf.pose.target.x, kf.pose.target.y, kf.pose.target.z)
       if (target.distanceToSquared(positions[i]) > 1e-6) {
         const gaze = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints([positions[i], target]),
@@ -425,17 +495,20 @@ export class PointCloudViewer {
     })
 
     this.cameraTrajLayer = group
-    this.scene3d.add(group)
+    this.scene.add(group)
+    this.needsRender = true
   }
 
   /** 水印挂在相机下，canvas.captureStream 会把它一起录进视频 */
   setWatermark(enabled: boolean) {
     if (!enabled) {
       if (this.watermarkSprite) {
-        this.camera3d.remove(this.watermarkSprite)
-        ;(this.watermarkSprite.material as THREE.SpriteMaterial).map?.dispose()
-        this.watermarkSprite.material.dispose()
+        this.camera.remove(this.watermarkSprite)
+        const mat = this.watermarkSprite.material as THREE.SpriteMaterial
+        mat.map?.dispose()
+        mat.dispose()
         this.watermarkSprite = undefined
+        this.needsRender = true
       }
       return
     }
@@ -455,46 +528,66 @@ export class PointCloudViewer {
     sprite.position.set(0.58, -0.40, -1)
     sprite.scale.set(0.46, 0.086, 1)
     sprite.renderOrder = 999
-    this.camera3d.add(sprite)
+    this.camera.add(sprite)
     this.watermarkSprite = sprite
-  }
-
-  /** 显示 BEV 上拖拽时的临时矩形（p0,p1 为世界 xy 两点） */
-  showDraft(p0: { x: number; y: number }, p1: { x: number; y: number }) {
-    if (!this.draftLine) {
-      const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()])
-      this.draftLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x00e5ff }))
-      this.sceneBev.add(this.draftLine)
-    }
-    const z = 0.3
-    const pts = [
-      new THREE.Vector3(p0.x, p0.y, z), new THREE.Vector3(p1.x, p0.y, z),
-      new THREE.Vector3(p1.x, p1.y, z), new THREE.Vector3(p0.x, p1.y, z),
-      new THREE.Vector3(p0.x, p0.y, z),
-    ]
-    this.draftLine.geometry.setFromPoints(pts)
-  }
-
-  clearDraft() {
-    if (this.draftLine) {
-      this.sceneBev.remove(this.draftLine)
-      this.draftLine.geometry.dispose()
-      this.draftLine = undefined
-    }
-  }
-
-  /** 屏幕坐标 → BEV 世界 xy 坐标（正交相机的逆投影） */
-  screenToBev(clientX: number, clientY: number): { x: number; y: number } {
-    const rect = this.renderer.domElement.getBoundingClientRect()
-    const nx = ((clientX - rect.left) / rect.width) * 2 - 1
-    const ny = -((clientY - rect.top) / rect.height) * 2 + 1
-    const v = new THREE.Vector3(nx, ny, 0).unproject(this.cameraBev)
-    return { x: v.x, y: v.y }
+    this.needsRender = true
   }
 
   /** 暴露底层 canvas，供上层绑定交互事件 */
   renderLoopElement(): HTMLCanvasElement {
     return this.renderer.domElement
+  }
+
+  /**
+   * 射线拾取：把射线变换到框的局部坐标系，与 AABB 求交。
+   * 比拿 12 条边做 raycast 更稳，也更快（框多时优势明显）。
+   */
+  pickBox(clientX: number, clientY: number, boxes: Box3D[]): string | null {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    if (!rect.width || !rect.height) return null
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    )
+    const raycaster = new THREE.Raycaster()
+    raycaster.setFromCamera(ndc, this.camera)
+
+    let best: { id: string; dist: number } | null = null
+    const half = new THREE.Vector3()
+    for (const box of boxes) {
+      tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), box.yaw)
+      tmpMatrix.compose(
+        new THREE.Vector3(box.position.x, box.position.y, box.position.z),
+        tmpQuat,
+        new THREE.Vector3(1, 1, 1),
+      ).invert()
+      const localRay = raycaster.ray.clone().applyMatrix4(tmpMatrix)
+      half.set(box.scale.x / 2, box.scale.y / 2, box.scale.z / 2)
+      const hit = localRay.intersectBox(new THREE.Box3(half.clone().negate(), half.clone()), tmpVec)
+      if (!hit) continue
+      const dist = localRay.origin.distanceTo(hit)
+      if (!best || dist < best.dist) best = { id: box.id, dist }
+    }
+    return best?.id ?? null
+  }
+
+  /** 正交视图 / 工具条的缩放与复位 */
+  zoom(factor: number) {
+    const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target)
+    const len = Math.max(1.5, dir.length() * factor)
+    dir.setLength(len)
+    this.camera.position.copy(this.controls.target).add(dir)
+    this.controls.update()
+    this.needsRender = true
+  }
+
+  resetView() {
+    this.controls.target.set(0, 0, 0)
+    this.camera.up.set(0, 0, 1)
+    this.camera.position.set(30, -40, 30)
+    this.cameraRoll = 0
+    this.controls.update()
+    this.needsRender = true
   }
 
   /**
@@ -514,41 +607,52 @@ export class PointCloudViewer {
     const q = (arr: number[], r: number) => arr[Math.floor(arr.length * r)] ?? 0
     const cx = (q(xs, 0.05) + q(xs, 0.95)) / 2
     const cy = (q(ys, 0.05) + q(ys, 0.95)) / 2
-    const spanX = q(xs, 0.95) - q(xs, 0.05)
-    const spanY = q(ys, 0.95) - q(ys, 0.05)
-    const span = Math.max(spanX, spanY, 20)
+    const span = Math.max(q(xs, 0.95) - q(xs, 0.05), q(ys, 0.95) - q(ys, 0.05), 20)
 
-    // BEV 视野装下主要数据范围
-    this.bevFrustum = Math.min(300, Math.max(30, span * 1.3))
-    this.cameraBev.position.set(cx, cy, 200)
-    this.cameraBev.lookAt(cx, cy, 0)
-    this.onResize()
-
-    // 3D 相机拉远并指向数据中心（走 applyCameraPose，保证 roll/up 同步复位）
     this.applyCameraPose({
-      position: { x: cx + span * 0.4, y: cy - span * 0.5, z: span * 0.45 },
+      position: { x: cx + span * 0.45, y: cy - span * 0.55, z: span * 0.5 },
       target: { x: cx, y: cy, z: 0 },
       roll: 0,
     })
   }
 
-  zoomBev(delta: number) {
-    this.bevFrustum = Math.min(200, Math.max(10, this.bevFrustum + delta))
-    this.onResize()
-  }
-
   render() {
-    if (this.mode === '3d') this.controls.update()
-    const cam = this.mode === '3d' ? this.camera3d : this.cameraBev
-    const sc = this.mode === '3d' ? this.scene3d : this.sceneBev
-    this.renderer.render(sc, cam)
+    if (this.disposed) return
+    // 阻尼需要每帧推进，但真正渲染只在脏标记置位时发生
+    if (this.controls.enableDamping) this.controls.update()
+    if (!this.needsRender) return
+    this.needsRender = false
+    this.renderer.render(this.scene, this.camera)
   }
 
   dispose() {
+    this.disposed = true
     window.removeEventListener('resize', this.onResize)
+    this.renderer.domElement.removeEventListener('dblclick', this.onDoubleClickFit)
     this.setWatermark(false)
     this.setCameraTrajectory(null)
+    for (const vis of this.boxVisuals.values()) {
+      vis.edges.geometry.dispose()
+      ;(vis.edges.material as THREE.Material).dispose()
+      vis.faces.geometry.dispose()
+      ;(vis.faces.material as THREE.Material).dispose()
+      const labMat = vis.label.material as THREE.SpriteMaterial
+      labMat.map?.dispose()
+      labMat.dispose()
+      vis.orientation.geometry.dispose()
+      ;(vis.orientation.material as THREE.Material).dispose()
+    }
+    this.boxVisuals.clear()
+    this.cloudPoints?.geometry.dispose()
     this.controls.dispose()
     this.renderer.dispose()
   }
+}
+
+/** 轨迹配色：按 id 稳定哈希，同类不同目标也能分清 */
+function colorOfTrack(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+  const palette = [0x4fc3f7, 0xff7043, 0x66bb6a, 0xab47bc, 0xffca28, 0x26c6da, 0xff4081, 0x8bc34a]
+  return palette[Math.abs(h) % palette.length]
 }

@@ -1,30 +1,131 @@
 <script setup lang="ts">
-import { inject } from 'vue'
+/**
+ * 主舞台：
+ *   - 上部：3D 透视视口（最大化正交视图时让位）
+ *   - 下部：Top / Side / Front 三联正交视图（CVAT 布局）
+ *   - 右侧可选相机分屏（加载真实数据后）
+ *
+ * 交互约定：所有正交视图共享同一份 boxes 与 selectedId，
+ * 任何一处的拖拽都会回写 core，再由 props 同步到其余视图。
+ */
+import { computed, inject } from 'vue'
 import { StudioKey } from '../state/studioContext'
 import CameraView from './CameraView.vue'
+import OrthoView from './OrthoView.vue'
+import type { OrthoAxis } from '../state/studioCore'
+import type { Box3D } from '../core/types'
 
 const studio = inject(StudioKey)!
 const {
-  viewportRef, camViewRef, boxes, selectedId, mode, layout, calib, imageUrl,
+  viewportRef, camViewRef, visibleBoxes, selectedId, tool, layout, calib, imageUrl,
+  showOrtho, orthoMax, cloud, opacity, outlinedBorders, showOrientation, colorOf, colorBy,
+  selectBox, applyBox, createBoxFromRect, currentCategory, categories,
 } = studio
+
+const views: { axis: OrthoAxis; title: string }[] = [
+  { axis: 'top', title: 'Top · x/y' },
+  { axis: 'side', title: 'Side · x/z' },
+  { axis: 'front', title: 'Front · y/z' },
+]
+
+const split = computed(() => layout.value !== 'cloud' && !!calib.value)
+const maxView = computed(() => views.find((v) => v.axis === orthoMax.value))
+
+function onEdit(box: Box3D) {
+  applyBox(box.id, box, 'drag:' + box.id)
+}
+
+function toggleMax(axis: OrthoAxis) {
+  orthoMax.value = orthoMax.value === axis ? null : axis
+}
+
+function toggleMaxCurrent() {
+  if (orthoMax.value) toggleMax(orthoMax.value)
+}
+
+const hint = computed(() => {
+  if (tool.value === 'draw') return '在 Top 视图拖出一个矩形 → 自动生成 3D 框，再到 Side 拖绿点调高度'
+  if (tool.value === 'pan') return '拖拽任意视图平移；滚轮以光标为中心缩放'
+  return '单击选中 · 拖角点缩放 · 拖黄点旋转 · Side/Front 拖绿点调高度 · 双击视图最大化'
+})
 </script>
 
 <template>
-  <main class="stage" :class="'layout-' + layout">
-    <div ref="viewportRef" class="viewport" v-show="layout !== 'camera'"></div>
-    <div class="hud" v-show="layout !== 'camera'">
-      <span class="mode-tag">{{ mode === 'bev' ? '鸟瞰视图 (BEV)' : '3D 透视视图' }}</span>
-      <span v-if="mode === 'bev'" class="hint">拖拽画框 · 滚轮缩放</span>
-      <span v-else class="hint">左键旋转 · 右键平移 · 滚轮缩放</span>
-    </div>
-    <div class="camera-pane" v-show="layout !== 'cloud' && calib">
-      <CameraView
-        ref="camViewRef"
-        :boxes="boxes"
-        :calib="calib"
-        :image-url="imageUrl"
+  <main class="stage">
+    <div class="stage-main" :class="{ split, 'ortho-maxed': !!orthoMax }">
+      <div ref="viewportRef" class="viewport" v-show="!orthoMax"></div>
+
+      <OrthoView
+        v-if="maxView"
+        class="ortho-full"
+        :axis="maxView.axis"
+        :title="maxView.title"
+        :cloud="cloud"
+        :boxes="visibleBoxes"
         :selected-id="selectedId"
+        :tool="tool"
+        :color-of="colorOf"
+        :opacity="opacity"
+        :outlined-borders="outlinedBorders"
+        :show-orientation="showOrientation"
+        @select="selectBox"
+        @edit="onEdit"
+        @create="createBoxFromRect"
+        @maximize="toggleMaxCurrent"
       />
+
+      <div v-if="split && !orthoMax" class="camera-pane">
+        <CameraView
+          ref="camViewRef"
+          :boxes="visibleBoxes"
+          :calib="calib"
+          :image-url="imageUrl"
+          :selected-id="selectedId"
+          :color-of="colorOf"
+          :color-key="colorBy"
+        />
+      </div>
+    </div>
+
+    <div v-show="showOrtho && !orthoMax" class="ortho-strip">
+      <OrthoView
+        v-for="v in views"
+        :key="v.axis"
+        compact
+        :axis="v.axis"
+        :title="v.title"
+        :cloud="cloud"
+        :boxes="visibleBoxes"
+        :selected-id="selectedId"
+        :tool="tool"
+        :color-of="colorOf"
+        :opacity="opacity"
+        :outlined-borders="outlinedBorders"
+        :show-orientation="showOrientation"
+        @select="selectBox"
+        @edit="onEdit"
+        @create="createBoxFromRect"
+        @maximize="toggleMax(v.axis)"
+      />
+    </div>
+
+    <div v-if="orthoMax" class="view-switch">
+      <button
+        v-for="v in views"
+        :key="v.axis"
+        :class="{ on: orthoMax === v.axis }"
+        @click="orthoMax = v.axis"
+      >{{ v.title.split(' ')[0] }}</button>
+      <button class="restore" @click="orthoMax = null">还原三联</button>
+    </div>
+
+    <div class="stage-hud">
+      <span class="hud-tool">{{ tool === 'select' ? '选择' : tool === 'pan' ? '平移' : '画框' }}</span>
+      <select v-if="tool === 'draw'" v-model="currentCategory" class="hud-select" title="新框类别（数字键 1-9 快速切换）">
+        <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.name }}</option>
+      </select>
+      <span class="hud-hint">{{ hint }}</span>
+      <span v-if="!showOrtho" class="hud-warn">正交视图已隐藏（左侧 ▤ 可恢复）</span>
     </div>
   </main>
 </template>

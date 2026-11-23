@@ -47,6 +47,8 @@ export interface Box3D {
   yaw: number
   /** 可见性，默认 visible。可选以兼容历史数据与 SUSTechPOINTS 格式 */
   visibility?: Visibility
+  /** 业务属性（truncated / occluded / trafficLight 等），随标注一起导出 */
+  attributes?: Record<string, string | number | boolean>
 }
 
 /**
@@ -66,9 +68,11 @@ export interface RawLabelObject {
    * 8 个角点，每个角点 4 个数 [x, y, z, 1]（最后一个是齐次坐标占位）。
    * 顺序：车头面4点(底左,底右,顶右,顶左) + 车尾面4点(同序)。
    */
-  vertices: number[]
+  vertices?: number[]
   /** 扩展字段：本工具的 4D 遮挡状态。SUSTechPOINTS 会忽略未知字段，我们读回时保留 */
   visibility?: Visibility
+  /** 扩展字段：业务属性 */
+  attributes?: Record<string, string | number | boolean>
 }
 
 /**

@@ -16,13 +16,15 @@
 import { ref, watch, onMounted, nextTick } from 'vue'
 import type { Calibration } from '../core/io/calibration'
 import { projectBox, BOX_EDGES } from '../core/io/calibration'
-import { DEFAULT_CATEGORIES, type Box3D } from '../core/types'
+import type { Box3D } from '../core/types'
 
 const props = defineProps<{
   boxes: Box3D[]
   calib: Calibration | null
   imageUrl: string
   selectedId: string | null
+  colorOf: (box: Box3D) => number
+  colorKey: string
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -82,8 +84,7 @@ function draw() {
     visible++
 
     const selected = box.id === props.selectedId
-    const cat = DEFAULT_CATEGORIES.find((c) => c.name === box.label)
-    const color = selected ? '#ffee58' : '#' + (cat?.color ?? 0x4fc3f7).toString(16).padStart(6, '0')
+    const color = selected ? '#ffee58' : '#' + props.colorOf(box).toString(16).padStart(6, '0')
 
     ctx.strokeStyle = color
     ctx.lineWidth = selected ? 2.5 : 1.5
@@ -110,7 +111,7 @@ function onImageLoad() {
   nextTick(draw)
 }
 
-watch(() => [props.boxes, props.calib, props.selectedId], () => nextTick(draw), { deep: true })
+watch(() => [props.boxes, props.calib, props.selectedId, props.colorKey], () => nextTick(draw), { deep: true })
 onMounted(() => { if (imgEl.value?.complete) onImageLoad() })
 
 defineExpose({ redraw: draw })

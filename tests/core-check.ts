@@ -419,5 +419,69 @@ check('轨迹 JSON 往返：位姿一致', close(rtTraj.frames[1].pose.position.
 check('轨迹 JSON 往返：时间参数一致', close(rtTraj.frames[2].transition, 2) && close(rtTraj.frames[0].hold, 1))
 check('空轨迹 JSON 被拒绝', (() => { try { parseTrajectory('{"frames":[]}'); return false } catch { return true } })())
 
+// ---------------------------------------------------------------
+// PCD 健壮性：CRLF 头偏移、rgb 打包颜色、COUNT>1 的 token 步长
+// 这三个点都曾经是真实 bug，回归测试防止再犯。
+// ---------------------------------------------------------------
+console.log('\n[15] PCD 头部与颜色解析')
+
+function makeBinaryPcd(crlf: boolean): ArrayBuffer {
+  const nl = crlf ? '\r\n' : '\n'
+  const header = [
+    '# .PCD v0.7',
+    'VERSION 0.7',
+    'FIELDS x y z rgb',
+    'SIZE 4 4 4 4',
+    'TYPE F F F U',
+    'COUNT 1 1 1 1',
+    'WIDTH 2',
+    'HEIGHT 1',
+    'POINTS 2',
+    'DATA binary',
+    '',
+  ].join(nl)
+  const head = new TextEncoder().encode(header)
+  const buf = new ArrayBuffer(head.length + 2 * 16)
+  new Uint8Array(buf).set(head, 0)
+  const view = new DataView(buf)
+  const write = (i: number, x: number, y: number, z: number, rgb: number) => {
+    const o = head.length + i * 16
+    view.setFloat32(o, x, true)
+    view.setFloat32(o + 4, y, true)
+    view.setFloat32(o + 8, z, true)
+    view.setUint32(o + 12, rgb, true)
+  }
+  write(0, 1.5, 2.5, 3.5, 0xff0000)
+  write(1, 4, 5, 6, 0x00ff00)
+  return buf
+}
+
+for (const crlf of [false, true]) {
+  const pc = parsePCD(makeBinaryPcd(crlf))
+  const tag = crlf ? 'CRLF' : 'LF'
+  check(`${tag} 头：点数正确`, pc.count === 2)
+  check(`${tag} 头：x/y/z 未错位`, close(pc.positions[0], 1.5, 1e-5) && close(pc.positions[3], 4, 1e-5),
+    `实际 ${pc.positions[0]}, ${pc.positions[3]}`)
+  check(`${tag} 头：rgb 解包为红色`, !!pc.colors && close(pc.colors[0], 1, 1e-3) && close(pc.colors[1], 0, 1e-3))
+  check(`${tag} 头：rgb 第二个点为绿色`, !!pc.colors && close(pc.colors[3], 0, 1e-3) && close(pc.colors[4], 1, 1e-3))
+}
+
+const asciiCountPcd = `VERSION 0.7
+FIELDS x y z _
+SIZE 4 4 4 4
+TYPE F F F F
+COUNT 1 1 1 2
+WIDTH 2
+HEIGHT 1
+POINTS 2
+DATA ascii
+1 2 3 0 0
+4 5 6 0 0
+`
+const asciiPc = parsePCD(new TextEncoder().encode(asciiCountPcd).buffer as ArrayBuffer)
+check('ASCII COUNT>1：stride 按 sum(COUNT) 计算', close(asciiPc.positions[0], 1, 1e-5) && close(asciiPc.positions[3], 4, 1e-5),
+  `实际 ${asciiPc.positions[0]}, ${asciiPc.positions[3]}`)
+check('ASCII COUNT>1：z 未被填充字段挤走', close(asciiPc.positions[2], 3, 1e-5) && close(asciiPc.positions[5], 6, 1e-5))
+
 console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
 if (failed > 0) process.exit(1)

@@ -19,7 +19,7 @@ import { downloadJson, downloadBlob } from '../core/io/label'
 import type { StudioCore } from './studioCore'
 
 export function useCameraDirector(core: StudioCore) {
-  const { statusText, mode, setMode, getViewer } = core
+  const { statusText, orthoMax, showOrtho, getViewer } = core
   const trajectoryInput = ref<HTMLInputElement | null>(null)
 
   // 镜头时间线与帧时间线彼此独立：这里管"相机在哪、看哪里、看多久"
@@ -50,7 +50,10 @@ export function useCameraDirector(core: StudioCore) {
 
   // ---- 关键帧编辑 ----
   function ensureCameraVisible() {
-    if (mode.value !== '3d') setMode('3d')
+    // 运镜作用在 3D 透视相机上：先退出正交最大化，必要时展开主视口
+    orthoMax.value = null
+    showOrtho.value = true
+    getViewer()?.resize()
   }
 
   function syncCameraVisual() {
