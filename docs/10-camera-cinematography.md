@@ -106,17 +106,17 @@ applyCameraAtTime(next)
 `THREE.Sprite` 挂在相机下，并把相机加入场景图，这样水印随渲染一起进入视频。
 `loop` 打开时录制只跑一圈，在结束前 1 帧停下，避免末帧直接跳回首帧。
 
-## 5. 面试怎么说
+## 5. 设计取舍
 
-> "我把标注工具里的回放拆成两条时间线：数据帧时间线用 setInterval 驱动，
-> 镜头时间线用 requestAnimationFrame 按真实时间采样关键帧轨迹，两者互不干扰。
->
-> 数据层用纯函数 `sampleTrajectoryInfo`，处理了角度最短弧、样条端点、零时长和 loop 取模；
-> 渲染层提供 `getCameraPose / applyCameraPose / setCameraTrajectory`，roll 通过旋转 camera.up 实现；
-> 录制层用 captureStream + MediaRecorder，播放结束回调 stop，形成完整的开始—回执—清理闭环。
->
-> 这个设计参考了 rviz_cinematographer 的 CameraTrajectory 消息和 View Controller / Recorder 分层，
-> 但换成了浏览器原生 API，没有引入 ffmpeg.wasm 之类的重依赖。"
+**两条时间线，而不是一条。**最容易想到的做法是"回放到第 N 帧，相机就摆到第 N 个位置"，实现最省事，但镜头会被数据帧率绑架：数据 10Hz、视频要 30fps，镜头就只能一跳一跳。拆开之后，数据帧用 `setInterval` 按帧序推进，镜头用 `requestAnimationFrame` 按真实时间采样，两者只共享"当前时间"这一个量。代价是状态多了一份（`playing` / `cameraPlaying` 各自独立），收益是镜头可以匀速、可以比数据慢十倍，也可以只动镜头不动数据。
+
+**关键帧存姿态，不存矩阵。**`sampleTrajectoryInfo` 输出 `position + yaw/pitch/roll`，渲染层再组装成相机姿态。存四元数或矩阵能省一次转换，但手写 JSON 轨迹文件时不可读、也没法直接插值角度——角度插值要处理最短弧（-179° 到 179° 应该走 2°，不是 358°），这一步放在数据层做，纯函数可测。
+
+**录制走浏览器原生，不引 ffmpeg。**`captureStream` + `MediaRecorder` 只依赖浏览器，代价是只能出 WebM、且编码参数不可控；引入 ffmpeg.wasm 能出 MP4，但要多背一个几 MB 的 wasm，首帧启动明显变慢。对一个演示工具来说，WebM 够用。
+
+水印这个细节值得单说：**用 `THREE.Sprite` 挂在相机下，而不是 DOM 覆盖层**——DOM 不会被 `captureStream` 录进去，只有进入渲染管线的东西才会进视频。
+
+分层上参考了 rviz_cinematographer 的 `CameraTrajectory` 消息与 View Controller / Recorder 的切分，但把消息换成了普通 JSON、把 recorder 换成了浏览器 API。
 
 ## 6. 已知边界
 
