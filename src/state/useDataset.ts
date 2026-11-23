@@ -23,6 +23,9 @@ import { fromStoredCloud, type SessionSnapshot } from '../core/io/session'
 import type { Box3D } from '../core/types'
 import type { StudioCore } from './studioCore'
 
+/** 静态资源跟随 Vite base，兼容本地根路径与 GitHub Pages 子路径部署 */
+const assetUrl = (path: string) => `${import.meta.env.BASE_URL}${path}`
+
 export function useDataset(core: StudioCore) {
   const {
     boxes, selectedId, cloud, frames, currentFrame, calib, imageUrl, showTrajectories,
@@ -91,9 +94,9 @@ export function useDataset(core: StudioCore) {
     statusText.value = '正在加载真实点云（3MB）…'
     try {
       const [pcRes, labelRes, calibRes] = await Promise.all([
-        fetch('/data/000970.pcd'),
-        fetch('/data/000970.json'),
-        fetch('/data/calib_front.json'),
+        fetch(assetUrl('data/000970.pcd')),
+        fetch(assetUrl('data/000970.json')),
+        fetch(assetUrl('data/calib_front.json')),
       ])
       if (!pcRes.ok || !labelRes.ok) throw new Error('数据文件缺失')
       const [pcBuf, labelText] = await Promise.all([pcRes.arrayBuffer(), labelRes.text()])
@@ -107,7 +110,7 @@ export function useDataset(core: StudioCore) {
       showTrajectories.value = false
       if (calibRes.ok) {
         calib.value = parseCalibration(await calibRes.text())
-        imageUrl.value = '/data/front_000970.jpg'
+        imageUrl.value = assetUrl('data/front_000970.jpg')
         layout.value = 'split'
       }
       afterLoad()
