@@ -21,7 +21,7 @@ const {
   showOrtho, orthoMax, cloud, opacity, outlinedBorders, showOrientation, colorOf, colorBy,
   selectBox, toggleSelectBox, selectGroup, applyBox, applyBoxes, createBoxFromRect,
   currentCategory, categories, lockedIds, setCursor, hoverId, setHover,
-  orthoZoom, broadcastZoom,
+  orthoZoom, broadcastZoom, orthoPan, broadcastPan,
 } = studio
 
 const views: { axis: OrthoAxis; title: string }[] = [
@@ -42,6 +42,10 @@ function onCursor(p: { x: number; y: number; z: number } | null) {
 
 function onZoom(e: { from: OrthoAxis; scale: number }) {
   broadcastZoom(e.from, e.scale)
+}
+
+function onPan(e: { from: OrthoAxis; da: number; db: number }) {
+  broadcastPan(e.from, e.da, e.db)
 }
 
 function onEdit(box: Box3D) {
@@ -84,6 +88,7 @@ const hint = computed(() => {
         :locked-ids="lockedIdList"
         :hover-id="hoverId"
         :zoom-signal="orthoZoom"
+        :pan-signal="orthoPan"
         :tool="tool"
         :color-of="colorOf"
         :opacity="opacity"
@@ -98,6 +103,7 @@ const hint = computed(() => {
         @cursor="onCursor"
         @hover="setHover"
         @zoom="onZoom"
+        @pan="onPan"
         @maximize="toggleMaxCurrent"
       />
 
@@ -111,6 +117,7 @@ const hint = computed(() => {
           :hover-id="hoverId"
           :color-of="colorOf"
           :color-key="colorBy"
+          @hover="setHover"
         />
       </div>
     </div>
@@ -129,6 +136,7 @@ const hint = computed(() => {
         :locked-ids="lockedIdList"
         :hover-id="hoverId"
         :zoom-signal="orthoZoom"
+        :pan-signal="orthoPan"
         :tool="tool"
         :color-of="colorOf"
         :opacity="opacity"
@@ -143,6 +151,7 @@ const hint = computed(() => {
         @cursor="onCursor"
         @hover="setHover"
         @zoom="onZoom"
+        @pan="onPan"
         @maximize="toggleMax(v.axis)"
       />
     </div>

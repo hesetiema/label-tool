@@ -34,6 +34,8 @@ const props = defineProps<{
   hoverId: string | null
   /** 联动缩放的广播信号；from 等于本视图时忽略，避免自己触发自己 */
   zoomSignal: { scale: number; from: OrthoAxis; nonce: number } | null
+  /** 联动平移的广播信号（世界米），与 zoomSignal 同一套开关 */
+  panSignal: { da: number; db: number; from: OrthoAxis; nonce: number } | null
   tool: Tool
   colorOf: (box: Box3D) => number
   opacity: number
@@ -56,6 +58,8 @@ const emit = defineEmits<{
   (e: 'hover', id: string | null): void
   /** 用户主动缩放：父级按需广播给其余视图 */
   (e: 'zoom', p: { from: OrthoAxis; scale: number }): void
+  /** 用户平移结束：父级按需广播给其余视图（世界米，不是像素） */
+  (e: 'pan', p: { from: OrthoAxis; da: number; db: number }): void
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
@@ -106,6 +110,8 @@ let readout: string | null = null
 let readoutAt = { x: 0, y: 0 }
 /** 本次拖拽是否发生过平移（松手后要重建一次点云层，消掉位移留下的空隙） */
 let panned = false
+/** 平移起点（屏幕像素）：松手时用它换算出这次一共走了多少世界米 */
+let panStart = { x: 0, y: 0 }
 /** 光标坐标上报节流：最近邻搜索是 O(n)，不必每次 mousemove 都跑 */
 let lastCursorAt = 0
 /** 空白处单击的延迟取消选中：双击最大化时不能把选中状态一起清掉 */
@@ -714,6 +720,7 @@ function beginDrag(e: MouseEvent) {
 
   if (e.button === 1 || e.button === 2 || props.tool === 'pan') {
     dragMode = 'pan'
+    panStart = { x: panX, y: panY }
     e.preventDefault()
     return
   }
@@ -950,7 +957,15 @@ function endDrag() {
   dragBoxes = null
   readout = null
   // 平移结束重建一次点云层，把位移期间露出的空白补上
-  if (panned) { panned = false; cloudDirty = true }
+  if (panned) {
+    panned = false
+    cloudDirty = true
+    // 屏幕位移 → 世界位移：panX 增大等于视野朝 -a 方向走，
+    // 广播世界米而不是像素，三联与最大化视图尺寸不同也能量得准
+    const dpx = panX - panStart.x
+    const dpy = panY - panStart.y
+    emit('pan', { from: props.axis, da: -dpx / scale, db: dpy / scale })
+  }
   redraw()
 }
 
@@ -988,6 +1003,20 @@ function applyLinkedZoom(target: number) {
   const next = Math.min(600, Math.max(0.4, target))
   if (Math.abs(next - scale) < 0.01) return
   scale = next
+  cloudDirty = true
+  redraw()
+}
+
+/**
+ * 应用其他视图广播来的平移：按本视图自己的「米/像素」换算成像素，
+ * 保证三张图走过的是同一段世界距离，而不是同一串屏幕像素。
+ */
+function applyLinkedPan(da: number, db: number) {
+  const before = { x: panX, y: panY }
+  panX -= da * scale
+  panY += db * scale
+  if (Math.abs(panX - before.x) < 0.5 && Math.abs(panY - before.y) < 0.5) return
+  // 平移量变了就得重建点云层：位图位移只覆盖旧内容，新露出的边缘需要重新打点
   cloudDirty = true
   redraw()
 }
@@ -1118,6 +1147,11 @@ watch(() => props.hoverId, () => redraw())
 watch(() => props.zoomSignal, (sig) => {
   if (!sig || sig.from === props.axis) return
   applyLinkedZoom(sig.scale)
+})
+// 联动平移：与缩放同一套规则（谁发起谁不动）
+watch(() => props.panSignal, (sig) => {
+  if (!sig || sig.from === props.axis) return
+  applyLinkedPan(sig.da, sig.db)
 })
 watch(() => props.tool, () => { hoverId = null; emittedHover = null; redraw() })
 watch(() => [props.opacity, props.outlinedBorders, props.showOrientation], onAppearanceChange)

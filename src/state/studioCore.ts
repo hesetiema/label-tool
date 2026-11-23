@@ -156,6 +156,16 @@ export function createStudioCore() {
   const orthoZoom = ref<{ scale: number; from: OrthoAxis; nonce: number } | null>(null)
   let zoomNonce = 0
 
+  /**
+   * 三视图联动平移：与联动缩放配成一对。
+   * 缩放管「多远算一米」，平移管「看着哪一块」——两件事都同步，
+   * 三张图才是同一个观察窗口的三个切面，而不是三张各自漂移的图。
+   */
+  const linkPan = ref(false)
+  /** 平移量用世界米而不是像素：三视图尺寸不同（三联 / 最大化），像素不可比 */
+  const orthoPan = ref<{ da: number; db: number; from: OrthoAxis; nonce: number } | null>(null)
+  let panNonce = 0
+
   // 切帧后旧的悬停目标多半已经不在这帧了：直接清掉，否则光晕会停在鼠标早已离开的位置
   watch(currentFrame, () => {
     hoverId.value = null
@@ -277,6 +287,17 @@ export function createStudioCore() {
   function broadcastZoom(from: OrthoAxis, scale: number) {
     if (!linkZoom.value) return
     orthoZoom.value = { scale, from, nonce: ++zoomNonce }
+  }
+
+  /**
+   * 三视图联动平移：把某个视图走过的世界位移广播给其余视图。
+   * da / db 是该视图两个平面轴上的世界米数（Top 是 x/y，Side 是 x/z，Front 是 y/z）。
+   */
+  function broadcastPan(from: OrthoAxis, da: number, db: number) {
+    if (!linkPan.value) return
+    if (!Number.isFinite(da) || !Number.isFinite(db)) return
+    if (Math.abs(da) < 1e-4 && Math.abs(db) < 1e-4) return
+    orthoPan.value = { da, db, from, nonce: ++panNonce }
   }
 
   /** 统一的取色入口：3D 视口、正交视图、对象列表、相机投影都调它 */
@@ -505,7 +526,7 @@ export function createStudioCore() {
     hiddenIds, lockedIds, categories, showTrajectories, reviewBoxes, showReview,
     qaReport, temporalReport, canUndo, canRedo, undoLabel, origin, selectedBox, visibleBoxes,
     saveState, lastSavedAt, dirtyVersion, autosaveEnabled, cursor, frameNav,
-    hoverId, setHover, linkZoom, orthoZoom, broadcastZoom,
+    hoverId, setHover, linkZoom, orthoZoom, broadcastZoom, linkPan, orthoPan, broadcastPan,
     getViewer, setViewer, invalidateCloud, mutate, syncViewer, syncHistoryUi, markDirty, setCursor,
     undoState, redoState, resetHistory, onReset, setLayout,
     categoryOf, colorOf, trajectoryKey, currentTrajectories,

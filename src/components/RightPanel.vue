@@ -17,7 +17,7 @@ import PerformancePanel from './panels/PerformancePanel.vue'
 
 const studio = inject(StudioKey)!
 const {
-  colorBy, opacity, outlinedBorders, showOrientation, linkZoom,
+  colorBy, opacity, outlinedBorders, showOrientation, linkZoom, linkPan,
 } = studio
 
 type Tab = 'objects' | 'labels' | 'more'
@@ -58,6 +58,9 @@ const tab = ref<Tab>('objects')
           </label>
           <label class="check-row" title="三张正交视图同步到相同「米/像素」，方便比较各处比例">
             <input v-model="linkZoom" type="checkbox" /> 三视图联动缩放
+          </label>
+          <label class="check-row" title="三张正交视图同步平移相同的世界距离，始终看着同一块区域">
+            <input v-model="linkPan" type="checkbox" /> 三视图联动平移
           </label>
         </section>
       </template>
