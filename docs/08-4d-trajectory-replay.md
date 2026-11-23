@@ -1,4 +1,4 @@
-# ⑨ 4D 轨迹叠加回放：把时序标注"看"出来
+# ⑧ 4D 轨迹叠加回放：把时序标注"看"出来
 
 > 3D 标注加一个时间维度就是 4D。这一篇讲怎么用最低成本，把已经有的多帧时序能力
 > 变成**肉眼可见的轨迹回放**——这是 4D 标注工具里性价比最高、展示效果最好的一块。
@@ -106,4 +106,4 @@ function play() {
 - 渲染层：`src/viewer/PointCloudViewer.ts` — `setTrajectories`
 - 交互层：`src/state/useSequence.ts` — `toggleTrajectories` / `play` / `pausePlay` / `onSpeedChange`
 - 测试：`tests/core-check.ts` — 4 项轨迹提取断言
-- 本系列前序：多帧时序与关联见 [07 工程化能力](07-engineering-p0.md)，面试话术见 [08 面试准备](08-interview-prep.md)
+- 本系列前序：多帧时序与关联见 [07 工程化能力](07-engineering-p0.md)

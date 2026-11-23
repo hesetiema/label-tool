@@ -27,7 +27,7 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 | `?data=sequence` | 5 帧时序序列：目标会移动，默认叠加显示跨帧轨迹线。点「轨迹插值补全」可补出 9 个中间帧框；点「回放」逐帧播放（白点=当前帧），加 `&autoplay=1` 进入即自动播放 |
 | `?data=qa` | 质检演示：生成扰动版标注并自动出报告（IoU / kappa / 漏标率） |
 
-其余能力都从面板进入，不占链接：**百万点压测**在「演示与质检」Tab，**贪心 vs Kalman+Hungarian 关联演示**在「时序」Tab 底部，**相机运镜与录制**在「演示与质检」→ 相机导演面板的「演示运镜」（见 [第 ⑪ 篇](docs/11-camera-cinematography.md)）。
+其余能力都从面板进入，不占链接：**百万点压测**在「演示与质检」Tab，**贪心 vs Kalman+Hungarian 关联演示**在「时序」Tab 底部，**相机运镜与录制**在「演示与质检」→ 相机导演面板的「演示运镜」（见 [第 ⑩ 篇](docs/10-camera-cinematography.md)）。
 
 ```bash
 pnpm build      # 类型检查 + 生产构建
@@ -66,21 +66,20 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 
 ## 3. 学习路线（按顺序读 docs/）
 
-这个仓库既是可运行的工具，也是一套教程。建议按下面的顺序，边跑边读源码：
+这个仓库既是可运行的工具，也是一套教程。①–⑥ 是从零到能用的主线，⑦–⑩ 是工程化与 4D 进阶：
 
-| 顺序 | 文档 | 配套源码 | 你将学到 |
-|---|---|---|---|
-| ① | [坐标系与整体架构](docs/01-coordinates-and-architecture.md) | `core/types.ts` | 为什么 z-up、OBB 是什么、数据如何分层 |
-| ② | [点云数据格式 PCD](docs/02-pcd-format.md) | `core/pcd.ts` | PCD 头结构、ascii/binary 解析 |
-| ③ | [3D 框与几何算法](docs/03-obb-and-fitting.md) | `core/box.ts` | 8 角点、自动拟合、PCA 主方向 |
-| ④ | [Three.js 渲染原理](docs/04-threejs-rendering.md) | `viewer/PointCloudViewer.ts` | 正交/透视相机、双视口、屏幕坐标反投影 |
-| ⑤ | [交互与序列化](docs/05-interaction-and-io.md) | `App.vue` / `core/label.ts` | 拖拽画框、快捷键、label JSON 互通 |
-| ⑥ | [相机标定与投影（进阶）](docs/06-calibration-and-projection.md) | — | 3D 框如何投到图像、LiDAR 与相机融合 |
-| ⑦ | [工程化能力：撤销重做 / 时序 / 性能](docs/07-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 快照 vs 差量的取舍、轨迹关联与插值、体素下采样与 LOD 的实测数据、简化边界 |
-| ⑧ | [面试准备：系统设计题与项目话术](docs/08-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、其他追问速查 |
-| ⑨ | [4D 轨迹叠加回放](docs/09-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
-| ⑩ | [4D 进阶：跨帧编辑与时序质检](docs/10-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
-| ⑪ | [相机导演：关键帧运镜与视频录制](docs/11-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、Three.js 相机 API、MediaRecorder 录制闭环 |
+| 文档 | 配套源码 | 一句话 |
+|---|---|---|
+| [① 坐标系与整体架构](docs/01-coordinates-and-architecture.md) | `core/types.ts` | z-up 约定、OBB 表示、数据分层 |
+| [② 点云数据格式 PCD](docs/02-pcd-format.md) | `core/pcd.ts` | PCD 头结构、ascii / binary 解析 |
+| [③ 3D 框与几何算法](docs/03-obb-and-fitting.md) | `core/box.ts` | 8 角点、PCA 主方向、自动拟合 |
+| [④ Three.js 渲染原理](docs/04-threejs-rendering.md) | `viewer/PointCloudViewer.ts` | 正交/透视相机、双视口、屏幕反投影 |
+| [⑤ 交互与序列化](docs/05-interaction-and-io.md) | `state/useAnnotation.ts` / `core/label.ts` | 拖拽画框、快捷键、label JSON 互通 |
+| [⑥ 相机标定与投影](docs/06-calibration-and-projection.md) | `core/calibration.ts` | 3D 框投到图像、LiDAR 与相机对齐 |
+| [⑦ 工程化能力](docs/07-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 快照 vs 差量、轨迹关联与插值、体素 + LOD 实测 |
+| [⑧ 4D 轨迹叠加回放](docs/08-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、轨迹线渲染、回放定时器 |
+| [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
+| [⑩ 相机导演：关键帧运镜与录制](docs/10-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、MediaRecorder |
 
 读完 ①–⑥ 就掌握了单机标注的完整闭环。接下来的问题是：这东西离工业级还差多远、该怎么补。
 
@@ -114,7 +113,7 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | 3 工程化 | 后端入库与任务分发、角色权限、结果版本化 + 审计日志、服务端并发快照 | 未开始 |
 | 4 质量闭环 | 抽检 → 打回带原因码 → 返修 → 通过率统计；多人一致性复用现有 kappa / IoU；对接训练管线形成数据飞轮 | 未开始 |
 
-阶段 3 的并发方案，见 [第 ⑧ 篇](docs/08-interview-prep.md) 对服务端版本化快照的讨论。
+阶段 3 的并发思路，是把本地 history 栈换成服务端的**版本化快照**：提交携带 baseVersion，冲突时把两人差异交给仲裁。
 
 ### 4.3 想读工业实现，从这里入手
 
