@@ -104,6 +104,6 @@ function play() {
 
 - 数据层：`src/core/sequence/sequence.ts` — `extractTrajectories` / `TrackPoint` / `Trajectory`
 - 渲染层：`src/viewer/PointCloudViewer.ts` — `setTrajectories`
-- 交互层：`src/state/useStudio.ts` — `toggleTrajectories` / `play` / `pausePlay` / `onSpeedChange`
+- 交互层：`src/state/useSequence.ts` — `toggleTrajectories` / `play` / `pausePlay` / `onSpeedChange`
 - 测试：`tests/core-check.ts` — 4 项轨迹提取断言
 - 本系列前序：多帧时序与关联见 [08 工程化能力](08-engineering-p0.md)，面试话术见 [09 面试准备](09-interview-prep.md)

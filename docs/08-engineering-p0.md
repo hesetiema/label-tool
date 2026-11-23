@@ -56,6 +56,8 @@ interface HistoryCommand<T> {
 - `core/history.ts`：HistoryStack 类 + cloneBoxes
 - `App.vue`：所有编辑操作都经过 `mutate(label, fn, mergeKey)` 统一入口——**关键设计**：不这么做就会出现"有些操作能撤销、有些不能"。
 
+> 状态层已按职责拆分为 `studioCore`（共享状态 + 历史栈 + 渲染同步）与五个功能模块（`useAnnotation` / `useDataset` / `useSequence` / `useQuality` / `useCameraDirector`），`useStudio` 只剩装配。`mutate` 现在定义在 `state/studioCore.ts`。
+
 ---
 
 ## 2. 多帧时序：obj_id 跨帧一致 + 轨迹插值

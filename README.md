@@ -104,8 +104,14 @@ src/
 │   ├── sequence/         # sequence.ts（多帧关联 + 轨迹插值）· temporalQA.ts（时序质检）· tracker.ts（Hungarian + Kalman）
 │   ├── quality/          # quality.ts（IoU / 匹配 / kappa / 漏误标率）
 │   └── camera/           # cameraTrajectory.ts（关键帧 + 样条采样 + JSON 序列化）
-├── state/                # 状态层：单一 useStudio 承载全部业务状态与操作，provide 给面板共享
-│   ├── useStudio.ts      # 标注/时序/质检/相机导演/数据加载的全部状态与函数
+├── state/                # 状态层：core 持有共享状态，五个模块各自管一摊业务，useStudio 只做装配
+│   ├── studioCore.ts     # 共享 ref / 历史栈 / viewer 句柄 / 渲染同步（其余模块的唯一依赖）
+│   ├── useAnnotation.ts  # BEV 画框、框编辑、撤销重做、标注导入导出、快捷键
+│   ├── useDataset.ts     # 演示 / 真实 / nuScenes 加载
+│   ├── useSequence.ts    # 帧切换、回放、轨迹插值、跨帧传播、时序质检
+│   ├── useQuality.ts     # 质检报告、关联演示、百万点压测
+│   ├── useCameraDirector.ts # 关键帧、运镜播放、WebM 录制
+│   ├── useStudio.ts      # 装配层：创建 viewer、绑定事件、URL 路由、生命周期
 │   └── studioContext.ts  # provide/inject 注入键
 ├── viewer/               # Three.js 渲染层
 │   └── PointCloudViewer.ts

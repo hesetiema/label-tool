@@ -1,6 +1,6 @@
 # ⑤ 交互与序列化
 
-> 配套源码：`src/state/useStudio.ts` / `src/core/io/label.ts`
+> 配套源码：`src/state/useAnnotation.ts` / `src/core/io/label.ts`
 
 这一篇讲用户操作如何变成数据修改，以及标注结果如何与算法侧对接。
 
