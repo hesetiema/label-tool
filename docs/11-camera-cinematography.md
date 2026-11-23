@@ -1,4 +1,4 @@
-# ⑭ 相机导演：关键帧运镜与演示视频录制
+# ⑪ 相机导演：关键帧运镜与演示视频录制
 
 > 这一篇讲怎么把「数据回放」和「镜头运动」拆成两条独立时间线，并用关键帧给相机做运镜，
 > 最后把视角录成 WebM 视频。思路借鉴 ROS 生态的 [rviz_cinematographer](https://github.com/AIS-Bonn/rviz_cinematographer)，

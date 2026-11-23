@@ -1,4 +1,4 @@
-# ⑫ 4D 进阶：跨帧编辑与时序质检
+# ⑩ 4D 进阶：跨帧编辑与时序质检
 
 > 上一篇做了轨迹叠加回放，把 4D 数据"看"了出来。这一篇做两件事：
 > 让编辑能"跨帧传播"（改一帧带出一条轨迹），让质检能"跨帧检查"（发现单帧看不出的错误）。
@@ -100,4 +100,4 @@ UI 里每条问题可点击跳到对应帧。
 - 时序质检：`src/core/sequence/temporalQA.ts` — `evaluateTemporal` / `injectTemporalDefects` / `TemporalReport`
 - 交互层：`src/state/useSequence.ts` — `doPropagate` / `runTemporalQA` / `runTemporalDemo`
 - 测试：`tests/core-check.ts` — 12 项 4D 断言
-- 前序：[⑩ 4D 轨迹叠加回放](10-4d-trajectory-replay.md) · [⑧ 工程化能力](08-engineering-p0.md)
+- 前序：[⑨ 4D 轨迹叠加回放](09-4d-trajectory-replay.md) · [⑦ 工程化能力](07-engineering-p0.md)

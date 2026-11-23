@@ -27,7 +27,7 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 | `?data=sequence` | 5 帧时序序列：目标会移动，默认叠加显示跨帧轨迹线。点「轨迹插值补全」可补出 9 个中间帧框；点「回放」逐帧播放（白点=当前帧），加 `&autoplay=1` 进入即自动播放 |
 | `?data=qa` | 质检演示：生成扰动版标注并自动出报告（IoU / kappa / 漏标率） |
 
-其余能力都从面板进入，不占链接：**百万点压测**在「演示与质检」Tab，**贪心 vs Kalman+Hungarian 关联演示**在「时序」Tab 底部，**相机运镜与录制**在「演示与质检」→ 相机导演面板的「演示运镜」（见 [第 12 节](docs/12-camera-cinematography.md)）。
+其余能力都从面板进入，不占链接：**百万点压测**在「演示与质检」Tab，**贪心 vs Kalman+Hungarian 关联演示**在「时序」Tab 底部，**相机运镜与录制**在「演示与质检」→ 相机导演面板的「演示运镜」（见 [第 ⑪ 篇](docs/11-camera-cinematography.md)）。
 
 ```bash
 pnpm build      # 类型检查 + 生产构建
@@ -76,16 +76,55 @@ pnpm test       # 核心算法自检（130 项断言，无需浏览器）
 | ④ | [Three.js 渲染原理](docs/04-threejs-rendering.md) | `viewer/PointCloudViewer.ts` | 正交/透视相机、双视口、屏幕坐标反投影 |
 | ⑤ | [交互与序列化](docs/05-interaction-and-io.md) | `App.vue` / `core/label.ts` | 拖拽画框、快捷键、label JSON 互通 |
 | ⑥ | [相机标定与投影（进阶）](docs/06-calibration-and-projection.md) | — | 3D 框如何投到图像、LiDAR 与相机融合 |
-| ⑦ | [从学习到生产](docs/07-from-learning-to-production.md) | — | 还缺什么、如何演进成工业级系统 |
-| ⑧ | [工程化能力：撤销重做 / 时序 / 性能](docs/08-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 快照 vs 差量的取舍、轨迹关联与插值、体素下采样与 LOD 的实测数据、简化边界 |
-| ⑨ | [面试准备：系统设计题与项目话术](docs/09-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、其他追问速查 |
-| ⑩ | [4D 轨迹叠加回放](docs/10-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
-| ⑪ | [4D 进阶：跨帧编辑与时序质检](docs/11-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
-| ⑫ | [相机导演：关键帧运镜与视频录制](docs/12-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、Three.js 相机 API、MediaRecorder 录制闭环 |
+| ⑦ | [工程化能力：撤销重做 / 时序 / 性能](docs/07-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 快照 vs 差量的取舍、轨迹关联与插值、体素下采样与 LOD 的实测数据、简化边界 |
+| ⑧ | [面试准备：系统设计题与项目话术](docs/08-interview-prep.md) | `core/quality.ts` | 云端标注平台四层框架、逐项"问题→选择→收益"话术、其他追问速查 |
+| ⑨ | [4D 轨迹叠加回放](docs/09-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、Three.js 轨迹线渲染、回放定时器生命周期、面试话术 |
+| ⑩ | [4D 进阶：跨帧编辑与时序质检](docs/10-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 增量/整框传播、ID 跳变与抖动等四类时序检测、健康分、面试话术 |
+| ⑪ | [相机导演：关键帧运镜与视频录制](docs/11-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、Three.js 相机 API、MediaRecorder 录制闭环 |
+
+读完 ①–⑥ 就掌握了单机标注的完整闭环。接下来的问题是：这东西离工业级还差多远、该怎么补。
 
 ---
 
-## 4. 项目结构
+## 4. 从学习到生产
+
+### 4.1 差距：算法层追得上，系统层从零开始
+
+按「系统 / 数据 / 质量 / 算法」四个维度看，本项目覆盖的是**单机标注闭环**，缺的是**组织级协作与数据治理**：
+
+| 维度 | 生产级需要 | 本项目现状 |
+|---|---|---|
+| 存储 | PB 级原始数据放对象存储，元数据进关系库 | 单机 `public/data/`，几十 MB |
+| 任务流转 | 任务切片、分派、回收，状态机驱动 | 无，一帧一帧手工打开 |
+| 版本管理 | 标注多版本、回滚、审计日志 | 无，导出即覆盖 |
+| 权限协作 | 标注员 / 质检员 / 管理员分权 | 无，单用户 |
+| 质检流程 | 抽检、返修、通过率统计 | **指标有了**（IoU / kappa / 漏误标率），**流程没有** |
+| 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 只有 3D 框 |
+| 预标注 | CenterPoint / PointPillars 等模型产出候选框 | PCA 传统拟合，无深度学习 |
+| 跟踪 | 马氏距离 + JPDA / 多假设 + 轨迹优化 | Kalman + Hungarian 已实现，但只用 2D 常速度 + 欧氏距离 |
+
+难点不在单点算法，而在**让几百人并发标注还不乱**。
+
+### 4.2 演进路线：每一步都能独立交付价值
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 1 标注体验 | 性能（体素 + LOD）、撤销重做、轨迹插值；待补拖拽微调、多框批量、跨帧复制粘贴 | 大部分完成 |
+| 2 多传感器 | 相机投影已完成；待补 radar / 多相机融合与按位置选最佳视角；接入 CenterPoint 预标注，人工只做校正——效率提升最大的一步 | 部分完成 |
+| 3 工程化 | 后端入库与任务分发、角色权限、结果版本化 + 审计日志、服务端并发快照 | 未开始 |
+| 4 质量闭环 | 抽检 → 打回带原因码 → 返修 → 通过率统计；多人一致性复用现有 kappa / IoU；对接训练管线形成数据飞轮 | 未开始 |
+
+阶段 3 的并发方案，见 [第 ⑧ 篇](docs/08-interview-prep.md) 对服务端版本化快照的讨论。
+
+### 4.3 想读工业实现，从这里入手
+
+本项目刻意做了简化。要对照真实实现，直接读 [SUSTechPOINTS](https://github.com/sustech-isus/SUSTechPOINTS)：自动拟合在 `algos/rotation.py` 与 `algos/trajectory.py`，鼠标画框与自动调整在 `public/js/mouse.js`、`auto-adjust.js`，框编辑在 `box_op.js`、`side_view_op.js`，标定投影在 `calib.js`、`image.js`，保存逻辑在 `save.js`，数据管理在 `data.js`、`scene_reader.py`。
+
+原仓库 96% 是 JavaScript，架构朴素但干货都在；有了本项目的算法基础再去读，会顺畅很多。
+
+---
+
+## 5. 项目结构
 
 ```
 src/
@@ -142,7 +181,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 
 ---
 
-## 5. 操作说明
+## 6. 操作说明
 
 - **BEV 视图**（默认）：在点云上按住左键拖一个矩形，工具会用 PCA 估计朝向并自动拟合出一个贴合的 3D 框；单击框选中。
 - **切换到 3D 透视**：验证框的高度和朝向是否贴准（左键旋转、右键平移、滚轮缩放）。
@@ -157,7 +196,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 
 ---
 
-## 6. 坐标系约定（务必先记住）
+## 7. 坐标系约定（务必先记住）
 
 ```
         z (上)
@@ -175,7 +214,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 
 ---
 
-## 7. 真实数据说明
+## 8. 真实数据说明
 
 `public/data/` 里是从 [SUSTechPOINTS 官方样例](https://github.com/sustech-isus/SUSTechPOINTS/tree/master/data/example) 下载的真实数据（帧 `000970`）：
 
@@ -192,7 +231,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 
 ---
 
-## 8. 许可证
+## 9. 许可证
 
 本项目采用 [MIT License](LICENSE)：可自由使用、修改、分发，保留版权与许可声明即可。
 

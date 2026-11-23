@@ -1,4 +1,4 @@
-# ⑧ 工程化能力：撤销重做 / 多帧时序 / 大规模性能
+# ⑦ 工程化能力：撤销重做 / 多帧时序 / 大规模性能
 
 > 这三件事都不是"算法"，而是把工具做成能用的产品必须解决的工程问题：历史栈怎么设计、
 > 跨帧 ID 怎么保持一致、百万点怎么不卡。也是学习项目与工业项目差距最大的地方。
@@ -55,7 +55,7 @@ interface HistoryCommand<T> {
 ### 对应源码
 - `core/history.ts`：HistoryStack 类 + cloneBoxes
 - `state/studioCore.ts`：`mutate(label, fn, mergeKey)` 是所有编辑的唯一入口——**关键设计**，不这么做就会出现"有些操作能撤销、有些不能"。
-- 状态层已按职责拆成 `studioCore` + 五个功能模块，`useStudio` 只做装配，细节见 [README 项目结构](../README.md#4-项目结构)。
+- 状态层已按职责拆成 `studioCore` + 五个功能模块，`useStudio` 只做装配，细节见 [README 项目结构](../README.md#5-项目结构)。
 
 ---
 
