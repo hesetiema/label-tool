@@ -101,6 +101,8 @@ export function createStudioCore() {
 
   // ---- 外观（对应 CVAT 的 Appearance 面板）----
   const colorBy = ref<'label' | 'instance'>('label')
+  /** 点云着色模式；语义标签存在时才有意义 */
+  const pointColorBy = ref<'default' | 'semantic'>('default')
   const opacity = ref(0.9)
   const outlinedBorders = ref(true)
   const showOrientation = ref(true)
@@ -342,6 +344,7 @@ export function createStudioCore() {
       : base
     viewer.setAppearance({
       colorBy: colorBy.value,
+      pointColorBy: pointColorBy.value,
       opacity: opacity.value,
       outlinedBorders: outlinedBorders.value,
       showOrientation: showOrientation.value,
@@ -522,7 +525,7 @@ export function createStudioCore() {
     viewportRef, camViewRef, boxes, selectedId, selectedIds, selectedBoxes, selectedCount,
     cloud, statusText, datasetName, frames, currentFrame,
     layout, calib, imageUrl, tool, showOrtho, orthoMax,
-    colorBy, opacity, outlinedBorders, showOrientation,
+    colorBy, pointColorBy, opacity, outlinedBorders, showOrientation,
     hiddenIds, lockedIds, categories, showTrajectories, reviewBoxes, showReview,
     qaReport, temporalReport, canUndo, canRedo, undoLabel, origin, selectedBox, visibleBoxes,
     saveState, lastSavedAt, dirtyVersion, autosaveEnabled, cursor, frameNav,

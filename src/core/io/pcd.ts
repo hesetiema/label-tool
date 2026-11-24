@@ -29,7 +29,7 @@
  *     样例里的 `_` 字段）。ASCII 的每点 token 数应该按 sum(COUNT) 算，
  *     而不是按字段个数算，否则读出来的 x/y/z 全是错位的。
  */
-import type { PointCloud } from '../types'
+import type { PointCloud, SemanticLabels } from '../types'
 
 interface PcdHeader {
   fields: string[]
@@ -160,6 +160,7 @@ export function parsePCD(buffer: ArrayBuffer): PointCloud {
 
   const positions = new Float32Array(points * 3)
   let colors: Float32Array | undefined
+  let labels: SemanticLabels | undefined
 
   const ix = fields.indexOf('x')
   const iy = fields.indexOf('y')
@@ -168,6 +169,10 @@ export function parsePCD(buffer: ArrayBuffer): PointCloud {
 
   const colorIdx = fields.findIndex((f) => f === 'rgb' || f === 'rgba')
   if (colorIdx >= 0) colors = new Float32Array(points * 3)
+
+  // 语义标签字段：常见命名 label / semantic / semantic_label / class
+  const labelIdx = fields.findIndex((f) => /^(label|semantic|semantic_label|class)$/i.test(f))
+  if (labelIdx >= 0) labels = new Uint16Array(points)
 
   if (header.encoding === 'ascii') {
     // ---- ASCII：按空白切分，每个点 stride 个 token（stride = sum(COUNT)）----
@@ -179,6 +184,10 @@ export function parsePCD(buffer: ArrayBuffer): PointCloud {
       positions[i * 3] = Number(tokens[base + tokenOffset[ix]])
       positions[i * 3 + 1] = Number(tokens[base + tokenOffset[iy]])
       positions[i * 3 + 2] = Number(tokens[base + tokenOffset[iz]])
+      if (labels && labelIdx >= 0) {
+        const raw = Number(tokens[base + tokenOffset[labelIdx]])
+        labels[i] = Number.isFinite(raw) ? (raw & 0xffff) : 0
+      }
     }
   } else if (header.encoding === 'binary') {
     // ---- BINARY：按 pointStep 步进，用 DataView 按类型读取 ----
@@ -199,10 +208,15 @@ export function parsePCD(buffer: ArrayBuffer): PointCloud {
         colors[i * 3 + 1] = g
         colors[i * 3 + 2] = b
       }
+      if (labels && labelIdx >= 0) {
+        const raw = readNumber(view, rowStart + byteOffset[labelIdx], type[labelIdx], size[labelIdx])
+        // SemanticKITTI 用 uint32 打包 semantic(低16) + instance(高16)，这里只取语义
+        labels[i] = Number.isFinite(raw) ? (raw & 0xffff) : 0
+      }
     }
   } else {
     throw new Error('binary_compressed 编码暂未支持，请用 PCL 转存为 ascii 或 binary')
   }
 
-  return { positions, count: points, colors }
+  return { positions, count: points, colors, labels }
 }

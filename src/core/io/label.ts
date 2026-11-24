@@ -46,12 +46,13 @@ export function serializeLabels(boxes: Box3D[]): string {
   return JSON.stringify(boxes.map(toRawLabel), null, 2)
 }
 
-/** 从 JSON 字符串解析出所有框 */
+/** 从 JSON 字符串解析出所有框（仅 SUSTechPOINTS 原生格式；多格式见 io/formats） */
 export function parseLabels(json: string): Box3D[] {
   const raws: unknown = JSON.parse(json)
   if (!Array.isArray(raws)) throw new Error('标注文件应为对象数组')
   return (raws as RawLabelObject[]).map(fromRawLabel)
 }
+
 
 /** 序列导出格式：一帧一个 objects 数组，字段仍是 SUSTechPOINTS 的对象结构 */
 export interface SequenceExport {

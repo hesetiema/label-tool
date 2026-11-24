@@ -11,7 +11,8 @@
  */
 import { ref } from 'vue'
 import { cloneBoxes } from '../core/history'
-import { parseLabels, parseSequence, serializeLabels, serializeSequence, downloadJson } from '../core/io/label'
+import { parseSequence, serializeLabels, serializeSequence, downloadJson } from '../core/io/label'
+import { parseLabelsAuto } from '../core/io/formats'
 import { fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from '../core/geometry/box'
 import { DEFAULT_CATEGORIES, type Box3D } from '../core/types'
 import type { StudioCore } from './studioCore'
@@ -442,8 +443,13 @@ export function useAnnotation(core: StudioCore) {
           statusText.value = `当前是单帧数据集，只导入第 1 帧（共 ${parsed.length} 帧）`
         }
       } else {
-        boxes.value = parseLabels(text)
-        statusText.value = `已导入 ${boxes.value.length} 个标注框`
+        // 自动识别 SUSTech / KITTI / DAIR-V2X / nuScenes / Waymo
+        const result = parseLabelsAuto(text, file.name)
+        boxes.value = result.boxes
+        const skipNote = result.skipped.length
+          ? ` · 跳过 ${result.skipped.map((s) => `${s.reason}×${s.count}`).join('、')}`
+          : ''
+        statusText.value = `已识别 ${result.formatLabel} · 导入 ${result.boxes.length} 个框${skipNote}`
       }
       core.ensureCategories(boxes.value)
       selectedId.value = null

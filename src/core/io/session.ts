@@ -12,7 +12,7 @@
  *   localStorage 只收字符串，Float32Array 要先转 base64，体积涨 33% 且同步阻塞；
  *   IndexedDB 直接结构化克隆 TypedArray，几十 MB 也能存。
  */
-import type { Box3D, ObjectCategory, PointCloud } from '../types'
+import type { Box3D, ObjectCategory, PointCloud, SemanticClass, SemanticLabels } from '../types'
 
 const DB_NAME = 'point-cloud-label-studio'
 const DB_VERSION = 1
@@ -22,6 +22,8 @@ const KEY = 'current'
 export interface StoredCloud {
   positions: Float32Array
   colors?: Float32Array
+  labels?: SemanticLabels
+  semanticClasses?: SemanticClass[]
   count: number
 }
 
@@ -74,6 +76,8 @@ export function toStoredCloud(cloud: PointCloud): StoredCloud {
   return {
     positions: cloud.positions,
     ...(cloud.colors ? { colors: cloud.colors } : {}),
+    ...(cloud.labels ? { labels: cloud.labels } : {}),
+    ...(cloud.semanticClasses ? { semanticClasses: cloud.semanticClasses } : {}),
     count: cloud.count,
   }
 }
@@ -83,6 +87,8 @@ export function fromStoredCloud(stored: StoredCloud): PointCloud {
     positions: stored.positions,
     count: stored.count,
     ...(stored.colors ? { colors: stored.colors } : {}),
+    ...(stored.labels ? { labels: stored.labels } : {}),
+    ...(stored.semanticClasses ? { semanticClasses: stored.semanticClasses } : {}),
   }
 }
 
@@ -130,7 +136,7 @@ export function estimateSnapshotBytes(snapshot: Pick<SessionSnapshot, 'cloud' | 
   let bytes = 0
   const add = (c: StoredCloud | null) => {
     if (!c) return
-    bytes += c.positions.byteLength + (c.colors?.byteLength ?? 0)
+    bytes += c.positions.byteLength + (c.colors?.byteLength ?? 0) + (c.labels?.byteLength ?? 0)
   }
   add(snapshot.cloud)
   for (const f of snapshot.frames) add(f.cloud)

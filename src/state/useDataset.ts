@@ -13,9 +13,11 @@
  *   清视图残留 → 重置历史 → 清点云缓存 → 同步渲染 → 相机对焦 → 标脏。
  */
 import { ref } from 'vue'
-import { generateDemoScene } from '../core/sample'
+import { generateDemoScene, generateSemanticDemoScene } from '../core/sample'
 import { parsePCD } from '../core/io/pcd'
 import { parseLabels } from '../core/io/label'
+import { parseLabelsAuto } from '../core/io/formats'
+import { parseSemanticLabelBin } from '../core/semantics'
 import { parseCalibration } from '../core/io/calibration'
 import { generateDemoSequence, type FrameData } from '../core/sequence/sequence'
 import { cloneBoxes } from '../core/history'
@@ -29,11 +31,12 @@ const assetUrl = (path: string) => `${import.meta.env.BASE_URL}${path}`
 export function useDataset(core: StudioCore) {
   const {
     boxes, selectedId, cloud, frames, currentFrame, calib, imageUrl, showTrajectories,
-    statusText, datasetName, categories, resetHistory, syncViewer, invalidateCloud,
+    pointColorBy, statusText, datasetName, categories, resetHistory, syncViewer, invalidateCloud,
     getViewer, resetViewerState, markDirty, layout, saveState, lastSavedAt, ensureCategories,
   } = core
 
   const fileInput = ref<HTMLInputElement | null>(null)
+  const semanticInput = ref<HTMLInputElement | null>(null)
   const importCount = ref(0)
 
   /** 统计首末帧都有标注、但中间帧缺失的轨迹数量（用来展示插值的价值） */
@@ -87,6 +90,21 @@ export function useDataset(core: StudioCore) {
     showTrajectories.value = false
     afterLoad()
     statusText.value = `已加载演示场景：${c.count.toLocaleString()} 个点，${b.length} 个目标`
+  }
+
+  /** 语义分割演示：带逐点类别标签，进入后自动切到语义着色 */
+  function loadSemanticDemo() {
+    resetViewerState()
+    const { cloud: c, boxes: b } = generateSemanticDemoScene()
+    frames.value = []
+    currentFrame.value = 0
+    cloud.value = c
+    boxes.value = b
+    datasetName.value = '语义分割演示 · 程序化场景'
+    showTrajectories.value = false
+    pointColorBy.value = 'semantic'
+    afterLoad()
+    statusText.value = `语义演示：${c.count.toLocaleString()} 个带标签点，${b.length} 个目标 · 点右侧「语义」切换着色`
   }
 
   /** 一键加载 SUSTechPOINTS 真实数据（点云 + 24 个标注框 + 相机） */
@@ -156,7 +174,9 @@ export function useDataset(core: StudioCore) {
         const labelFile = jsons.find((j) => j.name.replace(/\.json$/i, '') === stem)
         let labelBoxes: Box3D[] = []
         if (labelFile) {
-          try { labelBoxes = parseLabels(await labelFile.text()) } catch { /* 标注坏了不影响点云 */ }
+          try {
+            labelBoxes = parseLabelsAuto(await labelFile.text(), labelFile.name).boxes
+          } catch { /* 标注坏了不影响点云 */ }
         }
         nextFrames.push({ index: i, cloud: parsed, boxes: labelBoxes })
       }
@@ -177,6 +197,32 @@ export function useDataset(core: StudioCore) {
       statusText.value = `解析失败：${(err as Error).message}`
     } finally {
       importCount.value = 0
+    }
+  }
+
+  /**
+   * 导入 SemanticKITTI .label 二进制（每点一个 uint32，低 16 位是语义 id）。
+   * 必须与当前点云点数一致，否则直接报错——错位标签比没有标签更危险。
+   */
+  async function onSemanticFile(e: Event) {
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    const current = cloud.value
+    if (!current) { statusText.value = '请先加载点云，再导入语义标签'; return }
+    try {
+      const labels = parseSemanticLabelBin(await file.arrayBuffer(), current.count)
+      // 替换整个点云对象而非原地改字段，保证 Vue 响应式与渲染缓存都失效
+      cloud.value = { ...current, labels }
+      invalidateCloud()
+      pointColorBy.value = 'semantic'
+      syncViewer()
+      markDirty()
+      const kinds = new Set(labels).size
+      statusText.value = `已导入语义标签：${labels.length.toLocaleString()} 点 / ${kinds} 类（${file.name}）`
+    } catch (err) {
+      statusText.value = `语义标签导入失败：${(err as Error).message}`
     }
   }
 
@@ -219,6 +265,7 @@ export function useDataset(core: StudioCore) {
   }
 
   return {
-    fileInput, importCount, loadDemo, loadSequence, loadRealData, importFiles, restore, missingTrackCount,
+    fileInput, semanticInput, importCount, loadDemo, loadSequence, loadRealData, loadSemanticDemo,
+    importFiles, onSemanticFile, restore, missingTrackCount,
   }
 }

@@ -4,8 +4,9 @@
  * 对象页 = 列表 + 选中详情 + 外观；标签页 = 类别配置；
  * 「更多」把时序、质检、运镜、性能这些低频但重要的能力折叠收纳，主流程保持干净。
  */
-import { inject, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { StudioKey } from '../state/studioContext'
+import { semanticStats } from '../core/semantics'
 import ObjectPanel from './panels/ObjectPanel.vue'
 import CategoryPanel from './panels/CategoryPanel.vue'
 import PropertyPanel from './panels/PropertyPanel.vue'
@@ -17,8 +18,13 @@ import PerformancePanel from './panels/PerformancePanel.vue'
 
 const studio = inject(StudioKey)!
 const {
-  colorBy, opacity, outlinedBorders, showOrientation, linkZoom, linkPan,
+  colorBy, pointColorBy, opacity, outlinedBorders, showOrientation, linkZoom, linkPan, cloud,
 } = studio
+
+/** 当前点云是否带逐点语义标签 */
+const hasSemantics = computed(() => !!cloud.value?.labels?.length)
+const stats = computed(() => (hasSemantics.value ? semanticStats(cloud.value!) : []))
+const hex = (color: number) => '#' + color.toString(16).padStart(6, '0')
 
 type Tab = 'objects' | 'labels' | 'more'
 const tab = ref<Tab>('objects')
@@ -40,10 +46,25 @@ const tab = ref<Tab>('objects')
         <section class="panel-sec">
           <div class="panel-head"><span class="panel-title">外观</span></div>
           <div class="appearance-row">
-            <span class="appearance-label">着色</span>
+            <span class="appearance-label">框着色</span>
             <div class="seg mini">
               <button :class="{ on: colorBy === 'label' }" @click="colorBy = 'label'">类别</button>
               <button :class="{ on: colorBy === 'instance' }" @click="colorBy = 'instance'">实例</button>
+            </div>
+          </div>
+          <div v-if="hasSemantics" class="appearance-row">
+            <span class="appearance-label">点云</span>
+            <div class="seg mini">
+              <button :class="{ on: pointColorBy === 'default' }" @click="pointColorBy = 'default'">默认</button>
+              <button :class="{ on: pointColorBy === 'semantic' }" @click="pointColorBy = 'semantic'">语义</button>
+            </div>
+          </div>
+          <div v-if="hasSemantics && pointColorBy === 'semantic'" class="semantic-legend">
+            <div class="semantic-legend-title">语义类别 · {{ stats.length }} 类</div>
+            <div v-for="s in stats" :key="s.id" class="semantic-legend-row">
+              <span class="semantic-swatch" :style="{ background: hex(s.color) }"></span>
+              <span class="semantic-name">{{ s.name }}</span>
+              <span class="semantic-count">{{ (s.ratio * 100).toFixed(1) }}%</span>
             </div>
           </div>
           <label class="appearance-row range-row">

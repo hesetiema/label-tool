@@ -76,15 +76,35 @@ export interface RawLabelObject {
 }
 
 /**
+ * 逐点语义分割标签：每个点一个类别 id，长度 = count。
+ *
+ * 用 Uint16Array 而不是 number[]：语义标签是"每个点一个整数"，
+ * 百万点场景用普通数组会多占十几倍内存且 GC 压力大。
+ * 0 保留给"未标注"，业务类别从 1 开始（与 SemanticKITTI 的 0=unlabeled 约定对齐）。
+ */
+export type SemanticLabels = Uint16Array | Uint32Array
+
+/** 一个语义类别的定义：id / 名称 / 颜色(0xRRGGBB) */
+export interface SemanticClass {
+  id: number
+  name: string
+  color: number
+}
+
+/**
  * 点云数据容器。
  * - positions: 展平的 xyz 坐标 [x0,y0,z0, x1,y1,z1, ...]，长度 = count*3
  * - count: 点的数量
  * - colors: 可选，展平的 rgb 归一化到 0~1
+ * - labels: 可选，逐点语义类别 id（语义分割）
+ * - semanticClasses: 可选，id → 类别名/颜色的映射；缺省用内置调色板
  */
 export interface PointCloud {
   positions: Float32Array
   count: number
   colors?: Float32Array
+  labels?: SemanticLabels
+  semanticClasses?: SemanticClass[]
 }
 
 /** 类别配置：颜色用于区分不同类别的框 */

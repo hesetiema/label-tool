@@ -57,6 +57,8 @@ export function useStudio() {
       positions: toRaw(raw.positions),
       count: raw.count,
       ...(raw.colors ? { colors: toRaw(raw.colors) } : {}),
+      ...(raw.labels ? { labels: toRaw(raw.labels) } : {}),
+      ...(raw.semanticClasses ? { semanticClasses: JSON.parse(JSON.stringify(raw.semanticClasses)) } : {}),
     })
     return stored
   }
@@ -213,6 +215,8 @@ export function useStudio() {
     } else if (demo === 'qa') {
       dataset.loadDemo()
       quality.runQualityCheck()
+    } else if (demo === 'semantic') {
+      dataset.loadSemanticDemo()
     } else {
       let restored = false
       try {

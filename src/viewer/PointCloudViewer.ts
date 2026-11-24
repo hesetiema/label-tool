@@ -19,9 +19,12 @@ import type { Box3D, PointCloud } from '../core/types'
 import type { Trajectory } from '../core/sequence/sequence'
 import type { CameraPose, CameraTrajectory } from '../core/camera/cameraTrajectory'
 import { boxToVertices } from '../core/geometry/box'
+import { labelsToColors, semanticClassesOf } from '../core/semantics'
 
 export interface AppearanceOptions {
   colorBy: 'label' | 'instance'
+  /** 点云着色：默认淡蓝 / 按逐点语义类别 */
+  pointColorBy: 'default' | 'semantic'
   opacity: number
   outlinedBorders: boolean
   showOrientation: boolean
@@ -55,6 +58,8 @@ export class PointCloudViewer {
   private controls: OrbitControls
   private container: HTMLElement
   private cloudPoints?: THREE.Points
+  /** 当前点云引用：切换语义着色时需要用它重建颜色缓冲 */
+  private currentCloud?: PointCloud
   private boxVisuals = new Map<string, BoxVisual>()
   /** 悬停光晕：单独一层，不进框的签名缓存（否则鼠标每掠过一次就重建一个框的材质） */
   private hoverVisual?: { sig: string; obj: THREE.LineSegments }
@@ -69,7 +74,7 @@ export class PointCloudViewer {
   private watermarkSprite?: THREE.Sprite
 
   private appearance: AppearanceOptions = {
-    colorBy: 'label', opacity: 0.9, outlinedBorders: true, showOrientation: true,
+    colorBy: 'label', pointColorBy: 'default', opacity: 0.9, outlinedBorders: true, showOrientation: true,
   }
 
   /** 脏标记：只有数据 / 相机变化时才重绘，空闲时不再满帧跑 GPU */
@@ -126,6 +131,14 @@ export class PointCloudViewer {
   resize() { this.onResize() }
   requestRender() { this.needsRender = true }
 
+  /** 当前该用哪份颜色：语义模式有标签时优先语义色，否则退回 PCD 自带颜色 */
+  private effectiveColors(cloud: PointCloud): Float32Array | undefined {
+    if (this.appearance.pointColorBy === 'semantic' && cloud.labels?.length) {
+      return labelsToColors(cloud.labels, semanticClassesOf(cloud))
+    }
+    return cloud.colors
+  }
+
   /** 加载/替换点云。用 BufferGeometry 一次性上传 GPU，避免逐点绘制 */
   setPointCloud(cloud: PointCloud) {
     if (this.cloudPoints) {
@@ -133,13 +146,15 @@ export class PointCloudViewer {
       this.cloudPoints.geometry.dispose()
       ;(this.cloudPoints.material as THREE.Material).dispose()
     }
+    this.currentCloud = cloud
+    const colors = this.effectiveColors(cloud)
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(cloud.positions, 3))
-    if (cloud.colors) geo.setAttribute('color', new THREE.BufferAttribute(cloud.colors, 3))
+    if (colors) geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     const mat = new THREE.PointsMaterial({
       size: 0.12,
-      color: cloud.colors ? 0xffffff : 0xa9c2dd,
-      vertexColors: !!cloud.colors,
+      color: colors ? 0xffffff : 0xa9c2dd,
+      vertexColors: !!colors,
       sizeAttenuation: true,
     })
     this.cloudPoints = new THREE.Points(geo, mat)
@@ -153,11 +168,13 @@ export class PointCloudViewer {
       || opts.opacity !== this.appearance.opacity
       || opts.outlinedBorders !== this.appearance.outlinedBorders
       || opts.showOrientation !== this.appearance.showOrientation
+    const pointColorChanged = opts.pointColorBy !== this.appearance.pointColorBy
     this.appearance = { ...opts }
     if (changed) {
       // 外观变了：让签名失效，下一轮 setBoxes 重建材质
       for (const v of this.boxVisuals.values()) v.sig = ''
     }
+    if (pointColorChanged && this.currentCloud) this.setPointCloud(this.currentCloud)
   }
 
   private makeLabelSprite(box: Box3D, color: number): THREE.Sprite {

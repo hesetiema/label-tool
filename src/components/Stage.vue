@@ -18,7 +18,7 @@ import type { Box3D } from '../core/types'
 const studio = inject(StudioKey)!
 const {
   viewportRef, camViewRef, visibleBoxes, selectedId, selectedIds, tool, layout, calib, imageUrl,
-  showOrtho, orthoMax, cloud, opacity, outlinedBorders, showOrientation, colorOf, colorBy,
+  showOrtho, orthoMax, cloud, opacity, outlinedBorders, showOrientation, colorOf, colorBy, pointColorBy,
   selectBox, toggleSelectBox, selectGroup, applyBox, applyBoxes, createBoxFromRect,
   currentCategory, categories, lockedIds, setCursor, hoverId, setHover,
   orthoZoom, broadcastZoom, orthoPan, broadcastPan,
@@ -91,6 +91,7 @@ const hint = computed(() => {
         :pan-signal="orthoPan"
         :tool="tool"
         :color-of="colorOf"
+        :point-color-by="pointColorBy"
         :opacity="opacity"
         :outlined-borders="outlinedBorders"
         :show-orientation="showOrientation"
@@ -139,6 +140,7 @@ const hint = computed(() => {
         :pan-signal="orthoPan"
         :tool="tool"
         :color-of="colorOf"
+        :point-color-by="pointColorBy"
         :opacity="opacity"
         :outlined-borders="outlinedBorders"
         :show-orientation="showOrientation"

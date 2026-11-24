@@ -23,6 +23,19 @@ import {
 } from '../src/core/sequence/tracker.ts'
 import type { Box3D } from '../src/core/types.ts'
 import {
+  detectLabelFormat, parseLabelsAuto,
+} from '../src/core/io/formats/index.ts'
+import {
+  kittiRyToYaw, dairRotationToYaw, quaternionToYaw, kittiCameraToLidar, yawToQuaternion,
+} from '../src/core/io/formats/conventions.ts'
+import {
+  generateSemanticDemoScene,
+} from '../src/core/sample.ts'
+import {
+  DEFAULT_SEMANTIC_CLASSES, labelsToColors, semanticStats, semanticColor,
+  parseSemanticLabelBin, serializeSemanticLabelBin,
+} from '../src/core/semantics.ts'
+import {
   createDefaultTrajectory, appendKeyframe, sampleTrajectory, sampleTrajectoryInfo,
   trajectoryDuration, serializeTrajectory, parseTrajectory,
   type CameraTrajectory, type CameraPose, type CameraKeyframe,
@@ -482,6 +495,133 @@ const asciiPc = parsePCD(new TextEncoder().encode(asciiCountPcd).buffer as Array
 check('ASCII COUNT>1：stride 按 sum(COUNT) 计算', close(asciiPc.positions[0], 1, 1e-5) && close(asciiPc.positions[3], 4, 1e-5),
   `实际 ${asciiPc.positions[0]}, ${asciiPc.positions[3]}`)
 check('ASCII COUNT>1：z 未被填充字段挤走', close(asciiPc.positions[2], 3, 1e-5) && close(asciiPc.positions[5], 6, 1e-5))
+
+// ===== [16] 标注格式适配层 =====
+console.log('\n[16] 标注格式适配层：坐标/角度转换')
+// KITTI 相机系 → LiDAR 系：相机 (x右, y下, z前) → (x=z, y=-x, z=-y)
+const camPt = kittiCameraToLidar(2, 3, 40)
+check('KITTI 相机系→LiDAR：前=z', close(camPt.x, 40) && close(camPt.y, -2) && close(camPt.z, -3))
+// ry=-π/2（车沿 +z 相机前方行驶）应转成内部 yaw≈0（车头朝 +x）
+check('KITTI ry→yaw：朝前为 0', close(kittiRyToYaw(-Math.PI / 2), 0, 0.01),
+  `得到 ${kittiRyToYaw(-Math.PI / 2)}`)
+check('KITTI ry→yaw：flipYaw 翻转符号', close(kittiRyToYaw(-Math.PI / 2, true), 0, 0.01)
+  && close(kittiRyToYaw(0.5, true), -kittiRyToYaw(0.5), 1e-6))
+// DAIR rotation 从 +y 起算，rotation=π/2 应转成内部 yaw=0
+check('DAIR rotation→yaw：+y 起算修正', close(dairRotationToYaw(Math.PI / 2), 0, 0.01),
+  `得到 ${dairRotationToYaw(Math.PI / 2)}`)
+// 四元数往返：yaw=0.8 → 四元数 → yaw=0.8
+check('四元数→yaw 与 yawToQuaternion 往返', close(quaternionToYaw(yawToQuaternion(0.8)), 0.8, 1e-6),
+  `得到 ${quaternionToYaw(yawToQuaternion(0.8))}`)
+
+console.log('\n[16b] 各格式 detect + parse')
+// SUSTechPOINTS（复用现有 label JSON）
+const sustechText = JSON.stringify([
+  { psr: { position: { x: 1, y: 2, z: 3 }, scale: { x: 4, y: 2, z: 1.5 }, rotation: { x: 0, y: 0, z: 0.2 } }, obj_type: 'Car', obj_id: '1' },
+])
+check('识别 SUSTechPOINTS', detectLabelFormat(sustechText) === 'sustech')
+const sustechParsed = parseLabelsAuto(sustechText)
+check('SUSTechPOINTS 解析出 1 框', sustechParsed.boxes.length === 1 && sustechParsed.format === 'sustech')
+
+// KITTI 文本：朝前车 ry=-π/2，dimensions(h,w,l)=(1.6,1.8,4.2)，location 在相机系
+const kittiText = `Car 0.00 0 -1.50 100 200 300 350 1.60 1.80 4.20 5 -40 30 -1.57`
+check('识别 KITTI 文本', detectLabelFormat(kittiText) === 'kitti')
+const kittiParsed = parseLabelsAuto(kittiText)
+check('KITTI 解析出 1 框', kittiParsed.boxes.length === 1, `实际 ${kittiParsed.boxes.length}`)
+check('KITTI (h,w,l)→(l,w,h)', close(kittiParsed.boxes[0].scale.x, 4.2) && close(kittiParsed.boxes[0].scale.z, 1.6))
+check('KITTI location 相机→LiDAR', close(kittiParsed.boxes[0].position.x, 30)
+  && close(kittiParsed.boxes[0].position.y, -5) && close(kittiParsed.boxes[0].position.z, 40))
+check('KITTI ry=-π/2 → yaw≈0', close(kittiParsed.boxes[0].yaw, 0, 0.02))
+// DontCare 被跳过
+check('KITTI DontCare 被跳过', (() => {
+  const r = parseLabelsAuto('DontCare 0 0 -1.5 100 200 300 350 1.6 1.8 4.2 5 -40 30 -1.57')
+  return r.boxes.length === 0 && r.skipped.some((s) => s.reason.includes('DontCare'))
+})())
+
+// DAIR-V2X JSON（新版字段）
+const dairText = JSON.stringify([
+  {
+    type: 'Car', truncated_state: 0, occluded_state: 0, alpha: 1.2,
+    '3d_dimensions': { h: 1.6, w: 1.8, l: 4.3 },
+    '3d_location': { x: 12.5, y: -3.2, z: 0.9 },
+    rotation: Math.PI / 2,
+  },
+])
+check('识别 DAIR-V2X（含 KITTI 字段名但无 psr）', detectLabelFormat(dairText) === 'dair-v2x',
+  `实际 ${detectLabelFormat(dairText)}`)
+const dairParsed = parseLabelsAuto(dairText)
+check('DAIR 解析出 1 框', dairParsed.boxes.length === 1)
+check('DAIR rotation→yaw≈0', close(dairParsed.boxes[0].yaw, 0, 0.01))
+check('DAIR 尺寸 (h,w,l)→(l,w,h)', close(dairParsed.boxes[0].scale.x, 4.3))
+
+// nuScenes：size=(w,l,h)，rotation 四元数
+const nusText = JSON.stringify([
+  {
+    token: 'n1', sample_token: 's1', instance_token: 'inst1',
+    category_name: 'vehicle.car', translation: [10, 20, 1.5],
+    size: [1.8, 4.4, 1.6], rotation: [Math.cos(0.3), 0, 0, Math.sin(0.3)],
+  },
+])
+check('识别 nuScenes', detectLabelFormat(nusText) === 'nuscenes', `实际 ${detectLabelFormat(nusText)}`)
+const nusParsed = parseLabelsAuto(nusText)
+check('nuScenes 解析出 1 框', nusParsed.boxes.length === 1)
+check('nuScenes size(w,l,h)→(l,w,h)', close(nusParsed.boxes[0].scale.x, 4.4) && close(nusParsed.boxes[0].scale.y, 1.8))
+check('nuScenes 四元数→yaw', close(nusParsed.boxes[0].yaw, 0.6, 0.01) || close(nusParsed.boxes[0].yaw, 0.3, 0.01),
+  `得到 ${nusParsed.boxes[0].yaw}`)
+check('nuScenes instance_token 作为 obj id', nusParsed.boxes[0].id === 'inst1')
+
+// Waymo：box.center / box.size / heading
+const waymoText = JSON.stringify({
+  objects: [{
+    type: 'TYPE_VEHICLE', id: 'w1',
+    box: {
+      center: { x: 7, y: 2, z: 1.2 },
+      size: { length: 4.6, width: 2.0, height: 1.7 },
+      heading: 0.4,
+    },
+  }],
+})
+check('识别 Waymo', detectLabelFormat(waymoText) === 'waymo', `实际 ${detectLabelFormat(waymoText)}`)
+const waymoParsed = parseLabelsAuto(waymoText)
+check('Waymo 解析出 1 框', waymoParsed.boxes.length === 1)
+check('Waymo 类型映射 VEHICLE→Car', waymoParsed.boxes[0].label === 'Car')
+check('Waymo heading→yaw 直译', close(waymoParsed.boxes[0].yaw, 0.4, 1e-6))
+
+// ===== [17] 逐点语义分割 =====
+console.log('\n[17] 逐点语义分割模型')
+const semanticDemo = generateSemanticDemoScene()
+const semCloud = semanticDemo.cloud
+check('语义演示生成了标签', !!semCloud.labels && semCloud.labels.length === semCloud.count,
+  `labels=${semCloud.labels?.length} count=${semCloud.count}`)
+check('标签 id 在合法范围', !!semCloud.labels && Array.from(semCloud.labels).every((x) => x <= 19))
+check('语义类别表非空', !!semCloud.semanticClasses && semCloud.semanticClasses.length > 0)
+const stats = semanticStats(semCloud)
+check('统计出多个语义类别', stats.length >= 5, `实际 ${stats.length}`)
+check('统计按点数降序', stats.every((s, i) => i === 0 || stats[i - 1].count >= s.count))
+check('类别占比之和≈1', close(stats.reduce((a, s) => a + s.ratio, 0), 1, 1e-6))
+const semColors = labelsToColors(semCloud.labels!, semCloud.semanticClasses)
+check('labelsToColors 长度=点数×3', semColors.length === semCloud.count * 3)
+check('颜色在 0~1 范围', Array.from(semColors).every((v) => v >= 0 && v <= 1))
+check('未知类别有稳定配色', semanticColor(999) === semanticColor(999))
+
+// .label 二进制：低16位语义、高16位实例
+const labelBin = serializeSemanticLabelBin(Uint16Array.from([9, 1, 6, 4]))
+const decoded = parseSemanticLabelBin(labelBin)
+check('label bin 往返：点数一致', decoded.length === 4)
+check('label bin 往返：语义 id 一致', decoded[0] === 9 && decoded[1] === 1 && decoded[3] === 4)
+check('默认语义表含 20 类', DEFAULT_SEMANTIC_CLASSES.length === 20)
+
+// 下采样保留语义标签
+const smallSem: typeof semCloud = {
+  positions: new Float32Array([0, 0, 0, 0.1, 0, 0, 10, 10, 10, 10.1, 10, 10]),
+  count: 4,
+  labels: Uint16Array.from([9, 9, 1, 1]),
+}
+const semVoxel = voxelDownsample(smallSem, 5)
+check('体素下采样保留 labels', semVoxel.cloud.labels?.length === semVoxel.cloud.count)
+check('体素代表点标签合法', !!semVoxel.cloud.labels && Array.from(semVoxel.cloud.labels).every((x) => x === 9 || x === 1))
+const semLod = distanceLod(smallSem, { nearRadius: 1, farKeep: 0, seed: 1 })
+check('距离 LOD 保留 labels', semLod.cloud.labels?.length === semLod.cloud.count)
+check('LOD 近处语义仍是 9', semLod.cloud.labels?.[0] === 9)
 
 console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
 if (failed > 0) process.exit(1)

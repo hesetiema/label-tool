@@ -17,6 +17,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { boxToVertices } from '../core/geometry/box'
 import { boxSizeSummary, convexHull, drawChip, hexToRgba, HOVER_GLOW, HOVER_TEXT, pointInPoly } from '../viewer/canvasPrimitives'
 import type { Box3D, PointCloud } from '../core/types'
+import { labelsToColors, semanticClassesOf } from '../core/semantics'
 import type { OrthoAxis, Tool } from '../state/studioCore'
 
 const props = defineProps<{
@@ -38,6 +39,8 @@ const props = defineProps<{
   panSignal: { da: number; db: number; from: OrthoAxis; nonce: number } | null
   tool: Tool
   colorOf: (box: Box3D) => number
+  /** 点云着色模式：语义标签存在时可按类别着色 */
+  pointColorBy: 'default' | 'semantic'
   opacity: number
   outlinedBorders: boolean
   showOrientation: boolean
@@ -201,7 +204,13 @@ function rebuildCloudLayer() {
   const data = img.data
   const pos = props.cloud.positions
 
-  // 按高度做轻微明暗，正交视图也能看出远近层次
+  // 语义着色：先把标签转成 rgb 查找结果（每点 3 个 0~1 值）
+  const useSemantic = props.pointColorBy === 'semantic' && !!props.cloud.labels?.length
+  const semanticRgb = useSemantic
+    ? labelsToColors(props.cloud.labels!, semanticClassesOf(props.cloud))
+    : null
+
+  // 默认模式按高度做轻微明暗，正交视图也能看出远近层次
   let minZ = Infinity, maxZ = -Infinity
   const stepZ = Math.max(1, Math.floor(props.cloud.count / 4000))
   for (let i = 0; i < props.cloud.count; i += stepZ) {
@@ -220,12 +229,18 @@ function rebuildCloudLayer() {
     const sx = Math.round((width / 2 + (a - cx) * scale + panX) * dpr)
     const sy = Math.round((height / 2 - (b - cy) * scale + panY) * dpr)
     if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue
-    const t = (pos[i * 3 + 2] - minZ) / zSpan
-    const v = 120 + Math.round(t * 110)
     const idx = (sy * w + sx) * 4
-    data[idx] = v * 0.82
-    data[idx + 1] = v * 0.92
-    data[idx + 2] = Math.min(255, v + 25)
+    if (semanticRgb) {
+      data[idx] = semanticRgb[i * 3] * 255
+      data[idx + 1] = semanticRgb[i * 3 + 1] * 255
+      data[idx + 2] = semanticRgb[i * 3 + 2] * 255
+    } else {
+      const t = (pos[i * 3 + 2] - minZ) / zSpan
+      const v = 120 + Math.round(t * 110)
+      data[idx] = v * 0.82
+      data[idx + 1] = v * 0.92
+      data[idx + 2] = Math.min(255, v + 25)
+    }
     data[idx + 3] = 255
   }
   lctx.putImageData(img, 0, 0)
@@ -1154,7 +1169,10 @@ watch(() => props.panSignal, (sig) => {
   applyLinkedPan(sig.da, sig.db)
 })
 watch(() => props.tool, () => { hoverId = null; emittedHover = null; redraw() })
-watch(() => [props.opacity, props.outlinedBorders, props.showOrientation], onAppearanceChange)
+watch(() => [props.opacity, props.outlinedBorders, props.showOrientation, props.pointColorBy], () => {
+  cloudDirty = true
+  onAppearanceChange()
+})
 watch(() => props.axis, () => {
   bounds = props.cloud ? computeBounds(props.cloud) : null
   boundsCloud = props.cloud

@@ -114,6 +114,15 @@
 .seg button { padding: 4px 10px; background: transparent; color: var(--muted); border: 0; border-radius: 3px; font-size: 10.5px; }
 .seg button.on { background: var(--panel-2); color: var(--text); }
 .seg.mini button { padding: 3px 9px; }
+
+/* 逐点语义图例 */
+.semantic-legend { margin: 8px 0; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; }
+.semantic-legend-title { font-size: 10px; color: var(--muted); margin-bottom: 6px; }
+.semantic-legend-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; font-size: 10.5px; color: var(--text); }
+.semantic-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.semantic-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.semantic-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
 .range-row input[type=range] { flex: 1; accent-color: var(--accent); }
 .check-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); padding: 3px 0; cursor: pointer; }
 .check-row input { accent-color: var(--accent); }

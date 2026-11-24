@@ -5,7 +5,8 @@ import { StudioKey } from '../../state/studioContext'
 
 const studio = inject(StudioKey)!
 const {
-  loadSequence, loadDemo, loadRealData, fileInput, labelInput, frames, datasetName,
+  loadSequence, loadDemo, loadRealData, loadSemanticDemo, fileInput, labelInput, semanticInput,
+  onSemanticFile, frames, datasetName,
 } = studio
 </script>
 
@@ -18,10 +19,14 @@ const {
     <button class="mini-btn wide" @click="loadDemo">演示场景</button>
     <button class="mini-btn wide" @click="loadSequence">5 帧时序演示</button>
     <button class="mini-btn wide" @click="loadRealData">真实数据 + 相机</button>
+    <button class="mini-btn wide" @click="loadSemanticDemo">语义分割演示（带逐点标签）</button>
     <button class="mini-btn wide" @click="fileInput?.click()">导入本地 PCD（可多选）</button>
-    <button class="mini-btn wide" @click="labelInput?.click()">导入标注 JSON</button>
+    <button class="mini-btn wide" @click="labelInput?.click()">导入标注（自动识别格式）</button>
+    <button class="mini-btn wide" @click="semanticInput?.click()">导入语义标签 .label（SemanticKITTI）</button>
+    <input ref="semanticInput" type="file" accept=".label" hidden @change="onSemanticFile" />
     <div class="hint-small">
-      多选 PCD 时按文件名自然排序组成时序；同名 JSON 会自动匹配到对应帧。
+      多选 PCD 按文件名排序组成时序；同名标注会自动匹配。标注支持
+      SUSTechPOINTS / KITTI / DAIR-V2X / nuScenes / Waymo，导入时自动识别。
     </div>
   </div>
 </template>

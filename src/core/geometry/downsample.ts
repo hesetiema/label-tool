@@ -36,8 +36,14 @@ export interface DownsampleResult {
 export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleResult {
   const t0 = performance.now()
   const hasColor = !!cloud.colors
+  const hasLabel = !!cloud.labels
   // key 用整数三元组拼成字符串；值是格内所有点的累加，最后求平均作为代表点
-  const buckets = new Map<string, { sx: number; sy: number; sz: number; sr: number; sg: number; sb: number; n: number }>()
+  const buckets = new Map<string, {
+    sx: number; sy: number; sz: number; sr: number; sg: number; sb: number
+    /** 格内各类别计数，代表点取多数票，避免平均出一个不存在的类别 */
+    labelVotes: Map<number, number>
+    n: number
+  }>()
 
   for (let i = 0; i < cloud.count; i++) {
     const x = cloud.positions[i * 3]
@@ -46,7 +52,7 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
     const key = `${Math.floor(x / voxelSize)},${Math.floor(y / voxelSize)},${Math.floor(z / voxelSize)}`
     let b = buckets.get(key)
     if (!b) {
-      b = { sx: 0, sy: 0, sz: 0, sr: 0, sg: 0, sb: 0, n: 0 }
+      b = { sx: 0, sy: 0, sz: 0, sr: 0, sg: 0, sb: 0, labelVotes: new Map(), n: 0 }
       buckets.set(key, b)
     }
     b.sx += x; b.sy += y; b.sz += z; b.n++
@@ -55,11 +61,16 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
       b.sg += cloud.colors[i * 3 + 1]
       b.sb += cloud.colors[i * 3 + 2]
     }
+    if (hasLabel && cloud.labels) {
+      const id = cloud.labels[i]
+      b.labelVotes.set(id, (b.labelVotes.get(id) ?? 0) + 1)
+    }
   }
 
   const count = buckets.size
   const positions = new Float32Array(count * 3)
   const colors = hasColor ? new Float32Array(count * 3) : undefined
+  const labels = hasLabel ? new Uint16Array(count) : undefined
   let j = 0
   for (const b of buckets.values()) {
     positions[j * 3] = b.sx / b.n
@@ -70,11 +81,18 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
       colors[j * 3 + 1] = b.sg / b.n
       colors[j * 3 + 2] = b.sb / b.n
     }
+    if (labels) {
+      let bestId = 0, bestVotes = -1
+      for (const [id, votes] of b.labelVotes) {
+        if (votes > bestVotes) { bestVotes = votes; bestId = id }
+      }
+      labels[j] = bestId
+    }
     j++
   }
 
   return {
-    cloud: { positions, count, colors },
+    cloud: { positions, count, colors, labels, semanticClasses: cloud.semanticClasses },
     elapsedMs: performance.now() - t0,
     inputCount: cloud.count,
     outputCount: count,
@@ -107,6 +125,7 @@ export function distanceLod(
   const count = kept.length
   const positions = new Float32Array(count * 3)
   const colors = cloud.colors ? new Float32Array(count * 3) : undefined
+  const labels = cloud.labels ? new Uint16Array(count) : undefined
   for (let j = 0; j < count; j++) {
     const i = kept[j]
     positions[j * 3] = cloud.positions[i * 3]
@@ -117,10 +136,11 @@ export function distanceLod(
       colors[j * 3 + 1] = cloud.colors[i * 3 + 1]
       colors[j * 3 + 2] = cloud.colors[i * 3 + 2]
     }
+    if (labels && cloud.labels) labels[j] = cloud.labels[i]
   }
 
   return {
-    cloud: { positions, count, colors },
+    cloud: { positions, count, colors, labels, semanticClasses: cloud.semanticClasses },
     elapsedMs: performance.now() - t0,
     inputCount: cloud.count,
     outputCount: count,
