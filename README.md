@@ -56,6 +56,8 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | 类别与 ID | 类别可增删改色；导入未知类别自动登记；obj_id 全局唯一 | `obj_cfg.js` |
 | **对象管理** | 锁定 / 隐藏 / 排序 / 删除，外观可按类别或实例着色、调透明度 | — |
 | 导入导出 | 单帧兼容 SUSTechPOINTS；**整段序列**一键导出（不再只导当前帧） | `save.js` |
+| **多格式适配** | 导入标注自动识别 KITTI `.txt` / DAIR-V2X JSON / nuScenes 关系表 / Waymo JSON / SUSTechPOINTS，统一转成内部 `Box3D`；坐标与旋转约定集中在 `conventions.ts`，DontCare 以跳过统计提示 | — |
+| **逐点语义分割** | PCD `label` 字段或 SemanticKITTI `.label` 导入；3D 与三联正交视图支持「默认 / 语义」着色、类别占比图例；下采样与 IndexedDB 草稿不丢标签；`?data=semantic` 直达演示 | — |
 | **本地草稿** | IndexedDB 自动保存 / 刷新恢复 / 离开拦截，无需后端 | — |
 | **多帧导入** | 一次选多个 PCD，按文件名自然排序组成时序；同名 JSON 自动匹配 | — |
 | **跨帧复制** | 把选中框按**同 id** 复制到下一帧 / 后续帧 / 全部帧，直接构成轨迹；目标帧已有同 id 则跳过 | batch 模式 |
@@ -94,6 +96,8 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
 | [⑩ 相机导演：关键帧运镜与录制](docs/10-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、MediaRecorder |
 
+另外两个可直接读源码的专题（无独立教程）：`core/io/formats/` 是 KITTI / DAIR-V2X / nuScenes / Waymo 的格式适配与坐标约定；`core/semantics.ts` 是逐点语义标签的统计、配色与 `.label` 读写。
+
 读完 ①–⑥ 就掌握了单机标注的完整闭环。接下来的问题是：这东西离工业级还差多远、该怎么补。
 
 ---
@@ -111,7 +115,7 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | 版本管理 | 标注多版本、回滚、审计日志 | **本地草稿已做**（IndexedDB 自动保存 + 刷新恢复 + 离开拦截），缺服务端多版本 / 回滚 / 审计日志 |
 | 权限协作 | 标注员 / 质检员 / 管理员分权 | 无，单用户 |
 | 质检流程 | 抽检、返修、通过率统计 | **指标有了**（IoU / kappa / 漏误标率），**流程没有** |
-| 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 只有 3D 框 |
+| 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 3D 框 + **逐点语义分割**（导入 / 着色 / 持久化）；车道线等仍未覆盖 |
 | 预标注 | CenterPoint / PointPillars 等模型产出候选框 | PCA 传统拟合，无深度学习 |
 | 跟踪 | 马氏距离 + JPDA / 多假设 + 轨迹优化 | Kalman + Hungarian 已实现，但只用 2D 常速度 + 欧氏距离 |
 
@@ -144,10 +148,13 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 src/
 ├── core/                 # 纯数据层，不依赖任何 UI / 渲染（按职责分子目录）
 │   ├── types.ts          # 类型定义 + 坐标系约定
-│   ├── sample.ts         # 程序化演示点云
+│   ├── sample.ts         # 程序化演示点云（含语义演示场景）
+│   ├── semantics.ts      # 逐点语义：类别表 / 统计 / 配色 / .label 读写
 │   ├── history.ts        # 撤销重做：命令模式 + 状态快照
 │   ├── io/               # pcd.ts（PCD 解析）· label.ts（单帧/整段序列化）· calibration.ts（投影）
 │   │                     # session.ts（IndexedDB 草稿）
+│   │   └── formats/      # 外部格式适配：conventions.ts（坐标/角度）· kitti.ts（含 DAIR-V2X）
+│   │                     # nuscenes.ts · waymo.ts · sustech.ts · index.ts（嗅探入口）
 │   ├── geometry/         # box.ts（OBB + 自动拟合 + PCA）· downsample.ts（体素下采样 + 距离 LOD）
 │   ├── sequence/         # sequence.ts（多帧关联 + 轨迹插值）· temporalQA.ts（时序质检）· tracker.ts（Hungarian + Kalman）
 │   ├── quality/          # quality.ts（IoU / 匹配 / kappa / 漏误标率）
