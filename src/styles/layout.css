@@ -5,13 +5,20 @@
 .app { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
 /* ---------- 顶栏 ---------- */
+/* 三栏用等宽侧轨 + 内容自适应中轨，而不是 flex space-between：
+   右侧保存文案（保存中…/已保存 HH:MM）或「相机」按钮的长度变化只在自己的轨道内消化，
+   不会挤压或推动中间的帧导航，避免导入时序时 tb-center 宽度跳动 */
 .topbar {
-  height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between;
+  height: 44px; flex: 0 0 44px; display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
   padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--border);
   position: relative; z-index: 40;
 }
 .tb-left, .tb-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.tb-center { display: flex; align-items: center; gap: 10px; }
+.tb-left { justify-self: start; }
+.tb-center { display: flex; align-items: center; gap: 10px; justify-self: center; }
+.tb-right { justify-self: end; }
 
 .brand-btn {
   display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px;
