@@ -57,7 +57,7 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | **对象管理** | 锁定 / 隐藏 / 排序 / 删除，外观可按类别或实例着色、调透明度 | — |
 | 导入导出 | 单帧兼容 SUSTechPOINTS；**整段序列**一键导出（不再只导当前帧） | `save.js` |
 | **多格式适配** | 导入标注自动识别 KITTI `.txt` / DAIR-V2X JSON / nuScenes 关系表 / Waymo JSON / SUSTechPOINTS，统一转成内部 `Box3D`；坐标与旋转约定集中在 `conventions.ts`，DontCare 以跳过统计提示 | — |
-| **逐点语义分割** | PCD `label` 字段或 SemanticKITTI `.label` 导入；3D 与三联正交视图支持「默认 / 语义」着色、类别占比图例；下采样与 IndexedDB 草稿不丢标签；`?data=semantic` 直达演示 | — |
+| **逐点语义分割** | PCD `label` 字段或 SemanticKITTI `.label` 导入（**官方原始 id + 高 16 位跨帧实例 id 都保留**）；3D 与三联正交视图支持「默认 / 语义」着色、类别占比图例；内置官方 34 类配色与 learning_map；下采样与 IndexedDB 草稿不丢标签；`?data=semantic` 直达演示 | — |
 | **本地草稿** | IndexedDB 自动保存 / 刷新恢复 / 离开拦截，无需后端 | — |
 | **多帧导入** | 一次选多个 PCD，按文件名自然排序组成时序；同名 JSON 自动匹配 | — |
 | **跨帧复制** | 把选中框按**同 id** 复制到下一帧 / 后续帧 / 全部帧，直接构成轨迹；目标帧已有同 id 则跳过 | batch 模式 |
@@ -96,7 +96,7 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
 | [⑩ 相机导演：关键帧运镜与录制](docs/10-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、MediaRecorder |
 
-另外两个可直接读源码的专题（无独立教程）：`core/io/formats/` 是 KITTI / DAIR-V2X / nuScenes / Waymo 的格式适配与坐标约定；`core/semantics.ts` 是逐点语义标签的统计、配色与 `.label` 读写。
+另外两个可直接读源码的专题（无独立教程）：`core/io/formats/` 是 KITTI / DAIR-V2X / nuScenes / Waymo 的格式适配与坐标约定；`core/semantics.ts` 是 SemanticKITTI 官方类别表、learning_map（原始 34 类 → 训练 20 类）、`.label` 高低 16 位（语义 / 实例）的读写与统计。
 
 读完 ①–⑥ 就掌握了单机标注的完整闭环。接下来的问题是：这东西离工业级还差多远、该怎么补。
 

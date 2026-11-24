@@ -1,62 +1,120 @@
 /**
  * ============================================================
- * 逐点语义分割 —— 调色板与统计工具
+ * 逐点语义分割 —— SemanticKITTI 约定、调色板与统计工具
  * ============================================================
  *
  * 语义分割和 3D 框是两种不同的标注对象：
  *   - 3D 框：稀疏、有朝向、描述"物体在哪、朝哪"
  *   - 语义分割：稠密、逐点、描述"每个点属于什么"
  *
- * 这一层只做三件事：
- *   1) 定义类别 id 与颜色（内置 SemanticKITTI 常用 19 类配色）
- *   2) 统计每个类别的点数（给 UI 的"语义分布"用）
- *   3) 把 labels 转成渲染可直接用的 rgb Float32Array
+ * 这一层做四件事：
+ *   1) 按 SemanticKITTI 官方 semantic-kitti.yaml 定义原始类别 id 与配色
+ *   2) 提供 learning_map：原始 34 类 → 训练用 20 类（id 0-19）
+ *   3) 解析 .label 的 uint32：低 16 位语义、高 16 位跨帧一致的实例 id
+ *   4) 把 labels 转成渲染可直接用的 rgb Float32Array
+ *
+ * 【为什么要区分原始 id 和 learning id】
+ * 官方原始 id 是稀疏的：car=10、road=40、moving-car=252……
+ * 训练时通过 learning_map 映射成连续的 0-19（moving-car 并回 car）。
+ * 标注工具必须保留原始 id——一旦提前合并，moving-car 和 car 就无法区分，
+ * 而且再也无法和官方评测/可视化工具对齐。只有在送进模型时才做映射。
  *
  * 用 Uint16/Uint32 存 id 而不是字符串：百万点的字符串数组内存会爆。
  */
 import type { PointCloud, SemanticClass, SemanticLabels } from './types'
 
-/** SemanticKITTI 常用类别配色（颜色仅用于区分，非官方配色） */
-export const DEFAULT_SEMANTIC_CLASSES: SemanticClass[] = [
-  { id: 0, name: 'unlabeled', color: 0x555555 },
-  { id: 1, name: 'car', color: 0x4fc3f7 },
-  { id: 2, name: 'bicycle', color: 0x66bb6a },
-  { id: 3, name: 'motorcycle', color: 0xffb74d },
-  { id: 4, name: 'truck', color: 0x9575cd },
-  { id: 5, name: 'other-vehicle', color: 0xab47bc },
-  { id: 6, name: 'person', color: 0xff7043 },
-  { id: 7, name: 'bicyclist', color: 0x26c6da },
-  { id: 8, name: 'motorcyclist', color: 0xff4081 },
-  { id: 9, name: 'road', color: 0x607d8b },
-  { id: 10, name: 'parking', color: 0x455a64 },
-  { id: 11, name: 'sidewalk', color: 0x9e9e9e },
-  { id: 12, name: 'other-ground', color: 0x795548 },
-  { id: 13, name: 'building', color: 0xffca28 },
-  { id: 14, name: 'fence', color: 0x8d6e63 },
-  { id: 15, name: 'vegetation', color: 0x2e7d32 },
-  { id: 16, name: 'trunk', color: 0x5d4037 },
-  { id: 17, name: 'terrain', color: 0x827717 },
-  { id: 18, name: 'pole', color: 0x00bcd4 },
-  { id: 19, name: 'traffic-sign', color: 0xffeb3b },
+/**
+ * SemanticKITTI 原始类别表（id 与官方 config/semantic-kitti.yaml 完全一致）。
+ * 颜色由官方 color_map 的 BGR 转成 0xRRGGBB，便于十六进制书写。
+ */
+export const SEMANTIC_KITTI_CLASSES: SemanticClass[] = [
+  { id: 0, name: 'unlabeled', color: 0x000000 },
+  { id: 1, name: 'outlier', color: 0x0000ff },
+  { id: 10, name: 'car', color: 0x6496f5 },
+  { id: 11, name: 'bicycle', color: 0x64e6f5 },
+  { id: 13, name: 'bus', color: 0x6450fa },
+  { id: 15, name: 'motorcycle', color: 0x1e3c96 },
+  { id: 16, name: 'on-rails', color: 0x0000ff },
+  { id: 18, name: 'truck', color: 0x501eb4 },
+  { id: 20, name: 'other-vehicle', color: 0x0000ff },
+  { id: 30, name: 'person', color: 0xff1e1e },
+  { id: 31, name: 'bicyclist', color: 0xff28c8 },
+  { id: 32, name: 'motorcyclist', color: 0x961e5a },
+  { id: 40, name: 'road', color: 0xff00ff },
+  { id: 44, name: 'parking', color: 0xff96ff },
+  { id: 48, name: 'sidewalk', color: 0x4b004b },
+  { id: 49, name: 'other-ground', color: 0xaf004b },
+  { id: 50, name: 'building', color: 0xffc800 },
+  { id: 51, name: 'fence', color: 0xff7832 },
+  { id: 52, name: 'other-structure', color: 0xff9600 },
+  { id: 60, name: 'lane-marking', color: 0x96ffaa },
+  { id: 70, name: 'vegetation', color: 0x00af00 },
+  { id: 71, name: 'trunk', color: 0x873c00 },
+  { id: 72, name: 'terrain', color: 0x96f050 },
+  { id: 80, name: 'pole', color: 0xfff096 },
+  { id: 81, name: 'traffic-sign', color: 0xff0000 },
+  { id: 99, name: 'other-object', color: 0x32ffff },
+  { id: 252, name: 'moving-car', color: 0x6496f5 },
+  { id: 253, name: 'moving-bicyclist', color: 0xff28c8 },
+  { id: 254, name: 'moving-person', color: 0xff1e1e },
+  { id: 255, name: 'moving-motorcyclist', color: 0x961e5a },
+  { id: 256, name: 'moving-on-rails', color: 0x0000ff },
+  { id: 257, name: 'moving-bus', color: 0x6450fa },
+  { id: 258, name: 'moving-truck', color: 0x501eb4 },
+  { id: 259, name: 'moving-other-vehicle', color: 0x0000ff },
 ]
 
-/** 取类别表：点云自带优先，否则用内置 */
+/** 兼容旧代码里的名字；默认调色板现在就是官方原始类别表 */
+export const DEFAULT_SEMANTIC_CLASSES = SEMANTIC_KITTI_CLASSES
+
+/**
+ * 官方 learning_map：原始 id → 训练 id (0-19)。
+ * 不可区分的类（bus/on-rails/moving-*）被并到最接近的类别，
+ * other-structure / other-object / outlier 归为 unlabeled(0)。
+ */
+export const SEMANTIC_KITTI_LEARNING_MAP: Readonly<Record<number, number>> = {
+  0: 0, 1: 0, 10: 1, 11: 2, 13: 5, 15: 3, 16: 5, 18: 4, 20: 5,
+  30: 6, 31: 7, 32: 8, 40: 9, 44: 10, 48: 11, 49: 12, 50: 13,
+  51: 14, 52: 0, 60: 9, 70: 15, 71: 16, 72: 17, 80: 18, 81: 19,
+  99: 0, 252: 1, 253: 7, 254: 6, 255: 8, 256: 5, 257: 5, 258: 4, 259: 5,
+}
+
+/** 训练 id → 类别名，用于展示映射后的统计（与官方 learning_map_inv 对应） */
+export const LEARNING_CLASS_NAMES = [
+  'unlabeled', 'car', 'bicycle', 'motorcycle', 'truck', 'other-vehicle',
+  'person', 'bicyclist', 'motorcyclist', 'road', 'parking', 'sidewalk',
+  'other-ground', 'building', 'fence', 'vegetation', 'trunk', 'terrain',
+  'pole', 'traffic-sign',
+] as const
+
+/** 原始 id → 训练 id；未登记的 id 保持原值（便于外部自定义类别） */
+export function toLearningId(rawId: number): number {
+  return SEMANTIC_KITTI_LEARNING_MAP[rawId] ?? rawId
+}
+
+/** 训练 id → 原始 id（取该类的第一个代表；unlabeled 映射回 0） */
+export function fromLearningId(learningId: number): number {
+  const entry = Object.entries(SEMANTIC_KITTI_LEARNING_MAP).find(([, v]) => v === learningId)
+  return entry ? Number(entry[0]) : learningId
+}
+
+/** 取类别表：点云自带优先，否则用官方 SemanticKITTI 原始类别表 */
 export function semanticClassesOf(cloud: PointCloud): SemanticClass[] {
-  return cloud.semanticClasses?.length ? cloud.semanticClasses : DEFAULT_SEMANTIC_CLASSES
+  return cloud.semanticClasses?.length ? cloud.semanticClasses : SEMANTIC_KITTI_CLASSES
 }
 
 /** id → 颜色整数；未登记的 id 用稳定哈希配色，避免全画成同一个颜色 */
 export function semanticColor(id: number, classes?: SemanticClass[]): number {
-  const found = (classes ?? DEFAULT_SEMANTIC_CLASSES).find((c) => c.id === id)
+  const found = (classes ?? SEMANTIC_KITTI_CLASSES).find((c) => c.id === id)
   if (found) return found.color
   // 未知 id：从调色板按 id 取模，保证同一 id 颜色稳定
-  const palette = DEFAULT_SEMANTIC_CLASSES.slice(1)
+  const palette = SEMANTIC_KITTI_CLASSES.filter((c) => c.id > 0 && c.id < 250)
   return palette[id % palette.length].color
 }
 
 /** id → 类别名 */
 export function semanticName(id: number, classes?: SemanticClass[]): string {
-  const found = (classes ?? DEFAULT_SEMANTIC_CLASSES).find((c) => c.id === id)
+  const found = (classes ?? SEMANTIC_KITTI_CLASSES).find((c) => c.id === id)
   return found?.name ?? `class_${id}`
 }
 
@@ -73,7 +131,7 @@ export function labelsToColors(labels: SemanticLabels, classes?: SemanticClass[]
   const out = new Float32Array(labels.length * 3)
   // 先建 id→rgb 查找表，避免每个点都 find 一次（百万点会差几个数量级）
   const table = new Map<number, [number, number, number]>()
-  for (const c of (classes ?? DEFAULT_SEMANTIC_CLASSES)) table.set(c.id, rgbOf(c.color))
+  for (const c of (classes ?? SEMANTIC_KITTI_CLASSES)) table.set(c.id, rgbOf(c.color))
   for (let i = 0; i < labels.length; i++) {
     let rgb = table.get(labels[i])
     if (!rgb) {
@@ -117,31 +175,70 @@ export function semanticStats(cloud: PointCloud): SemanticStat[] {
 }
 
 /**
- * 从 .label 二进制文件解析逐点标签（SemanticKITTI 约定：每点一个 uint32）。
- * 低 16 位是语义 id，高 16 位是实例 id——我们只取语义部分。
+ * 解析 SemanticKITTI .label 二进制。
+ *
+ * 每个点一个 uint32：
+ *   - 低 16 位：语义 id（官方原始 id，不是 learning_map 之后的 0-19）
+ *   - 高 16 位：实例 id，同一目标跨帧保持一致，0 表示无实例（地面/背景）
+ *
+ * 实例 id 是接轨迹/时序质检的关键：同一个 car 在连续帧里共享同一个 id，
+ * 无需重新做框匹配。以前版本把它丢掉了，这里保留下来。
  */
-export function parseSemanticLabelBin(buffer: ArrayBuffer, count?: number): Uint16Array {
+export interface SemanticLabelData {
+  labels: Uint16Array
+  instances: Uint16Array
+  /** 实际出现的不同语义 id 数量（用于状态栏提示） */
+  classCount: number
+  /** 实际出现的不同实例 id 数量（不含 0） */
+  instanceCount: number
+}
+
+export function parseSemanticLabelBin(buffer: ArrayBuffer, count?: number): SemanticLabelData {
   const available = Math.floor(buffer.byteLength / 4)
   const n = count ?? available
   if (n > available) throw new Error(`.label 文件只有 ${available} 个点，少于预期 ${n}`)
   const src = new Uint32Array(buffer, 0, n)
-  const out = new Uint16Array(n)
-  for (let i = 0; i < n; i++) out[i] = src[i] & 0xffff
-  return out
+  const labels = new Uint16Array(n)
+  const instances = new Uint16Array(n)
+  const classes = new Set<number>()
+  const insts = new Set<number>()
+  for (let i = 0; i < n; i++) {
+    const raw = src[i]
+    const semanticId = raw & 0xffff
+    const instanceId = raw >>> 16
+    labels[i] = semanticId
+    instances[i] = instanceId
+    classes.add(semanticId)
+    if (instanceId !== 0) insts.add(instanceId)
+  }
+  return { labels, instances, classCount: classes.size, instanceCount: insts.size }
 }
 
-/** 把 labels 导出为 SemanticKITTI 兼容的 uint32 二进制（低 16 位语义） */
-export function serializeSemanticLabelBin(labels: SemanticLabels): ArrayBuffer {
+/**
+ * 导出为 SemanticKITTI 兼容的 uint32 二进制。
+ * 传入 instances 时写回高 16 位，保证导出的 .label 能被官方 devkit 读取。
+ */
+export function serializeSemanticLabelBin(
+  labels: SemanticLabels,
+  instances?: Uint16Array,
+): ArrayBuffer {
+  if (instances && instances.length !== labels.length) {
+    throw new Error('语义标签与实例 id 数量不一致')
+  }
   const buf = new ArrayBuffer(labels.length * 4)
   const out = new Uint32Array(buf)
-  for (let i = 0; i < labels.length; i++) out[i] = labels[i]
+  for (let i = 0; i < labels.length; i++) {
+    out[i] = (labels[i] & 0xffff) | (((instances?.[i] ?? 0) & 0xffff) << 16)
+  }
   return buf
 }
 
 /**
  * 判断一个类别 id 是否属于"物体"（而非地面/背景）。
- * 演示脚本用它给程序化场景自动打语义标签。
+ * 基于官方原始 id 分组；未知 id 视为物体，便于外部扩展类别表。
  */
 export function isObjectClass(id: number): boolean {
-  return id >= 1 && id <= 8
+  const learningId = SEMANTIC_KITTI_LEARNING_MAP[id]
+  if (learningId === undefined) return true
+  return learningId >= 1 && learningId <= 8
 }

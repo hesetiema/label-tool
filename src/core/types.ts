@@ -80,9 +80,16 @@ export interface RawLabelObject {
  *
  * 用 Uint16Array 而不是 number[]：语义标签是"每个点一个整数"，
  * 百万点场景用普通数组会多占十几倍内存且 GC 压力大。
- * 0 保留给"未标注"，业务类别从 1 开始（与 SemanticKITTI 的 0=unlabeled 约定对齐）。
+ * id 采用 SemanticKITTI 官方原始编号（0=unlabeled, 10=car, 40=road, 252=moving-car）。
  */
 export type SemanticLabels = Uint16Array | Uint32Array
+
+/**
+ * 逐点实例 id，长度 = count，与 labels 一一对应。
+ * 来自 .label 的 uint32 高 16 位；同一目标跨帧共享 id，0 表示背景（无实例）。
+ * 这是语义分割和 3D 框轨迹能对齐的桥梁——用它可以按实例聚合点、生成候选框。
+ */
+export type InstanceIds = Uint16Array
 
 /** 一个语义类别的定义：id / 名称 / 颜色(0xRRGGBB) */
 export interface SemanticClass {
@@ -97,13 +104,15 @@ export interface SemanticClass {
  * - count: 点的数量
  * - colors: 可选，展平的 rgb 归一化到 0~1
  * - labels: 可选，逐点语义类别 id（语义分割）
- * - semanticClasses: 可选，id → 类别名/颜色的映射；缺省用内置调色板
+ * - instances: 可选，逐点实例 id（来自 .label 高 16 位，跨帧一致）
+ * - semanticClasses: 可选，id → 类别名/颜色的映射；缺省用官方 SemanticKITTI 表
  */
 export interface PointCloud {
   positions: Float32Array
   count: number
   colors?: Float32Array
   labels?: SemanticLabels
+  instances?: InstanceIds
   semanticClasses?: SemanticClass[]
 }
 

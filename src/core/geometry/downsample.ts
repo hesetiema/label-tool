@@ -37,11 +37,14 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
   const t0 = performance.now()
   const hasColor = !!cloud.colors
   const hasLabel = !!cloud.labels
+  const hasInstance = !!cloud.instances
   // key 用整数三元组拼成字符串；值是格内所有点的累加，最后求平均作为代表点
   const buckets = new Map<string, {
     sx: number; sy: number; sz: number; sr: number; sg: number; sb: number
     /** 格内各类别计数，代表点取多数票，避免平均出一个不存在的类别 */
     labelVotes: Map<number, number>
+    /** 实例 id → 对应语义 id 的票数，用于选出与胜出语义一致的实例 */
+    instanceVotes: Map<number, Map<number, number>>
     n: number
   }>()
 
@@ -52,7 +55,7 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
     const key = `${Math.floor(x / voxelSize)},${Math.floor(y / voxelSize)},${Math.floor(z / voxelSize)}`
     let b = buckets.get(key)
     if (!b) {
-      b = { sx: 0, sy: 0, sz: 0, sr: 0, sg: 0, sb: 0, labelVotes: new Map(), n: 0 }
+      b = { sx: 0, sy: 0, sz: 0, sr: 0, sg: 0, sb: 0, labelVotes: new Map(), instanceVotes: new Map(), n: 0 }
       buckets.set(key, b)
     }
     b.sx += x; b.sy += y; b.sz += z; b.n++
@@ -65,12 +68,20 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
       const id = cloud.labels[i]
       b.labelVotes.set(id, (b.labelVotes.get(id) ?? 0) + 1)
     }
+    if (hasInstance && cloud.instances && cloud.labels) {
+      const inst = cloud.instances[i]
+      const sem = cloud.labels[i]
+      let bySem = b.instanceVotes.get(inst)
+      if (!bySem) { bySem = new Map(); b.instanceVotes.set(inst, bySem) }
+      bySem.set(sem, (bySem.get(sem) ?? 0) + 1)
+    }
   }
 
   const count = buckets.size
   const positions = new Float32Array(count * 3)
   const colors = hasColor ? new Float32Array(count * 3) : undefined
   const labels = hasLabel ? new Uint16Array(count) : undefined
+  const instances = hasInstance ? new Uint16Array(count) : undefined
   let j = 0
   for (const b of buckets.values()) {
     positions[j * 3] = b.sx / b.n
@@ -87,12 +98,22 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
         if (votes > bestVotes) { bestVotes = votes; bestId = id }
       }
       labels[j] = bestId
+      // 实例取票数最多的那个，但排除与胜出语义不一致的实例——
+      // 否则一辆车的点可能挂上行人的实例 id，跨帧轨迹就串了。
+      if (instances && b.instanceVotes.size) {
+        let bestInst = 0, bestInstVotes = -1
+        for (const [inst, bySem] of b.instanceVotes) {
+          const votes = bySem.get(bestId) ?? 0
+          if (votes > bestInstVotes) { bestInstVotes = votes; bestInst = inst }
+        }
+        instances[j] = bestInstVotes > 0 ? bestInst : 0
+      }
     }
     j++
   }
 
   return {
-    cloud: { positions, count, colors, labels, semanticClasses: cloud.semanticClasses },
+    cloud: { positions, count, colors, labels, instances, semanticClasses: cloud.semanticClasses },
     elapsedMs: performance.now() - t0,
     inputCount: cloud.count,
     outputCount: count,
@@ -126,6 +147,7 @@ export function distanceLod(
   const positions = new Float32Array(count * 3)
   const colors = cloud.colors ? new Float32Array(count * 3) : undefined
   const labels = cloud.labels ? new Uint16Array(count) : undefined
+  const instances = cloud.instances ? new Uint16Array(count) : undefined
   for (let j = 0; j < count; j++) {
     const i = kept[j]
     positions[j * 3] = cloud.positions[i * 3]
@@ -137,10 +159,11 @@ export function distanceLod(
       colors[j * 3 + 2] = cloud.colors[i * 3 + 2]
     }
     if (labels && cloud.labels) labels[j] = cloud.labels[i]
+    if (instances && cloud.instances) instances[j] = cloud.instances[i]
   }
 
   return {
-    cloud: { positions, count, colors, labels, semanticClasses: cloud.semanticClasses },
+    cloud: { positions, count, colors, labels, instances, semanticClasses: cloud.semanticClasses },
     elapsedMs: performance.now() - t0,
     inputCount: cloud.count,
     outputCount: count,

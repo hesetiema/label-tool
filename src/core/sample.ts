@@ -28,7 +28,7 @@ export function addBoxSurface(
   L: number, W: number, H: number, yaw: number,
   density: number,
   rng: () => number,
-  labelSink?: { labels: number[]; id: number },
+  labelSink?: { labels: number[]; id: number; instances?: number[]; instanceId?: number },
 ) {
   const c = Math.cos(yaw), s = Math.sin(yaw)
   const push = (lx: number, ly: number, lz: number) => {
@@ -37,7 +37,10 @@ export function addBoxSurface(
     const ny = (rng() - 0.5) * 0.06
     const nz = (rng() - 0.5) * 0.06
     out.push(cx + lx * c - ly * s + nx, cy + lx * s + ly * c + ny, cz + lz + nz)
-    if (labelSink) labelSink.labels.push(labelSink.id)
+    if (labelSink) {
+      labelSink.labels.push(labelSink.id)
+      if (labelSink.instances) labelSink.instances.push(labelSink.instanceId ?? 0)
+    }
   }
   const n = Math.max(4, Math.floor(density))
   // 四个侧面 + 顶面
@@ -111,28 +114,32 @@ export function generateDemoScene(): { cloud: PointCloud; boxes: Box3D[] } {
  * 目的不是造真实数据，而是让"逐点语义着色"这个能力开箱可见——
  * 用户点一下就能看到 SemanticKITTI 风格的彩色点云，不必先下载几百 MB 数据。
  *
- * 类别 id 沿用 SemanticKITTI：9=road, 11=sidewalk, 1=car,
- * 4=truck, 6=person, 7=bicyclist, 2=bicycle。
+ * 类别 id 用官方 SemanticKITTI 原始编号：40=road, 48=sidewalk, 10=car,
+ * 18=truck, 30=person, 31=bicyclist, 11=bicycle。
+ * 每个目标还分配了实例 id（背景为 0），演示"语义 + 实例"两套标签。
  */
 export function generateSemanticDemoScene(): { cloud: PointCloud; boxes: Box3D[] } {
   const rng = makeRng(20261119)
   const pts: number[] = []
   const labels: number[] = []
+  const instances: number[] = []
 
-  // 1) 路面 → road(9)
+  // 1) 路面 → road(40)，两侧 sidewalk(48)，背景点无实例(id=0)
   for (let i = 0; i < 6000; i++) {
     const x = (rng() - 0.5) * 80
     const y = (rng() - 0.5) * 60
     const z = (rng() - 0.5) * 0.05
     pts.push(x, y, z)
-    labels.push(Math.abs(y) > 12 ? 11 : 9) // 两侧当人行道
+    labels.push(Math.abs(y) > 12 ? 48 : 40)
+    instances.push(0)
   }
-  // 2) 车道线 → 仍归 road（演示不需要额外的标线类）
+  // 2) 车道线 → lane-marking(60)，官方 learning_map 会并回 road
   for (let s = -35; s < 35; s += 2) {
     for (let d = 0; d < 12; d++) {
       for (const yLine of [-2.5, 2.5]) {
         pts.push(s + d * 0.08, yLine + (rng() - 0.5) * 0.1, 0.02)
-        labels.push(9)
+        labels.push(60)
+        instances.push(0)
       }
     }
   }
@@ -140,18 +147,19 @@ export function generateSemanticDemoScene(): { cloud: PointCloud; boxes: Box3D[]
   // 3) 目标：每类一个语义 id
   const specs: {
     label: string; cx: number; cy: number
-    L: number; W: number; H: number; yaw: number; semanticId: number
+    L: number; W: number; H: number; yaw: number
+    semanticId: number; instanceId: number
   }[] = [
-    { label: 'Car', cx: 18, cy: 2.5, L: 4.5, W: 1.8, H: 1.5, yaw: 0.05, semanticId: 1 },
-    { label: 'Car', cx: 6, cy: -2.5, L: 4.6, W: 1.85, H: 1.55, yaw: Math.PI - 0.08, semanticId: 1 },
-    { label: 'Truck', cx: 28, cy: 2.5, L: 8.5, W: 2.5, H: 3.2, yaw: 0.02, semanticId: 4 },
-    { label: 'Pedestrian', cx: 2, cy: 6, L: 0.6, W: 0.6, H: 1.75, yaw: 0, semanticId: 6 },
-    { label: 'Rider', cx: -8, cy: -3, L: 2.0, W: 0.8, H: 1.7, yaw: 0.3, semanticId: 7 },
-    { label: 'Cyclist', cx: -14, cy: 2, L: 1.7, W: 0.6, H: 1.7, yaw: Math.PI / 2, semanticId: 2 },
+    { label: 'Car', cx: 18, cy: 2.5, L: 4.5, W: 1.8, H: 1.5, yaw: 0.05, semanticId: 10, instanceId: 1 },
+    { label: 'Car', cx: 6, cy: -2.5, L: 4.6, W: 1.85, H: 1.55, yaw: Math.PI - 0.08, semanticId: 10, instanceId: 2 },
+    { label: 'Truck', cx: 28, cy: 2.5, L: 8.5, W: 2.5, H: 3.2, yaw: 0.02, semanticId: 18, instanceId: 3 },
+    { label: 'Pedestrian', cx: 2, cy: 6, L: 0.6, W: 0.6, H: 1.75, yaw: 0, semanticId: 30, instanceId: 4 },
+    { label: 'Rider', cx: -8, cy: -3, L: 2.0, W: 0.8, H: 1.7, yaw: 0.3, semanticId: 31, instanceId: 5 },
+    { label: 'Cyclist', cx: -14, cy: 2, L: 1.7, W: 0.6, H: 1.7, yaw: Math.PI / 2, semanticId: 11, instanceId: 6 },
   ]
 
   const boxes: Box3D[] = specs.map((sp, idx) => {
-    const sink = { labels, id: sp.semanticId }
+    const sink = { labels, id: sp.semanticId, instances, instanceId: sp.instanceId }
     addBoxSurface(pts, sp.cx, sp.cy, 0, sp.L, sp.W, sp.H, sp.yaw, 16, rng, sink)
     return {
       id: String(idx + 1),
@@ -163,7 +171,7 @@ export function generateSemanticDemoScene(): { cloud: PointCloud; boxes: Box3D[]
   })
 
   // 只列出本场景实际用到的类别，UI 图例更清爽
-  const usedIds = [9, 11, 1, 4, 6, 7, 2]
+  const usedIds = [40, 48, 60, 10, 18, 30, 31, 11]
   const semanticClasses: SemanticClass[] = DEFAULT_SEMANTIC_CLASSES.filter((c) => usedIds.includes(c.id))
 
   return {
@@ -171,6 +179,7 @@ export function generateSemanticDemoScene(): { cloud: PointCloud; boxes: Box3D[]
       positions: new Float32Array(pts),
       count: pts.length / 3,
       labels: Uint16Array.from(labels),
+      instances: Uint16Array.from(instances),
       semanticClasses,
     },
     boxes,

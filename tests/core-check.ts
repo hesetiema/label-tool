@@ -32,7 +32,8 @@ import {
   generateSemanticDemoScene,
 } from '../src/core/sample.ts'
 import {
-  DEFAULT_SEMANTIC_CLASSES, labelsToColors, semanticStats, semanticColor,
+  DEFAULT_SEMANTIC_CLASSES, SEMANTIC_KITTI_CLASSES, SEMANTIC_KITTI_LEARNING_MAP, LEARNING_CLASS_NAMES,
+  labelsToColors, semanticStats, semanticColor, semanticName, toLearningId, fromLearningId,
   parseSemanticLabelBin, serializeSemanticLabelBin,
 } from '../src/core/semantics.ts'
 import {
@@ -587,41 +588,79 @@ check('Waymo 类型映射 VEHICLE→Car', waymoParsed.boxes[0].label === 'Car')
 check('Waymo heading→yaw 直译', close(waymoParsed.boxes[0].yaw, 0.4, 1e-6))
 
 // ===== [17] 逐点语义分割 =====
-console.log('\n[17] 逐点语义分割模型')
+console.log('\n[17] 逐点语义分割模型（SemanticKITTI 官方约定）')
+
+// 类别表与官方 semantic-kitti.yaml 对齐：稀疏原始 id、moving-* 是独立类
+check('官方类别表含 34 类', SEMANTIC_KITTI_CLASSES.length === 34)
+check('原始 id：car=10', semanticName(10) === 'car')
+check('原始 id：road=40', semanticName(40) === 'road')
+check('原始 id：sidewalk=48', semanticName(48) === 'sidewalk')
+check('moving-car 未被提前合并', semanticName(252) === 'moving-car' && semanticName(10) === 'car')
+check('默认类别表就是官方表', DEFAULT_SEMANTIC_CLASSES === SEMANTIC_KITTI_CLASSES)
+
+// learning_map：原始稀疏 id → 训练用 0-19
+check('learning_map 原始 34 类全覆盖', Object.keys(SEMANTIC_KITTI_LEARNING_MAP).length === 34)
+check('learning_map: car(10)→1', toLearningId(10) === 1)
+check('learning_map: moving-car(252)→1', toLearningId(252) === 1)
+check('learning_map: road(40)→9', toLearningId(40) === 9)
+check('learning_map: lane-marking(60)→road(9)', toLearningId(60) === toLearningId(40))
+check('learning_map: 未知 id 保持原值', toLearningId(777) === 777)
+check('learning_map 逆映射：1→10', fromLearningId(1) === 10)
+check('learning 类别名表含 20 类', LEARNING_CLASS_NAMES.length === 20)
+
 const semanticDemo = generateSemanticDemoScene()
 const semCloud = semanticDemo.cloud
 check('语义演示生成了标签', !!semCloud.labels && semCloud.labels.length === semCloud.count,
   `labels=${semCloud.labels?.length} count=${semCloud.count}`)
-check('标签 id 在合法范围', !!semCloud.labels && Array.from(semCloud.labels).every((x) => x <= 19))
-check('语义类别表非空', !!semCloud.semanticClasses && semCloud.semanticClasses.length > 0)
+check('演示标签用官方原始 id', !!semCloud.labels && Array.from(semCloud.labels).every((x) =>
+  SEMANTIC_KITTI_LEARNING_MAP[x] !== undefined))
+check('演示生成了实例 id', !!semCloud.instances && semCloud.instances.length === semCloud.count)
+check('演示背景实例 id 为 0', !!semCloud.instances && semCloud.instances[0] === 0)
+check('演示目标实例 id 非零', !!semCloud.instances && Array.from(semCloud.instances).some((x) => x > 0))
 const stats = semanticStats(semCloud)
 check('统计出多个语义类别', stats.length >= 5, `实际 ${stats.length}`)
 check('统计按点数降序', stats.every((s, i) => i === 0 || stats[i - 1].count >= s.count))
 check('类别占比之和≈1', close(stats.reduce((a, s) => a + s.ratio, 0), 1, 1e-6))
+check('统计里出现 car 而非旧编号 1', stats.some((s) => s.name === 'car') && !stats.some((s) => s.id === 1))
 const semColors = labelsToColors(semCloud.labels!, semCloud.semanticClasses)
 check('labelsToColors 长度=点数×3', semColors.length === semCloud.count * 3)
 check('颜色在 0~1 范围', Array.from(semColors).every((v) => v >= 0 && v <= 1))
 check('未知类别有稳定配色', semanticColor(999) === semanticColor(999))
 
-// .label 二进制：低16位语义、高16位实例
-const labelBin = serializeSemanticLabelBin(Uint16Array.from([9, 1, 6, 4]))
+// .label 二进制：uint32 = (instanceId << 16) | semanticId
+const labelBin = serializeSemanticLabelBin(
+  Uint16Array.from([10, 40, 30, 252]),
+  Uint16Array.from([1, 0, 7, 1]),
+)
+check('导出 bin 每点 4 字节', labelBin.byteLength === 16)
+check('导出 bin 首字高低位正确', new Uint32Array(labelBin)[0] === ((1 << 16) | 10))
 const decoded = parseSemanticLabelBin(labelBin)
-check('label bin 往返：点数一致', decoded.length === 4)
-check('label bin 往返：语义 id 一致', decoded[0] === 9 && decoded[1] === 1 && decoded[3] === 4)
-check('默认语义表含 20 类', DEFAULT_SEMANTIC_CLASSES.length === 20)
+check('label bin 往返：点数一致', decoded.labels.length === 4 && decoded.instances.length === 4)
+check('label bin 往返：语义 id 一致',
+  decoded.labels[0] === 10 && decoded.labels[1] === 40 && decoded.labels[3] === 252)
+check('label bin 往返：实例 id 一致',
+  decoded.instances[0] === 1 && decoded.instances[1] === 0 && decoded.instances[2] === 7)
+check('统计实例数量（不含 0）', decoded.instanceCount === 2)
+check('实例不带入 bin 时高位为 0',
+  new Uint32Array(serializeSemanticLabelBin(Uint16Array.from([10])))[0] === 10)
 
-// 下采样保留语义标签
+// 下采样保留语义 + 实例标签
 const smallSem: typeof semCloud = {
   positions: new Float32Array([0, 0, 0, 0.1, 0, 0, 10, 10, 10, 10.1, 10, 10]),
   count: 4,
-  labels: Uint16Array.from([9, 9, 1, 1]),
+  labels: Uint16Array.from([40, 40, 10, 10]),
+  instances: Uint16Array.from([0, 0, 5, 5]),
 }
 const semVoxel = voxelDownsample(smallSem, 5)
 check('体素下采样保留 labels', semVoxel.cloud.labels?.length === semVoxel.cloud.count)
-check('体素代表点标签合法', !!semVoxel.cloud.labels && Array.from(semVoxel.cloud.labels).every((x) => x === 9 || x === 1))
+check('体素代表点语义是原始 id', !!semVoxel.cloud.labels && Array.from(semVoxel.cloud.labels).every((x) => x === 40 || x === 10))
+check('体素下采样保留 instances', semVoxel.cloud.instances?.length === semVoxel.cloud.count)
+check('体素代表点实例 id 正确', semVoxel.cloud.instances?.[0] === 0 && semVoxel.cloud.instances?.[1] === 5)
 const semLod = distanceLod(smallSem, { nearRadius: 1, farKeep: 0, seed: 1 })
 check('距离 LOD 保留 labels', semLod.cloud.labels?.length === semLod.cloud.count)
-check('LOD 近处语义仍是 9', semLod.cloud.labels?.[0] === 9)
+check('LOD 近处语义仍是 40', semLod.cloud.labels?.[0] === 40)
+check('距离 LOD 保留 instances',
+  semLod.cloud.instances?.length === 2 && semLod.cloud.instances[0] === 0 && semLod.cloud.instances[1] === 0)
 
 console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
 if (failed > 0) process.exit(1)

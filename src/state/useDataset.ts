@@ -17,7 +17,7 @@ import { generateDemoScene, generateSemanticDemoScene } from '../core/sample'
 import { parsePCD } from '../core/io/pcd'
 import { parseLabels } from '../core/io/label'
 import { parseLabelsAuto } from '../core/io/formats'
-import { parseSemanticLabelBin } from '../core/semantics'
+import { parseSemanticLabelBin, SEMANTIC_KITTI_CLASSES } from '../core/semantics'
 import { parseCalibration } from '../core/io/calibration'
 import { generateDemoSequence, type FrameData } from '../core/sequence/sequence'
 import { cloneBoxes } from '../core/history'
@@ -201,8 +201,9 @@ export function useDataset(core: StudioCore) {
   }
 
   /**
-   * 导入 SemanticKITTI .label 二进制（每点一个 uint32，低 16 位是语义 id）。
+   * 导入 SemanticKITTI .label 二进制（每点一个 uint32：低 16 位语义、高 16 位实例）。
    * 必须与当前点云点数一致，否则直接报错——错位标签比没有标签更危险。
+   * 类别表用官方原始 id，保证 moving-car(252) 等不会被错认成别的类。
    */
   async function onSemanticFile(e: Event) {
     const input = e.target as HTMLInputElement
@@ -212,15 +213,21 @@ export function useDataset(core: StudioCore) {
     const current = cloud.value
     if (!current) { statusText.value = '请先加载点云，再导入语义标签'; return }
     try {
-      const labels = parseSemanticLabelBin(await file.arrayBuffer(), current.count)
+      const { labels, instances, classCount, instanceCount } = parseSemanticLabelBin(
+        await file.arrayBuffer(), current.count,
+      )
       // 替换整个点云对象而非原地改字段，保证 Vue 响应式与渲染缓存都失效
-      cloud.value = { ...current, labels }
+      cloud.value = {
+        ...current,
+        labels,
+        instances,
+        semanticClasses: SEMANTIC_KITTI_CLASSES,
+      }
       invalidateCloud()
       pointColorBy.value = 'semantic'
       syncViewer()
       markDirty()
-      const kinds = new Set(labels).size
-      statusText.value = `已导入语义标签：${labels.length.toLocaleString()} 点 / ${kinds} 类（${file.name}）`
+      statusText.value = `已导入 ${labels.length.toLocaleString()} 点 / ${classCount} 类 / ${instanceCount} 个实例（${file.name}）`
     } catch (err) {
       statusText.value = `语义标签导入失败：${(err as Error).message}`
     }
