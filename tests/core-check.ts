@@ -10,7 +10,7 @@ import { boxToVertices, fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from '
 import { generateDemoScene } from '../src/core/sample.ts'
 import { serializeLabels, parseLabels } from '../src/core/io/label.ts'
 import { parsePCD } from '../src/core/io/pcd.ts'
-import { matVec, projectPoint, projectBox, type Calibration } from '../src/core/io/calibration.ts'
+import { matVec, projectPoint, projectBox, distortNormalized, parseCalibration, type Calibration } from '../src/core/io/calibration.ts'
 import { HistoryStack, cloneBoxes } from '../src/core/history.ts'
 import { lerpAngle, lerpBox, associateNearest, interpolateTracks, generateDemoSequence, extractTrajectories, propagateBox, type FrameData } from '../src/core/sequence/sequence.ts'
 import { evaluateTemporal, injectTemporalDefects, markOccluded } from '../src/core/sequence/temporalQA.ts'
@@ -145,6 +145,64 @@ check('框投影得到8个点', !!proj && proj.length === 8)
 // 相机后方的框返回 null
 const backBox: Box3D = { ...frontBox, position:{x:0,y:0,z:-10} }
 check('相机后方框不可见', projectBox(backBox, calib) === null)
+
+// ===== 畸变校正 =====
+// 无畸变字段：走原路径，数值与上面完全一致（回归保护）
+const pNoDist = projectPoint([1, 2, 10], calib)!
+check('无畸变时投影不变', close(pNoDist.u, 420) && close(pNoDist.v, 440))
+check('无畸变时 distortion 为 undefined', calib.distortion === undefined)
+// 归一化坐标畸变：x=0.1,y=0.2, r²=0.05
+const [dx0, dy0] = distortNormalized(0.1, 0.2, undefined)
+check('无畸变系数时归一化坐标不变', close(dx0, 0.1) && close(dy0, 0.2))
+const [dxK1, dyK1] = distortNormalized(0.1, 0.2, [0.1, 0, 0, 0])
+// radial = 1 + 0.1*0.05 = 1.005 → x=0.1005, y=0.201
+check('径向 k1 公式正确', close(dxK1, 0.1005) && close(dyK1, 0.201), `${dxK1},${dyK1}`)
+const [dxK3, dyK3] = distortNormalized(0.1, 0.2, [0, 0, 0, 0, 100])
+// r⁶ = 0.000125, radial = 1 + 100*0.000125 = 1.0125
+check('径向 k3 公式正确', close(dxK3, 0.10125) && close(dyK3, 0.2025), `${dxK3},${dyK3}`)
+const [dxP1, dyP1] = distortNormalized(0.1, 0.2, [0, 0, 0.05, 0])
+// x' = 0.1 + 2*0.05*0.1*0.2 = 0.102
+// y' = 0.2 + 0.05*(0.05 + 2*0.04) = 0.2065
+check('切向 p1 公式正确', close(dxP1, 0.102) && close(dyP1, 0.2065), `${dxP1},${dyP1}`)
+const [dxP2, dyP2] = distortNormalized(0.1, 0.2, [0, 0, 0, 0.05])
+// x' = 0.1 + 0.05*(0.05 + 2*0.01) = 0.1035
+// y' = 0.2 + 2*0.05*0.1*0.2 = 0.202
+check('切向 p2 公式正确', close(dxP2, 0.1035) && close(dyP2, 0.202), `${dxP2},${dyP2}`)
+const [dxShort, dyShort] = distortNormalized(0.1, 0.2, [0.1, 0, 0, 0])
+check('只给4项时 k3 缺省为0', close(dxShort, 0.1005) && close(dyShort, 0.201))
+const [dxBad, dyBad] = distortNormalized(0.1, 0.2, [0.5, 0.5])
+check('畸变系数不足4项时按无畸变处理', close(dxBad, 0.1) && close(dyBad, 0.2))
+
+// 完整投影链路：k1=0.1 时边缘点外扩，主点不动
+const calibK1: Calibration = { ...calib, distortion: [0.1, 0, 0, 0] }
+const pCenter = projectPoint([0, 0, 10], calibK1)!
+check('畸变不影响主点', close(pCenter.u, 320) && close(pCenter.v, 240), `${pCenter.u},${pCenter.v}`)
+const pEdge = projectPoint([1, 2, 10], calibK1)!
+check('径向畸变使边缘点外扩', close(pEdge.u, 420.5) && close(pEdge.v, 441), `${pEdge.u},${pEdge.v}`)
+check('畸变下相机后方仍返回 null', projectPoint([0, 0, -5], calibK1) === null)
+// 整框投影继承畸变
+const projK1 = projectBox(frontBox, calibK1)
+check('整框投影继承畸变', !!proj && !!projK1 && !close(projK1[0].u, proj[0].u))
+// 平移外参 + 畸变组合
+const pCombo = projectPoint([10, 0, 10], { ...calibT, distortion: [0.2, 0, 0, 0] })!
+check('外参平移与畸变组合正确', close(pCombo.u, 320) && close(pCombo.v, 240))
+
+// 解析：常见字段名与格式
+const calibJsonBase = { extrinsic: calib.extrinsic, intrinsic: calib.intrinsic }
+const parsedD = parseCalibration(JSON.stringify({ ...calibJsonBase, distortion: [0.1, 0.2, 0.003, 0.004, 0.005] }))
+check('parseCalibration 透传 distortion', !!parsedD.distortion && parsedD.distortion.length === 5 && close(parsedD.distortion[0], 0.1))
+const parsedKitti = parseCalibration(JSON.stringify({ ...calibJsonBase, D: '0.1 0.2 0.003 0.004' }))
+check('支持 KITTI 风格的 D 字符串', !!parsedKitti.distortion && close(parsedKitti.distortion[3], 0.004))
+const parsedOpenCalib = parseCalibration(JSON.stringify({ ...calibJsonBase, Distortion: [-0.108, 0.138, -0.003, -0.004] }))
+check('支持 OpenCalib 的 Distortion 字段', !!parsedOpenCalib.distortion && close(parsedOpenCalib.distortion[1], 0.138))
+const parsedNone = parseCalibration(JSON.stringify(calibJsonBase))
+check('无畸变字段解析后仍为 undefined', parsedNone.distortion === undefined)
+const parsedBad = parseCalibration(JSON.stringify({ ...calibJsonBase, distortion: [0.1, 0.2] }))
+check('畸变项数不足时忽略', parsedBad.distortion === undefined)
+const parsedZeros = parseCalibration(JSON.stringify({ ...calibJsonBase, distortion: [0, 0, 0, 0, 0] }))
+check('全零畸变解析保留', !!parsedZeros.distortion && parsedZeros.distortion.length === 5)
+const pZero = projectPoint([1, 2, 10], parsedZeros)!
+check('全零畸变与无畸变投影一致', close(pZero.u, 420) && close(pZero.v, 440))
 
 // ============ 撤销重做 ============
 console.log('\n[8] 撤销重做（命令模式）')

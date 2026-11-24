@@ -79,7 +79,20 @@ v = fy · Y/Z + cy
 
 ## 6. 畸变（distortion）
 
-真实相机镜头有畸变（桶形/枕形），严格来说投影前要先去畸变。标定会给出畸变系数（k1,k2,p1,p2,k3...）。原仓库的 calib 文件里没有显式畸变参数，可能假设已去畸变或使用简化模型。工业级项目这一步不能省。
+真实相机镜头有畸变（桶形/枕形），严格来说投影前要施加畸变模型。标定给出的是 OpenCV 顺序的畸变系数（k1,k2,p1,p2,k3）。原仓库的 calib 文件没有显式畸变参数，可能假设图像已去畸变或使用简化模型；但接 KITTI / nuScenes / DAIR-V2X 这类真实数据集时系数通常是有的，忽略它会让画面边缘的框明显偏位——中心的框看着又是准的，所以特别容易误判成标注问题。
+
+本项目已实现 OpenCV 的径向-切向模型（`distortNormalized()`），作用在归一化相机平面坐标 (x, y) = (X/Z, Y/Z) 上：
+
+```
+r²      = x² + y²
+radial  = 1 + k1·r² + k2·r⁴ + k3·r⁶
+xd      = x·radial + 2·p1·x·y + p2·(r² + 2x²)
+yd      = y·radial + p1·(r² + 2y²) + 2·p2·x·y
+```
+
+系数通过 calib JSON 的可选 `distortion` 字段传入（兼容 KITTI 的 `D`、OpenCalib 的 `Distortion`，支持数组或空格分隔字符串），缺省时走针孔模型，行为与之前完全一致。
+
+**一个容易踩的坑**：这里做的是「投影时加畸变」（OpenCV `projectPoints` 模型）。如果数据集给的图像已经去畸变（比如 KITTI 的 `P2` 本身就是 rectified 投影矩阵），就不要再传 distortion，否则会二次校正。
 
 ---
 
@@ -100,8 +113,12 @@ v = fy · Y/Z + cy
 projectPoint(world, calib):
   cam = matVec(calib.extrinsic, [x,y,z,1], 4)   // 外参，行主序 4×4
   if (cam.z <= 0) return null                    // 相机后方，不可见
-  px = matVec(calib.intrinsic, cam.xyz, 3)       // 内参，行主序 3×3
-  return { u: px.x/px.z, v: px.y/px.z }          // 透视除法
+  if (!calib.distortion)                          // 无畸变：走原来的快速路径
+    px = matVec(calib.intrinsic, cam.xyz, 3)     // 内参，行主序 3×3
+    return { u: px.x/px.z, v: px.y/px.z }        // 透视除法
+  [nx,ny] = distortNormalized(cam.x/cam.z, cam.y/cam.z, calib.distortion)
+  px = matVec(calib.intrinsic, [nx*cam.z, ny*cam.z, cam.z], 3)
+  return { u: px.x/px.z, v: px.y/px.z }
 ```
 
 一个从源码里挖出来的**关键细节**：原仓库 `calib.js` 用 `extrinsic[3], [7], [11]` 取平移向量，说明它的 4×4 是**行主序**存储（平移在最后一列）。如果当成列主序（Three.js 的默认），投影会完全错位——这正是照搬库代码容易踩的坑。

@@ -61,7 +61,7 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | **本地草稿** | IndexedDB 自动保存 / 刷新恢复 / 离开拦截，无需后端 | — |
 | **多帧导入** | 一次选多个 PCD，按文件名自然排序组成时序；同名 JSON 自动匹配 | — |
 | **跨帧复制** | 把选中框按**同 id** 复制到下一帧 / 后续帧 / 全部帧，直接构成轨迹；目标帧已有同 id 则跳过 | batch 模式 |
-| **相机投影** | 3D 框投影到前视相机图像，多传感器融合对照 | `calib.js` + `image.js` |
+| **相机投影** | 3D 框投影到前视相机图像，多传感器融合对照；支持可选径向-切向畸变校正（OpenCV `k1,k2,p1,p2,k3`，兼容 KITTI `D` / OpenCalib `Distortion`） | `calib.js` + `image.js` |
 | **分屏视图** | 点云 / 分屏 / 相机 三种布局；相机图上的框参与同一套选中与悬停联动 | — |
 | **撤销重做** | 命令模式 + 状态快照，`Ctrl+Z` / `Ctrl+Shift+Z`；拖拽自动合并为一次 | — |
 | **多帧时序** | 5 帧演示序列、obj_id 跨帧保持一致、首末帧轨迹插值补全中间帧 | batch 模式 |
@@ -90,7 +90,7 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | [⑤ 交互与序列化](docs/05-interaction-and-io.md) | `state/useAnnotation.ts` / `core/label.ts` | 拖拽画框、快捷键、label JSON 互通 |
 
 > ④⑤ 两篇的正文成文于「BEV 双视口」时期，其中**正交投影、屏幕反投影、按需渲染**的原理部分仍然适用；代码现状是单 3D 视口 + 三个独立 2D canvas 正交视图（`components/OrthoView.vue`），不再开第二个 WebGL 场景。读的时候把「双视口」替换为「三联正交」即可。
-| [⑥ 相机标定与投影](docs/06-calibration-and-projection.md) | `core/calibration.ts` | 3D 框投到图像、LiDAR 与相机对齐 |
+| [⑥ 相机标定与投影](docs/06-calibration-and-projection.md) | `core/io/calibration.ts` | 3D 框投到图像、LiDAR 与相机对齐、畸变校正 |
 | [⑦ 工程化能力](docs/07-engineering-p0.md) | `core/history.ts` / `sequence.ts` / `downsample.ts` | 快照 vs 差量、轨迹关联与插值、体素 + LOD 实测 |
 | [⑧ 4D 轨迹叠加回放](docs/08-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、轨迹线渲染、回放定时器 |
 | [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
@@ -294,7 +294,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 |---|---|---|
 | `000970.pcd` | 66,899 点的真实 LiDAR 扫描，binary 编码，含 x/y/z/intensity/ring 等多字段 | 检验 PCD 解析器对复杂字段的处理；观察真实的扫描线结构 |
 | `000970.json` | 24 个 3D 框标注（Car/Rider/Pedestrian...） | 对照学习 label JSON 格式，看看真实标注长什么样 |
-| `calib_front.json` | 前视相机外参(4×4)+内参(3×3) | 配合 docs/06 学习相机投影 |
+| `calib_front.json` | 前视相机外参(4×4)+内参(3×3)，可加可选 `distortion` 字段 | 配合 docs/06 学习相机投影与畸变校正 |
 | `front_000970.jpg` | 对应帧的前视相机图像 | 进阶：可做 3D 框到图像的投影验证 |
 
 这份数据的 PCD 头部字段是 `FIELDS x y z _ intensity _ timestamp _ ring _`，带多个 `COUNT>1` 的填充字段——我们的解析器靠 `fields.indexOf()` 计算字段偏移，能正确跳过这些填充，是很好的健壮性验证案例。
