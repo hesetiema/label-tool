@@ -232,13 +232,3 @@ export function serializeSemanticLabelBin(
   }
   return buf
 }
-
-/**
- * 判断一个类别 id 是否属于"物体"（而非地面/背景）。
- * 基于官方原始 id 分组；未知 id 视为物体，便于外部扩展类别表。
- */
-export function isObjectClass(id: number): boolean {
-  const learningId = SEMANTIC_KITTI_LEARNING_MAP[id]
-  if (learningId === undefined) return true
-  return learningId >= 1 && learningId <= 8
-}

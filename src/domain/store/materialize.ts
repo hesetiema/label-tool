@@ -28,7 +28,7 @@
  */
 import type { Box3D } from '../../core/types'
 import type { BoxGeometry } from '../model/geometry'
-import { angleDelta, cloneVec3, geometryEquals, hermite, lerpAngle } from '../model/geometry'
+import { angleDelta, cloneVec3, hermite, lerpAngle } from '../model/geometry'
 import type { SampleDocument } from '../model/document'
 import type { ObservationState, SourceKind, Track, Visibility } from '../model/track'
 import { endpointVelocity, endpointYawRate, findKeyframeSpan } from '../model/track'
@@ -274,12 +274,4 @@ export function materializeFrame(
     if (view) out.push(view)
   }
   return out
-}
-
-/**
- * 物化后是否与给定几何一致 —— diff 用。
- * 把比较逻辑放这里，避免 EditSession 与 TrackStore 各写一份。
- */
-export function viewGeometryEquals(view: Box3D, geometry: BoxGeometry): boolean {
-  return geometryEquals(view, geometry)
 }

@@ -27,28 +27,6 @@ export async function getOccFrame(blobs: BlobStore, ref: string): Promise<Occupa
   return decodeOccRle(await getPayload(blobs, ref))
 }
 
-/**
- * 批量装载。
- *
- * `limit` 不是性能优化而是防御：一份坏文档可能有 5000 条帧引用，
- * 一次全读会瞬间吃光内存。调用方应传"当前帧 + 邻域"而不是整个样本。
- */
-export async function loadOccFrames(
-  blobs: BlobStore,
-  entries: ReadonlyArray<{ frame: number; ref: string }>,
-  limit = 64,
-): Promise<Map<number, OccupancyFrame>> {
-  const out = new Map<number, OccupancyFrame>()
-  for (const entry of entries.slice(0, limit)) {
-    try {
-      out.set(entry.frame, await getOccFrame(blobs, entry.ref))
-    } catch {
-      // 单帧坏了不该让整段读不出来：调用方据"缺哪帧"提示重新生成
-    }
-  }
-  return out
-}
-
 /** 从描述对象里取帧引用表（按帧号升序，方便 UI 显示"覆盖 0–4 帧"） */
 export function occFrameEntries(task: OccupancyTaskData | undefined): Array<{ frame: number; ref: string }> {
   const list = task?.frames ?? []

@@ -14,43 +14,18 @@
  *   轨迹合并/拆分 → buildMergeCommand / buildSplitCommand
  */
 import type { BoxGeometry } from '../model/geometry'
-import { angleDelta, cloneGeometry, toGeometry } from '../model/geometry'
+import { angleDelta, cloneGeometry } from '../model/geometry'
 import type { Command, CommandData, InsertedFrame } from '../model/command'
 import { makeCommand } from '../model/command'
-import type { Box3D } from '../../core/types'
-import type { ObservationState, Track, Visibility } from '../model/track'
+import type { Track } from '../model/track'
 import {
-  cloneTrack, createTrackRecord, findKeyframeIndex, touchLifecycle,
+  cloneTrack, findKeyframeIndex, touchLifecycle,
 } from '../model/track'
 import type { TrackId } from '../model/ids'
 import {
   DEFAULT_INTERPOLATE_OPTIONS, planInterpolation, type InterpolateOptions,
   type InterpolationStats,
 } from './interpolate'
-
-export function buildCreateTrackCommand(box: Box3D, frame: number, id = box.id): Command {
-  return makeCommand({
-    type: 'createTrack',
-    track: createTrackRecord({ id, classId: box.label, frame, geometry: toGeometry(box) }),
-  }, { label: `新建 ${box.label} #${id}` })
-}
-
-export function buildDeleteTracksCommand(tracks: Track[]): Command {
-  return makeCommand({ type: 'deleteTracks', tracks: tracks.map(cloneTrack) }, {
-    label: tracks.length > 1 ? `删除 ${tracks.length} 条轨迹` : `删除轨迹 #${tracks[0]?.id ?? ''}`,
-  })
-}
-
-export function buildSetKeyframeCommand(track: Track, frame: number, after: BoxGeometry): Command {
-  const before = track.keyframes[findKeyframeIndex(track, frame)]?.geometry ?? null
-  return makeCommand({
-    type: 'setKeyframe',
-    trackId: track.id,
-    frame,
-    before: before ? cloneGeometry(before) : null,
-    after: cloneGeometry(after),
-  }, { label: `调整 #${track.id} 第 ${frame} 帧` })
-}
 
 /**
  * 改生命周期（时间线拖两端）。
@@ -76,27 +51,6 @@ export function buildSetLifecycleCommand(
     before: { ...cur },
     after: next,
   }, { label: `#${track.id} 生命周期 ${cur.first}–${cur.last} → ${next.first}–${next.last}` })
-}
-
-export function buildSetClassCommand(track: Track, next: string): Command {
-  return makeCommand({ type: 'setClass', trackId: track.id, before: track.classId, after: next }, {
-    label: `#${track.id} 类别改为 ${next}`,
-  })
-}
-
-export function buildObservationCommand(
-  track: Track,
-  frame: number,
-  visibility: Visibility,
-  source: ObservationState['source'] = { kind: 'manual' },
-): Command {
-  const before = track.states.get(frame) ?? null
-  const after: ObservationState | null = visibility === 'visible'
-    ? null
-    : { visibility, source, review: 'none' }
-  return makeCommand({
-    type: 'setObservation', trackId: track.id, frame, before, after,
-  }, { label: `#${track.id} 第 ${frame} 帧标记为${visibility}` })
 }
 
 export function buildInsertFramesCommand(
@@ -329,28 +283,4 @@ export function buildOcclusionMarkerCommand(
       state: { visibility: 'occluded', source: { kind: 'manual' }, review: 'none' },
     }],
   }, { label: `标记 #${track.id} 第 ${frame} 帧遮挡` })
-}
-
-/**
- * 用整框替换的方式改一条轨迹在某帧的几何（属性面板/拖拽的单点修改）。
- * before/after 都带齐，保证撤销能回到原值。
- */
-export function buildGeometryCommand(track: Track, frame: number, next: Box3D): Command | null {
-  const kf = track.keyframes[findKeyframeIndex(track, frame)]
-  if (!kf) {
-    return makeCommand({
-      type: 'setKeyframe', trackId: track.id, frame, before: null, after: toGeometry(next),
-    }, { label: `#${track.id} 第 ${frame} 帧新增关键帧` })
-  }
-  const before = cloneGeometry(kf.geometry)
-  const after = toGeometry(next)
-  if (
-    before.position.x === after.position.x && before.position.y === after.position.y &&
-    before.position.z === after.position.z && before.scale.x === after.scale.x &&
-    before.scale.y === after.scale.y && before.scale.z === after.scale.z &&
-    angleDelta(before.yaw, after.yaw) === 0
-  ) return null
-  return makeCommand({ type: 'setKeyframe', trackId: track.id, frame, before, after }, {
-    label: `#${track.id} 第 ${frame} 帧调整几何`,
-  })
 }

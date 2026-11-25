@@ -25,9 +25,3 @@ export function studioStore(): StudioStore | null {
   }
   return cached
 }
-
-/** 测试 / 热重载用：关掉连接并丢掉缓存 */
-export function resetStudioStore(): void {
-  cached?.close()
-  cached = null
-}

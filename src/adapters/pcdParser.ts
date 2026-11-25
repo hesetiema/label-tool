@@ -179,32 +179,3 @@ export async function parsePcdAsync(
     pump()
   })
 }
-
-export interface PcdParserInfo {
-  mode: 'worker' | 'main-thread'
-  workers: number
-  /** 已交给 worker、尚未回结果的任务数 */
-  pending: number
-  /** 还在队列里等空闲 worker 的任务数 */
-  queued: number
-  queuedByPriority: { high: number; low: number }
-}
-
-/** 状态栏/诊断用：当前解析是并行还是主线程，以及队列积压情况 */
-export function pcdParserInfo(): PcdParserInfo {
-  return {
-    mode: workers ? 'worker' : 'main-thread',
-    workers: workers?.length ?? 0,
-    pending: pending.size,
-    queued: queue.size,
-    queuedByPriority: { high: queue.highSize, low: queue.lowSize },
-  }
-}
-
-/** 卸载 / 测试用：终止 worker 并拒绝未完成任务 */
-export function disposePcdParser(): void {
-  teardownWorkers()
-  failAllPending(new Error('解析器已释放'))
-  workerUnavailable = false
-  pending.clear()
-}

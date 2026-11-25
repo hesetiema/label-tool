@@ -74,11 +74,6 @@ export interface Track<G = BoxGeometry> {
   lifecycle: TrackLifecycle
 }
 
-/** 默认观测状态：可见、人工、未复核。命中默认值的帧不进 states */
-export function defaultState(): ObservationState {
-  return { visibility: 'visible', source: { kind: 'manual' }, review: 'none' }
-}
-
 export function observationState(
   visibility: Visibility,
   source: SourceTag = { kind: 'manual' },
@@ -220,11 +215,6 @@ export function cloneTrack(track: Track): Track {
     states: new Map([...track.states].map(([f, s]) => [f, { ...s, source: { ...s.source } }])),
     lifecycle: { ...track.lifecycle },
   }
-}
-
-/** 关键帧上承载的帧号集合，供集合运算使用 */
-export function keyframeFrames(track: Track): number[] {
-  return track.keyframes.map((k) => k.frame)
 }
 
 /**

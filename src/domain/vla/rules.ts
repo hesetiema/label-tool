@@ -66,11 +66,6 @@ export function normalizeText(text: string): string {
     .replace(/[.,;:!?'"`~(){}[\]<>，。；：！？、…—－·「」『』（）【】《》]/g, '')
 }
 
-/** 区间是否与 [a,b] 有交集。导出给编辑层做"改区间后是否撞车"的即时提示 */
-export function intersects(x: [number, number], y: [number, number]): boolean {
-  return Math.max(x[0], y[0]) <= Math.min(x[1], y[1])
-}
-
 /** 取区间内的通道采样（含端点）；同时把区间裁到通道覆盖范围内 */
 function sliceChannel(vla: VlaTaskData, name: string, range: [number, number]): number[] {
   const ch = findChannel(vla, name)

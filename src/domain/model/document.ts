@@ -132,8 +132,3 @@ export function createEmptyDocument(opts: {
     },
   }
 }
-
-/** 文档是否覆盖某帧 */
-export function documentCovers(doc: SampleDocument, frame: number): boolean {
-  return frame >= doc.range[0] && frame <= doc.range[1]
-}

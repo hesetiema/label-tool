@@ -78,7 +78,3 @@ export async function getPayload(blobs: BlobStore, ref: string): Promise<ArrayBu
   }
   return blobs.get(ref)
 }
-
-export async function hasPayload(blobs: BlobStore, ref: string): Promise<boolean> {
-  return ref.startsWith(PAYLOAD_PREFIX) && blobs.has(ref)
-}

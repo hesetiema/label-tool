@@ -46,7 +46,7 @@ import { decodeStates, encodeStates } from '../domain/model/track'
 import type { SampleId } from '../domain/model/ids'
 import { collectRefsDeep } from '../domain/store/blobRefs'
 import {
-  DB_NAME, STORE_BLOBS, STORE_DOCS, STORE_SESSION, STORE_TASKS, STORE_USAGE,
+  STORE_BLOBS, STORE_DOCS, STORE_SESSION, STORE_TASKS, STORE_USAGE,
   idbRequest, openStudioDb, txDone,
 } from '../core/io/idb'
 import type { SessionSnapshot } from '../core/io/session'
@@ -532,6 +532,3 @@ export function createIndexedDbStore(): StudioStore {
     },
   }
 }
-
-/** 诊断用：库名与版本，状态栏/测试里显示 */
-export const STORE_INFO = { name: DB_NAME, version: 3, stores: [STORE_SESSION, STORE_DOCS, STORE_TASKS, STORE_BLOBS, STORE_USAGE] }

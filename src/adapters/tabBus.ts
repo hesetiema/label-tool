@@ -536,9 +536,3 @@ export function tabBus(): TabBus {
   if (!singleton) singleton = new TabBus()
   return singleton
 }
-
-/** 测试/重载用 */
-export function resetTabBus(): void {
-  singleton?.stop()
-  singleton = null
-}

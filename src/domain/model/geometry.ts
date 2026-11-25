@@ -108,20 +108,6 @@ export function lerpAngle(a: number, b: number, t: number): number {
   return a + angleDelta(a, b) * t
 }
 
-/** 两关键帧尺寸的逐轴中位数 —— 刚体目标的"尺寸恒定"策略 */
-export function medianScale(a: BoxGeometryLike, b: BoxGeometryLike): Vec3 {
-  return {
-    x: (a.scale.x + b.scale.x) / 2,
-    y: (a.scale.y + b.scale.y) / 2,
-    z: (a.scale.z + b.scale.z) / 2,
-  }
-}
-
-/** 点乘/欧氏距离只在这里出现一次，避免各算法文件各写一份 */
-export function distance(a: Vec3, b: Vec3): number {
-  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
-}
-
 /**
  * 三次 Hermite 基函数。
  * m0/m1 是"整段跨度内的位移量"，不是速度——调用方必须把 v(米/帧) 乘以 span。

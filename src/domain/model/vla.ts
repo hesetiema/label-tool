@@ -30,8 +30,6 @@ import type { ObservationState, SourceTag } from './track'
 /** 四个标准通道；允许自定义名字（不同数据集有额外控制量） */
 export type ChannelName = 'steer' | 'throttle' | 'brake' | 'speed'
 
-export const STANDARD_CHANNELS: readonly ChannelName[] = ['steer', 'throttle', 'brake', 'speed']
-
 export type ChannelUnit = 'norm' | 'rad' | 'deg' | 'm/s' | 'm/s2'
 
 export type VlaLang = 'zh' | 'en'

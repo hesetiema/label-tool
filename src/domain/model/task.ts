@@ -492,6 +492,3 @@ export function createDefaultRegistry(): TaskRegistry {
     .register(laneAdapter)
     .register(vlaAdapter)
 }
-
-/** 全局默认实例。测试可以自己 new 一个，互不影响 */
-export const defaultTaskRegistry = createDefaultRegistry()
