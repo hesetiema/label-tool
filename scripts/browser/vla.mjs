@@ -1,5 +1,5 @@
 // 浏览器手测：VLA（生成 / 时间线双行 / 区间编辑 / 撤销 / 校验 / 导出 / 清除）
-// 运行：pnpm dev（另一终端）+ node scripts/browser/vla.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/vla.mjs，或设 APP_URL 指向已起实例
 //
 // 这份用例盯的是"语言—动作对齐"在真页面上最容易假成功的地方：
 //   1. 指令条真的出现在时间线上（DOM 有 5 段，不是只算了数据没渲染）；

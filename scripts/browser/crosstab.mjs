@@ -1,5 +1,5 @@
 // 浏览器手测：跨标签页协调（租约只读 / 接管 / 引用广播 / 回收审计）
-// 运行：pnpm dev（另一终端）+ node scripts/browser/crosstab.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/crosstab.mjs，或设 APP_URL 指向已起实例
 //
 // 这支用例必须开两个真标签页：localStorage / BroadcastChannel / Web Locks
 // 的行为（后台节流、跨页广播、同源共享）在 Node 里一个都测不到。

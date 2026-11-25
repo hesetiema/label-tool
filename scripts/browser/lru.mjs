@@ -1,5 +1,5 @@
 // 浏览器手测：帧缓存 LRU 淘汰（配额压力下的第二阶段清扫）
-// 运行：pnpm dev（另一终端）+ node scripts/browser/lru.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/lru.mjs，或设 APP_URL 指向已起实例
 //
 // 【为什么要单独一支】配额阈值是 85%，正常机器要写满几个 GB 才触发，
 // 回归里造不出来。这里用 `runBlobGc({ reclaimBytes })` 直接指定"腾这么多"，

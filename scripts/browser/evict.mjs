@@ -1,5 +1,5 @@
 // 浏览器手测：全局淘汰（跨数据集 / 跨标签页）与 LFU 策略
-// 运行：pnpm dev（另一终端）+ node scripts/browser/evict.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/evict.mjs，或设 APP_URL 指向已起实例
 //
 // 【为什么要单独一支，且必须开两个真标签页】
 //   第九批把候选池从"当前数据集"扩到"所有可重解码的数据集"，其中对端的数据集

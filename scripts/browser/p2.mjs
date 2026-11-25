@@ -1,5 +1,5 @@
 // 浏览器手测：预标注与复核（跑模型 / 合并 / 复核队列 / 快捷键 / 导出闸门 / 冲突）
-// 运行：pnpm dev（另一终端）+ node scripts/browser/p2.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/p2.mjs，或设 APP_URL 指向已起实例
 //
 // 这份用例盯的是"从模型产出到训练数据"这条链上最容易假成功的地方：
 //   1. 合并真的进了文档（不是只改内存 boxes）；

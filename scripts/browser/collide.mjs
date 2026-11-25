@@ -1,5 +1,5 @@
 // 浏览器手测：两个同帧数数据集不撞号（sampleId 唯一性）
-// 运行：pnpm dev（另一终端）+ node scripts/browser/collide.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/collide.mjs，或设 APP_URL 指向已起实例
 // 两个帧数相同的数据集不能共用一份文档（sampleId 撞号会让 A 的框安到 B 上）
 import { loadPlaywright, LAUNCH_OPTS } from './_pw.mjs'
 import { ensureSequence } from './fixtures.mjs'

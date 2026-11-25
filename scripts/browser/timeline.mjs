@@ -1,12 +1,13 @@
 // 浏览器手测：时间线拖拽 / 右键菜单 / 合并保存 / 三个导出入口
-// 运行：pnpm dev（另一终端）+ node scripts/browser/timeline.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/timeline.mjs
+//       或用 APP_URL 指向已起的实例：APP_URL=http://127.0.0.1:5173/ node scripts/browser/timeline.mjs
 // Edge 验证：merge-save（真实 IndexedDB）、时间线拖拽改生命周期、右键菜单、新导出入口
 import { loadPlaywright, LAUNCH_OPTS } from './_pw.mjs'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 
 const { chromium } = await loadPlaywright()
 
-const APP = 'http://127.0.0.1:5199/'
+const APP = process.env.APP_URL || 'http://127.0.0.1:5199/'
 const results = []
 const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail })
 

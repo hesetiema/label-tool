@@ -1,5 +1,5 @@
 // 浏览器手测：doc-first 恢复：点云外置、生命周期保真、只剩文档、清草稿
-// 运行：pnpm dev（另一终端）+ node scripts/browser/docfirst.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/docfirst.mjs，或设 APP_URL 指向已起实例
 // Edge 端到端：doc-first 恢复 + 点云外置（spill）
 // 21 帧懒加载导入 → 改生命周期 → 保存 → 刷新 → 生命周期仍在、点云按需回读
 import { loadPlaywright, LAUNCH_OPTS } from './_pw.mjs'

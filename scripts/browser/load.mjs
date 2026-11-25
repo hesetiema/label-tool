@@ -1,5 +1,5 @@
 // 浏览器手测：懒加载端到端：21 帧导入、逐帧落盘、刷新恢复
-// 运行：pnpm dev（另一终端）+ node scripts/browser/load.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/load.mjs，或设 APP_URL 指向已起实例
 // Edge 端到端：21 帧懒加载导入 → 帧缓存落盘 → 刷新按草稿恢复 → GC 保留
 import { loadPlaywright, LAUNCH_OPTS } from './_pw.mjs'
 import { ensureSequence } from './fixtures.mjs'

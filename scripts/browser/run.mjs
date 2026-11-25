@@ -11,7 +11,9 @@
  *   Node 里全都测不到；而且每次要跑十几秒到几分钟，塞进提交前的单测会让人绕过测试。
  *   所以定位是"改到存储 / 懒加载 / 时间线之后手跑一遍"。
  *
- * 前置：另开一个终端 `pnpm dev`（默认 5199），或设 APP_URL 指向已起的实例。
+ * 前置：另开一个终端 `pnpm dev --port 5199`（`pnpm dev` 的默认端口是 5173，
+ *       不显式指定就会连不上），或设 APP_URL 指向已起的实例：
+ *       `APP_URL=http://127.0.0.1:5173/ node scripts/browser/run.mjs`
  * 浏览器：复用本机 Edge（见 _pw.mjs），不需要 `playwright install`。
  */
 import { spawn } from 'node:child_process'

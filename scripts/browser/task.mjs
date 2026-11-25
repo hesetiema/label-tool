@@ -1,5 +1,5 @@
 // 浏览器手测：多任务（占据派生 / 渲染层 / ROI 编辑 / 光流 / 一致性 / 导出）
-// 运行：pnpm dev（另一终端）+ node scripts/browser/task.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/task.mjs，或设 APP_URL 指向已起实例
 //
 // 这份用例盯的是"从框派生出另一份真值"这条链上最容易假成功的地方：
 //   1. 占据真的写进了文档（并且是 payload 引用，不是内联字节）；

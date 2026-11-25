@@ -36,7 +36,7 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 pnpm build      # 类型检查 + 生产构建
 pnpm typecheck  # 只做类型检查
 pnpm test       # 分层校验 + 1005 项断言（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 预标注 / 150 P3 回收 / 97 P3 多任务 / 117 P4 VLA），无需浏览器
-pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核 / 占据与光流 / VLA 对齐，共 346 项
+pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev --port 5199；已起在别的端口就设 APP_URL）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核 / 占据与光流 / VLA 对齐，共 346 项
 ```
 
 > `test:browser` 复用本机 Edge，不需要 `playwright install`；仓库不把 playwright 列为依赖，

@@ -1,5 +1,5 @@
 // 浏览器手测：GC 判定矩阵：控制台入口、dryRun、四类判定、启动清扫
-// 运行：pnpm dev（另一终端）+ node scripts/browser/gc.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/gc.mjs，或设 APP_URL 指向已起实例
 // Edge 手测：控制台入口 studio.runBlobGc() + 真实 IndexedDB 清扫
 import { loadPlaywright, LAUNCH_OPTS } from './_pw.mjs'
 

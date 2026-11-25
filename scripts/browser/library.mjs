@@ -1,5 +1,5 @@
 // 浏览器手测：本地样本列表（浏览 / 删除判定 / 删除落盘 / 跨标签页持有）
-// 运行：pnpm dev（另一终端）+ node scripts/browser/library.mjs
+// 运行：pnpm dev --port 5199（另一终端）+ node scripts/browser/library.mjs，或设 APP_URL 指向已起实例
 //
 // 这份用例针对 21.6 的取舍：文档不自动 prune（是真值不是缓存），
 // 所以必须验"手动删除这条路真的能删、且删不掉不该删的"。
