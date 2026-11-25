@@ -322,7 +322,8 @@ console.log('\n[6] 跨任务一致性')
 console.log('\n[7] 任务注册表')
 {
   const registry = createDefaultRegistry()
-  check('默认注册 5 个任务（vla 留给 P4）', registry.keys.length === 5, registry.keys.join(','))
+  check('默认注册 6 个任务（P4 起含 vla）', registry.keys.length === 6, registry.keys.join(','))
+  check('vla 已进注册表（P4）', registry.keys.includes('vla'), registry.keys.join(','))
   check('boxes 是必选', registry.get('boxes')?.optional === false)
 
   const doc = createEmptyDocument({ sampleId: 's#0-4', sceneId: 's', range: [0, 4] })

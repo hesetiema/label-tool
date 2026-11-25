@@ -199,16 +199,25 @@ export function useDataset(core: StudioCore) {
     return true
   }
 
-  /** 加载 5 帧演示序列 */
-  function loadSequence() {
+  /**
+   * 加载演示序列。
+   *
+   * 【为什么帧数可配】
+   *   固定 5 帧对轨迹时间线、VLA 对齐这类"按时间看"的功能太短：
+   *   5 帧里放 5 条指令，每条只剩 1 帧，曲线是一条直线，什么都测不出来。
+   *   默认仍是 5 帧（用户点菜单看到的就是原来那个演示），
+   *   `?data=sequence&frames=N` 给手测与回归用，上限 600 防止误写成 10 万帧把页面卡死。
+   */
+  function loadSequence(count = 5) {
     detachLoader()
     resetViewerState()
-    const seq = generateDemoSequence(5)
+    const n = Math.max(1, Math.min(600, Math.round(count) || 5))
+    const seq = generateDemoSequence(n)
     frames.value = seq
     currentFrame.value = 0
     cloud.value = seq[0].cloud
     boxes.value = cloneBoxes(seq[0].boxes)
-    datasetName.value = '演示序列 · 5 帧'
+    datasetName.value = `演示序列 · ${n} 帧`
     showTrajectories.value = true
     afterLoad()
     statusText.value = `已加载 ${seq.length} 帧序列 · ${missingTrackCount()} 条轨迹中间帧未标注，点「轨迹插值」补全`

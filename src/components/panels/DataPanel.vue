@@ -17,7 +17,7 @@ const {
     </div>
     <div class="hint-small" style="margin-bottom:8px">{{ datasetName }} · {{ frames.length ? frames.length + ' 帧' : '单帧' }}</div>
     <button class="mini-btn wide" @click="loadDemo">演示场景</button>
-    <button class="mini-btn wide" @click="loadSequence">5 帧时序演示</button>
+    <button class="mini-btn wide" @click="loadSequence()">5 帧时序演示</button>
     <button class="mini-btn wide" @click="loadRealData">真实数据 + 相机</button>
     <button class="mini-btn wide" @click="loadSemanticDemo">语义分割演示（带逐点标签）</button>
     <button class="mini-btn wide" @click="fileInput?.click()">导入本地 PCD（可多选）</button>

@@ -24,6 +24,7 @@ import type { QaIssue, QaSeverity } from './issue'
 import { makeIssue } from './issue'
 import { isPayloadRef } from '../store/blobRefs'
 import { trackInvariantViolations } from './track'
+import { validateVla } from '../vla/rules'
 
 export interface TaskProgress {
   done: number
@@ -441,8 +442,46 @@ export const laneAdapter: TaskAdapter<import('./document').LaneTaskData> = {
 }
 
 /**
- * 默认注册表。vla 不在这里 —— 它是 P4 的任务，注册了却没有任何校验/编辑器
- * 只会让"任务"面板里多一个永远 0% 的条目。
+ * VLA：语言—动作对齐。
+ *
+ * 校验逻辑在 `domain/vla/rules`，不写在这里 —— 它有 10 条规则、需要自己的
+ * 选项与辅助函数，塞进 task.ts 会让这个文件变成"所有任务的 validate 合集"，
+ * 而它存在的意义恰恰是"每个任务只需要在注册表里占一行"。
+ */
+export const vlaAdapter: TaskAdapter<import('./vla').VlaTaskData> = {
+  key: 'vla',
+  label: 'VLA 对齐',
+  editor: 'VlaPanel',
+  optional: true,
+  validate(payload, doc) {
+    return validateVla(payload, doc)
+  },
+  estimateBytes(payload) {
+    if (!payload) return 0
+    const ins = payload.instructions.length * 180
+    const ch = payload.channels.reduce((n, c) => n + c.values.length * 8 + 64, 0)
+    return ins + ch + 200
+  },
+  progress(doc) {
+    const vla = doc.tasks.vla
+    if (!vla) return { done: 0, total: 0, unit: 'items' }
+    const total = vla.instructions.length
+    const accepted = vla.instructions.filter((s) => s.review === 'accepted' || s.review === 'none').length
+    const pending = total - accepted
+    return {
+      done: accepted,
+      total,
+      unit: 'items',
+      ...(pending ? { note: `${pending} 条待确认` } : {}),
+    }
+  },
+}
+
+/**
+ * 默认注册表。
+ *
+ * vla 在 P4 之前**故意不注册**：注册了却没有任何校验与编辑器，
+ * 只会在"任务"面板里多一个永远 0% 的条目。现在它有 10 条规则和独立面板了。
  */
 export function createDefaultRegistry(): TaskRegistry {
   return new TaskRegistry()
@@ -451,6 +490,7 @@ export function createDefaultRegistry(): TaskRegistry {
     .register(flowAdapter)
     .register(semanticAdapter)
     .register(laneAdapter)
+    .register(vlaAdapter)
 }
 
 /** 全局默认实例。测试可以自己 new 一个，互不影响 */

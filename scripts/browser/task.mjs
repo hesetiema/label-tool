@@ -241,7 +241,7 @@ const panel = await page.evaluate(() => {
     occupied: window.studio.occStatsNow.value?.occupied ?? -1,
   }
 })
-check('任务面板渲染五行', panel.rows === 5, String(panel.rows))
+check('任务面板渲染六行（P4 起含 VLA）', panel.rows === 6, String(panel.rows))
 check('面板分出三块子任务', panel.occTitles.length === 3, JSON.stringify(panel.occTitles))
 check('面板有生成/校验/导出按钮',
   ['生成本帧', '生成全段', '校验本帧', '导出 .occ + spec'].every((t) => panel.hasButtons.includes(t)),

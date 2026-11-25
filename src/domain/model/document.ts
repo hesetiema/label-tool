@@ -20,6 +20,7 @@
 import type { Vec3 } from './geometry'
 import type { SampleId } from './ids'
 import type { SourceTag, Track } from './track'
+import type { VlaTaskData } from './vla'
 
 export type TaskKey = 'boxes' | 'semantic' | 'occupancy' | 'flow' | 'lane' | 'vla'
 
@@ -81,13 +82,17 @@ export interface LaneTaskData {
   source?: SourceTag
 }
 
-export interface VlaTaskData {
-  /** 语言指令段；帧区间是动作对齐的锚点 */
-  instructions?: Array<{ id: string; startFrame: number; endFrame: number; text: string }>
-  /** 动作通道：名字 → 逐帧标量序列（steer / throttle / brake ...） */
-  actions?: Record<string, Array<{ frame: number; value: number }>>
-  source?: SourceTag
-}
+/**
+ * VLA 的载荷结构定义在 `./vla`，这里只做转出。
+ *
+ * 【为什么不在本文件就地写】
+ *   这份文档只该回答"一个样本上有哪些任务、各挂什么"，任务载荷的内部结构
+ *   越写越厚（占据 3 个类型、VLA 5 个类型）。留在本文件会让"文档是什么"
+ *   被"占据是什么"和"VLA 是什么"淹没。boxes 早在 `./track` 里就是这样处理的。
+ */
+export type {
+  VlaTaskData, InstructionSegment, ActionChannel, AlignmentLink, VlaSign, ChannelUnit, ChannelName,
+} from './vla'
 
 export interface SampleDocument {
   schema: 2

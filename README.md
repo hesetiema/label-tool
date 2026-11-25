@@ -34,8 +34,8 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 ```bash
 pnpm build      # 类型检查 + 生产构建
 pnpm typecheck  # 只做类型检查
-pnpm test       # 分层校验 + 887 项断言（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 预标注 / 150 P3 回收 / 96 P3 多任务），无需浏览器
-pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核 / 占据与光流，共 304 项
+pnpm test       # 分层校验 + 1005 项断言（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 预标注 / 150 P3 回收 / 97 P3 多任务 / 117 P4 VLA），无需浏览器
+pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核 / 占据与光流 / VLA 对齐，共 346 项
 ```
 
 > `test:browser` 复用本机 Edge，不需要 `playwright install`；仓库不把 playwright 列为依赖，
@@ -79,6 +79,7 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 E
 | **文档级持久化** | IndexedDB v3 分段存储（文档头 / 任务段 / 点云 blob / 使用时间）；改一个框只写几 KB，v1 草稿可自动迁移；**doc-first 恢复**（标注读文档、点云读帧缓存），生命周期/稀疏状态/复核标记刷新后原样保留 | — |
 | **预标注与复核** | 三种 Provider（确定性 mock / NDJSON 推理服务 / 离线结果 JSON）走同一套 `AsyncGenerator` 协议，可进度、可中断；逐帧结果按 `modelTrackId` 或 IoU 链成轨迹，四种合并策略（全部待复核 / 只补空帧 / 命中替换 / 投票改类别）；模型框以**灰色虚线 + 置信度角标**呈现，`A` 接受 / `X` 拒绝 / `Tab` 下一处；导出只含已接受与人工标注；与人工框冲突时保留人工几何并进队列裁决 | — |
 | **多任务与衍生真值** | 任务注册表把"校验 / 派生 / 序列化 / 体积 / 进度"收成一份契约；**占据**由框 + 地面派生（box carving、地面只用来剪底不写成占格），稀疏索引 + RLE 落 BlobStore，内容寻址让撤销 = 切回旧引用；`InstancedMesh` 渲染 + 高度切片，ROI 单格增删可撤销；**光流**用框内点刚体流 + 地面带自车运动估计（搜索而非 RANSAC，结果确定性），箭头层只看框内点；**跨任务一致性** I1 框内占据率 / I2 框内类别 / I3 语义实例映射；导出 `.occ` + spec，配 `scripts/occ2npz.py` 直出 npz | — |
+| **VLA 语言—动作对齐** | 指令段（文本 + 闭区间 + 语义标签 + 复核状态）、动作通道（逐帧标量 + 单位 + 源采样率）、**对齐区间**（可偏离指令区间，偏移本身是标注结果）；底部时间线加两行（指令条 DOM + 四通道曲线 Canvas）共享同一个帧游标；11 条校验规则，核心是 `VLA_ACTION_SIGN`（靠"标签 → 期望符号"配置表跨模态检查，不理解语言）；合成数据确定性且默认零问题、错误靠显式注入；导出 JSONL 复用 P2 的导出闸门，配 `scripts/vla_check.py` 独立回读 | — |
 | **帧缓存淘汰（全局 LRU / LFU）** | 配额超过 85% 时先自救：在**所有可重新解码**的数据集里淘汰，跨数据集按同一把尺子排序（含另一个标签页声明可重解码的数据集），直到回到 70%。三种策略：`lru` 最久未用 / `lfu` 最少使用 / `hybrid` 默认先清「只读过一次」的帧再按时间；两侧当前帧邻域都受保护，整帧（位置 + 颜色 + 标签）一起进出；删了对端的帧会反向广播让它撤回落盘记账；腾不够如实报缺口；恢复型会话一帧不动 | — |
 | **本地缓存回收** | 大载荷按 `payload/<hash>` 内容寻址 + 引用计数（文档/历史双向校验）；帧缓存按数据集归属清扫；启动、换数据集、清草稿、配额超限四处触发，未知键默认保留；每次清扫进审计流（`studio.gcAudit()`） | — |
 | **本地样本列表** | 菜单「本地样本列表…」列出本地落盘的每一份标注：场景、帧数、有哪些任务段、多久以前存的。可二次确认删除；当前样本（会被下次自动保存写回）与其它标签页正在编辑的样本不提供删除 | — |
@@ -177,6 +178,7 @@ src/
 │   └── camera/           # cameraTrajectory.ts（关键帧 + 样条采样 + JSON 序列化）
 ├── domain/               # 纯 TS 内核：不依赖 Vue / Three / 浏览器 API（scripts/check-layers.mjs 机器校验）
 │   ├── model/            # document.ts（v2 文档）· track.ts · command.ts（可序列化命令）· scene.ts · issue.ts
+│   │                     # vla.ts（指令段 / 动作通道 / 对齐 / 符号约定）
 │   │                     # task.ts（任务注册表：校验 / 派生 / 序列化 / 体积 / 进度）
 │   ├── derive/           # occupancy.ts（占据：网格数学 / box carving / 地面 / RLE / 打包）
 │   │                     # flow.ts（刚体流 / 自车运动估计 / 箭头采样）
@@ -187,6 +189,7 @@ src/
 │   ├── ops/              # trackOps（生命周期 / 拆分 / 裁剪）· interpolate（插值）· smooth（RTS 平滑）
 │   │                     # mergePreLabel（预标注身份关联 + 四种合并策略）· review（复核队列 / 裁决 / 导出闸门）
 │   │                     # taskPayload（setTaskPayload 命令构造：描述对象 / 主引用 / 深拷贝）
+│   │                     # vlaEdit（指令区间 / 文本 / 对齐 / 符号约定的纯函数）
 │   └── io/               # legacyDocument（v1 快照 → v2 文档迁移）
 ├── ports/                # 端口：dataSource / documentStore / blobStore / preAnnotation（流式预标注协议）
 ├── adapters/             # 适配器：IndexedDB 文档与 blob 存储 · PCD worker 池（优先级队列）· 帧加载
@@ -204,6 +207,7 @@ src/
 │   ├── useLibrary.ts     # 本地样本列表：读列表 / 删除判定 / 二次确认 / 删后收尾
 │   ├── usePreAnnotation.ts # 预标注：跑 Provider / 合并 / 复核队列 / 裁决 / 复核态快捷键
 │   ├── useTasks.ts       # 多任务：占据派生 / 渲染层缓存 / ROI 单格 / 自车运动 / 一致性 / 导出
+│   ├── useVla.ts         # VLA：指令编辑 / 对齐偏移 / 合成与导入导出 / 校验分组
 │   ├── useStudio.ts      # 装配层：viewer、事件、URL 路由、自动保存、生命周期
 │   └── studioContext.ts  # provide/inject 注入键
 ├── viewer/               # Three.js 渲染层（单一 3D 视口 + 按需渲染 + 射线拾取）
@@ -321,6 +325,18 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
   「箭头」画的是上一帧框内点 → 刚体预测位置。生成完点「校验本帧 / 校验前 24 帧」跑 I1/I2/I3，
   问题行点一下跳到该帧。导出得到 `.occ` + `spec.json`，训练侧用
   `python3 scripts/occ2npz.py xxx-occupancy.occ -o xxx.npz` 转成 CSR 稀疏张量（`--dense` 出稠密体素）。
+- **VLA（语言—动作对齐）**：右侧「VLA」页。点「生成演示」会铺 5 段指令（`keep-lane / turn-left /
+  go-straight / lane-change-right / stop`）配 4 条动作通道（`speed / steer / throttle / brake`），
+  默认是干净样本 —— 想验证规则就展开「注入演示错误」勾 `gap / overlap / sign / lag / textEmpty / channelLength`，
+  再点一次「生成演示」，红字才该出现。时间线此时多出两行：第二行是**指令条**（拖两端改区间，松手才提交，
+  一次拖拽在撤销栈里是一步），第三行是**通道曲线**（各自归一到 0–1，黄色竖线是当前帧）。
+  点指令条跳到它的起始帧，「确认 / 拒绝」只改复核态不改来源，待确认的**不进导出**。
+  「符号约定」记的是本项目 steer 正负与左右转的对应关系（换一套数据就得改），
+  `VLA_ACTION_SIGN` 靠它跨模态检查；扫不出问题而帧率又低时看 `VLA_ACTION_SMOOTH` 的 info
+  —— 二阶差分作抖动代理必须和采样率一起看，低于 8Hz 不敢下结论。
+  「导出 JSONL」得到每行一条样本的对外格式（snake_case、`{steer:[...]}` 这种对象写法也支持导入）；
+  想验证导出没写错，用不带任何依赖的独立脚本回读一遍：
+  `python3 scripts/vla_check.py xxx-vla.jsonl` （有问题退出码 1，读不动 2）。
 - **导入自己的数据**：右上菜单「导入 PCD（可多选组成时序）」；同时选中同名 JSON 会自动读取标注。
 - **导出**：单帧是 SUSTechPOINTS 兼容数组；整段序列是 `{ format, frames:[{ index, objects }] }`，脚本可逐帧拆开。
   「插值补帧」按文档范围把中间帧补齐；「RTS 平滑」在此基础上用后向平滑去掉轨迹抖动

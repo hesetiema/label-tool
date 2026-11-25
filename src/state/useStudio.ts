@@ -44,6 +44,7 @@ import { useCameraDirector } from './useCameraDirector'
 import { useLibrary } from './useLibrary'
 import { usePreAnnotation } from './usePreAnnotation'
 import { useTasks } from './useTasks'
+import { useVla } from './useVla'
 import type { Command } from '../domain/model/command'
 import { nextNumericId } from '../domain/model/ids'
 
@@ -564,6 +565,19 @@ export function useStudio() {
   })
 
   /**
+   * VLA（P4）：指令段 / 动作通道 / 对齐校验。
+   *
+   * 与 tasks 分开而不是塞进 useTasks：VLA 的载荷在文档里（不走 BlobStore），
+   * 编辑粒度是"整份替换"，校验需要自己的选项与符号约定 —— 除了"都要 applyEdit"
+   * 这一条，两者没有共享的状态。合成一个 900 行的文件只会让两边都难改。
+   */
+  const vla = useVla(core, {
+    applyEdit,
+    say: (msg) => { core.statusText.value = msg },
+    gotoFrame: (frame) => sequence.gotoFrameIndex(frame),
+  })
+
+  /**
    * 复核快捷键的先行拦截。
    *
    * 用捕获阶段是因为 `annotation.onKeyDown` 注册在同一节点（window）的冒泡阶段：
@@ -886,7 +900,8 @@ export function useStudio() {
     if (demo === 'real') {
       await dataset.loadRealData()
     } else if (demo === 'sequence') {
-      dataset.loadSequence()
+      // `?frames=N` 只影响演示序列长度（手测 VLA / 时间线用），不影响真实数据集
+      dataset.loadSequence(Number(params.get('frames')) || undefined)
       if (params.get('autoplay') === '1') sequence.play()
     } else if (demo === 'qa') {
       dataset.loadDemo()
@@ -959,6 +974,7 @@ export function useStudio() {
     ...library,
     ...preAnnotation,
     ...tasks,
+    ...vla,
     showHelp,
     menuOpen,
     persistNow,

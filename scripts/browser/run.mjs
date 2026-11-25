@@ -33,6 +33,7 @@ const SUITES = {
   evict: '全局淘汰与 LFU（跨数据集 / 跨标签页通知 / 对端保护键 / 策略切换）',
   p2: '预标注与复核（跑模型 / 合并 / 复核队列 / 快捷键 / 导出闸门 / 冲突）',
   task: '多任务（占据派生 / 渲染层 / ROI 编辑 / 光流 / 一致性 / 导出）',
+  vla: 'VLA 对齐（生成 / 时间线双行 / 区间编辑与撤销 / 注入错误 / JSONL 导出）',
 }
 
 const picked = process.argv.slice(2).filter((a) => !a.startsWith('-'))

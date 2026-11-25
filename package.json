@@ -18,7 +18,7 @@
     "build": "pnpm typecheck && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test": "pnpm check:layers && pnpm test:core && pnpm test:domain && pnpm test:studio && pnpm test:p0 && pnpm test:p2 && pnpm test:p3 && pnpm test:task",
+    "test": "pnpm check:layers && pnpm test:core && pnpm test:domain && pnpm test:studio && pnpm test:p0 && pnpm test:p2 && pnpm test:p3 && pnpm test:task && pnpm test:vla",
     "check:layers": "node scripts/check-layers.mjs",
     "test:core": "esbuild tests/core-check.ts --bundle --platform=node --format=esm --outfile=tests/.check.bundle.mjs && node tests/.check.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.check.bundle.mjs',{force:true})\"",
     "test:domain": "esbuild tests/domain-check.ts --bundle --platform=node --format=esm --outfile=tests/.domain.bundle.mjs && node tests/.domain.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.domain.bundle.mjs',{force:true})\"",
@@ -27,7 +27,8 @@
     "test:p2": "esbuild tests/p2-check.ts --bundle --platform=node --format=esm --outfile=tests/.p2.bundle.mjs && node tests/.p2.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.p2.bundle.mjs',{force:true})\"",
     "test:p3": "esbuild tests/p3-check.ts --bundle --platform=node --format=esm --outfile=tests/.p3.bundle.mjs && node tests/.p3.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.p3.bundle.mjs',{force:true})\"",
     "test:browser": "node scripts/browser/run.mjs",
-    "test:task": "esbuild tests/task-check.ts --bundle --platform=node --format=esm --outfile=tests/.task.bundle.mjs && node tests/.task.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.task.bundle.mjs',{force:true})\""
+    "test:task": "esbuild tests/task-check.ts --bundle --platform=node --format=esm --outfile=tests/.task.bundle.mjs && node tests/.task.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.task.bundle.mjs',{force:true})\"",
+    "test:vla": "esbuild tests/vla-check.ts --bundle --platform=node --format=esm --outfile=tests/.vla.bundle.mjs && node tests/.vla.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.vla.bundle.mjs',{force:true})\""
   },
   "dependencies": {
     "three": "^0.171.0",

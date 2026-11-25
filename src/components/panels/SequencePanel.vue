@@ -16,7 +16,7 @@ const {
   <section v-if="!frames.length">
     <h3>时序帧</h3>
     <div class="hint-small">当前没有多帧序列。加载后可以逐帧切换、轨迹叠加、插值补全、跨帧传播与时序质检。</div>
-    <button class="ghost wide" @click="loadSequence">加载 5 帧演示序列</button>
+    <button class="ghost wide" @click="loadSequence()">加载 5 帧演示序列</button>
   </section>
   <section v-else>
     <h3>时序帧 <span class="count">{{ frames.length }}</span></h3>

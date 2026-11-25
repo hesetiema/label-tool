@@ -18,8 +18,9 @@
  *   行数超过 60 时只渲染前 60 条并提示剩余数量 —— 时间线是导航工具，
  *   不是全量数据表，没必要为 200 条轨迹铺 4 万个 DOM 节点。
  */
-import { computed, inject, onBeforeUnmount, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { StudioKey } from '../state/studioContext'
+import { normalize01 } from '../domain/vla/resample'
 
 const studio = inject(StudioKey)!
 const {
@@ -27,6 +28,7 @@ const {
   selectBox, toggleSelectBox, gotoFrameIndex, frameNumber,
   addKeyframeAt, splitSelectedAt, mergeSelectedTracks, doInterpolate,
   setTrackLifecycle, deleteSelected, toggleHidden, toggleLocked, isLocked,
+  vla, instructions, vlaSelectedId, showVlaTimeline, editRange, gotoInstruction, channelVisible,
 } = studio
 
 const open = defineModel<boolean>('open', { default: true })
@@ -48,6 +50,20 @@ const frameNo = computed(() => frameNumber())
 
 function pct(frame: number): number {
   return ((frame - range.value[0]) / span.value) * 100
+}
+
+/**
+ * 帧号 → 槽位右边界百分比。
+ *
+ * 【为什么要区分"点"和"槽位"】
+ *   `pct(f)` 把一帧当成一个**点**（时间轴上的位置），画游标、画关键帧刻度用的就是它。
+ *   但一条指令段占的是 `[start, end]` 这 end-start+1 个**槽位**。
+ *   如果用 `pct(end)` 当宽度，条形就少了一整帧 —— 单看一条看不出来，
+ *   相邻两条之间会出现一道缝（实测 1138px 宽的时间线上是 9.6px）。
+ *   所以条形右边界必须用 `pct(end + 1)`。
+ */
+function pctSlotEnd(frame: number): number {
+  return Math.min(100, ((frame + 1 - range.value[0]) / span.value) * 100)
 }
 
 const rows = computed<Row[]>(() => {
@@ -207,6 +223,190 @@ function trimTo(frame: number, edge: 'first' | 'last') {
   if (edge === 'first') setTrackLifecycle(row.id, frame, row.last)
   else setTrackLifecycle(row.id, row.first, frame)
 }
+
+/* ==================================================================
+ * VLA：指令条 + 动作曲线
+ * ==================================================================
+ *
+ * 【为什么不另起一条时间线】
+ *   再建一个带自己游标的组件，就等于有了两处"当前帧"。它们一定会在某次
+ *   拖动、某次播放、某次撤销后不同步，而用户没有办法判断哪一个是准的。
+ *   所以这里复用同一个 `frameNo`、同一套 `pct()` 百分比坐标、同一个播放状态。
+ *
+ * 【为什么指令条用 DOM、动作曲线用 Canvas】
+ *   指令条要能点、能拖两端、要显示文本 —— DOM 恰好擅长这些，且能复用
+ *   轨迹条那套 handle 交互。四条动作曲线是 1200 个点 × 4 的折线，
+ *   用 DOM（span 拼线段）会铺几千个节点，而 Canvas 一次 fill 就完了。
+ *   两者共享同一套坐标换算，视觉上就是同一条时间轴。
+ */
+
+const vlaVisible = computed(() => showVlaTimeline.value && !!vla.value && instructions.value.length > 0)
+
+/** 指令条拖拽：与轨迹生命周期同一套"本地预览 + 松手才提交"策略 */
+const insDrag = ref<{ id: string; edge: 'start' | 'end'; start: number; end: number } | null>(null)
+let insRect: DOMRect | null = null
+let insMoved = false
+
+function insStart(seg: { id: string; startFrame: number; endFrame: number }): number {
+  return insDrag.value?.id === seg.id ? insDrag.value.start : seg.startFrame
+}
+function insEnd(seg: { id: string; startFrame: number; endFrame: number }): number {
+  return insDrag.value?.id === seg.id ? insDrag.value.end : seg.endFrame
+}
+
+function frameAtInsX(clientX: number): number {
+  if (!insRect || !insRect.width) return range.value[0]
+  const ratio = (clientX - insRect.left) / insRect.width
+  return Math.min(range.value[1], Math.max(range.value[0], Math.round(range.value[0] + ratio * span.value)))
+}
+
+function startInsDrag(e: PointerEvent, id: string, edge: 'start' | 'end') {
+  e.preventDefault()
+  e.stopPropagation()
+  const bar = (e.currentTarget as HTMLElement).closest('.tl-vla-bar') as HTMLElement | null
+  if (!bar) return
+  insRect = bar.getBoundingClientRect()
+  const seg = instructions.value.find((s) => s.id === id)
+  if (!seg) return
+  vlaSelectedId.value = id
+  insDrag.value = { id, edge, start: seg.startFrame, end: seg.endFrame }
+  insMoved = false
+  window.addEventListener('pointermove', onInsMove)
+  window.addEventListener('pointerup', endInsDrag, { once: true })
+}
+
+function onInsMove(ev: PointerEvent) {
+  const d = insDrag.value
+  if (!d) return
+  const f = frameAtInsX(ev.clientX)
+  // 允许交叉后在提交时交换（见 withInstructionRange），预览这里先夹住，避免宽度变负
+  if (d.edge === 'start') {
+    if (f !== d.start) insMoved = true
+    d.start = f
+  } else {
+    if (f !== d.end) insMoved = true
+    d.end = f
+  }
+}
+
+function endInsDrag() {
+  window.removeEventListener('pointermove', onInsMove)
+  insRect = null
+  const d = insDrag.value
+  insDrag.value = null
+  if (!d) return
+  if (insMoved) suppressClickUntil = performance.now() + 80
+  const seg = instructions.value.find((s) => s.id === d.id)
+  if (!seg) return
+  if (seg.startFrame === d.start && seg.endFrame === d.end) return
+  editRange(d.id, d.start, d.end)
+}
+
+function onInsClick(e: MouseEvent, id: string) {
+  if (performance.now() < suppressClickUntil) return
+  gotoInstruction(id)
+  void e
+}
+
+/* ---------------- 动作曲线 ---------------- */
+
+const canvasRef = ref<HTMLCanvasElement | null>(null)
+let resizeObs: ResizeObserver | null = null
+
+/**
+ * 通道配色。
+ *
+ * 【为什么不用黄色】
+ *   当前帧游标是 #ffca28（与轨迹条上的竖线一致）。黄色再拿去画通道，
+ *   1px 曲线上就分不清"这是 throttle 还是游标"。四条线用蓝/紫/红/绿，
+ *   把黄留给"时间"。红=刹车、绿=车速，也算符合直觉。
+ */
+const CHANNEL_COLORS = ['#4fc3f7', '#b39ddb', '#ef5350', '#66bb6a', '#26c6da', '#ff8a65']
+
+/**
+ * 画四条曲线。
+ *
+ * 【按通道各自归一】
+ *   steer 是 [-1,1]，speed 是 0–15 m/s，共用一根纵轴会让其中一条压成直线。
+ *   所以只比形状不比幅度 —— 想知道具体数值去看面板，图只回答"什么时候动了"。
+ */
+function drawChannels() {
+  const cv = canvasRef.value
+  const payload = vla.value
+  if (!cv || !payload) return
+  const w = cv.clientWidth
+  const h = cv.clientHeight
+  if (!w || !h) return
+  const dpr = window.devicePixelRatio || 1
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr)
+    cv.height = Math.round(h * dpr)
+  }
+  const ctx = cv.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+
+  const spanFrames = Math.max(1, span.value)
+  const toX = (frame: number) => ((frame - range.value[0]) / spanFrames) * w
+  const pad = 3
+  const usable = h - pad * 2
+
+  // 中线：让"零"有位置感，否则看不出曲线是在基线上下摆动
+  ctx.strokeStyle = 'rgba(255,255,255,.10)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(0, h / 2)
+  ctx.lineTo(w, h / 2)
+  ctx.stroke()
+
+  payload.channels.forEach((ch, i) => {
+    if (!channelVisible(ch.name) || ch.values.length < 2) return
+    const norm = normalize01(ch.values)
+    ctx.strokeStyle = CHANNEL_COLORS[i % CHANNEL_COLORS.length]
+    ctx.lineWidth = 1.2
+    ctx.beginPath()
+    // 一帧一像素都不够时按步长抽样：曲线形状不变，点数少一个量级
+    const stride = Math.max(1, Math.floor(norm.length / Math.max(1, w * 2)))
+    for (let k = 0; k < norm.length; k += stride) {
+      const x = toX(ch.startFrame + k)
+      const y = pad + (1 - norm[k]) * usable
+      if (k === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+  })
+
+  // 当前帧：与上方指令条、下方轨迹条共用同一个 frameNo
+  const x = toX(frameNo.value)
+  ctx.strokeStyle = '#ffca28'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(x, 0)
+  ctx.lineTo(x, h)
+  ctx.stroke()
+}
+
+watch(
+  [() => vla.value, () => frameNo.value, () => vlaVisible.value, () => range.value],
+  () => drawChannels(),
+  { flush: 'post' },
+)
+// 通道开关是 Record，深监听代价可以忽略（最多 6 个键）
+watch(() => JSON.stringify(vla.value?.channels.map((c) => channelVisible(c.name))), () => drawChannels(), { flush: 'post' })
+
+onMounted(() => {
+  if (canvasRef.value?.parentElement) {
+    resizeObs = new ResizeObserver(() => drawChannels())
+    resizeObs.observe(canvasRef.value.parentElement)
+  }
+  drawChannels()
+})
+onBeforeUnmount(() => {
+  resizeObs?.disconnect()
+  resizeObs = null
+})
+
 </script>
 
 <template>
@@ -234,7 +434,35 @@ function trimTo(frame: number, edge: 'first' | 'last') {
       </template>
     </header>
 
-    <div v-if="open" class="tl-body">
+    <div v-if="open" class="tl-body" :class="{ 'has-vla': vlaVisible }">
+      <div v-if="vlaVisible" class="tl-vla">
+        <div class="tl-vla-row">
+          <span class="tl-vla-name">指令段</span>
+          <div class="tl-vla-bar">
+            <span
+              v-for="s in instructions"
+              :key="s.id"
+              class="tl-ins"
+              :class="{ on: s.id === vlaSelectedId, pending: s.review === 'pending' }"
+              :style="{
+                left: pct(insStart(s)) + '%',
+                width: Math.max(0.8, pctSlotEnd(insEnd(s)) - pct(insStart(s))) + '%',
+              }"
+              :title="`${s.id} · 第 ${insStart(s)}–${insEnd(s)} 帧 · ${s.text || '（空）'}${s.review === 'pending' ? ' · 待确认' : ''}（拖两端改区间）`"
+              @click="onInsClick($event, s.id)"
+            >
+              <i class="tl-ins-h" @pointerdown="startInsDrag($event, s.id, 'start')" @click.stop />
+              <span class="tl-ins-t">{{ s.text || '（空）' }}</span>
+              <i class="tl-ins-h" @pointerdown="startInsDrag($event, s.id, 'end')" @click.stop />
+            </span>
+            <span class="tl-now" :style="{ left: currentPct + '%' }" />
+          </div>
+        </div>
+        <div class="tl-vla-row">
+          <span class="tl-vla-name">动作通道</span>
+          <canvas ref="canvasRef" class="tl-vla-canvas" />
+        </div>
+      </div>
       <div class="tl-grid">
         <div
           v-for="row in visibleRows"
@@ -346,7 +574,52 @@ function trimTo(frame: number, edge: 'first' | 'last') {
 .tl-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 .tl-body { max-height: 132px; overflow-y: auto; padding: 4px 0; }
+/* VLA 两行是额外高度，展开时把可视区一起加高，否则轨迹被挤到只剩两三行 */
+.tl-body.has-vla { max-height: 224px; }
 .tl-grid { display: flex; flex-direction: column; gap: 1px; }
+
+/* ---------------- VLA：指令条 + 动作曲线 ---------------- */
+.tl-vla {
+  display: flex; flex-direction: column; gap: 2px;
+  padding-bottom: 4px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.tl-vla-row { display: flex; align-items: center; height: 18px; }
+.tl-vla-row:last-child { height: 46px; }
+.tl-vla-name {
+  flex: 0 0 138px; width: 138px; padding: 0 6px;
+  font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden;
+}
+.tl-vla-bar {
+  position: relative; flex: 1 1 0; min-width: 0; height: 14px; margin-right: 8px;
+  background: rgba(255, 255, 255, .04); border-radius: 2px;
+}
+.tl-ins {
+  position: absolute; top: 1px; height: 12px;
+  display: flex; align-items: center;
+  background: rgba(255, 202, 40, .18);
+  border: 1px solid rgba(255, 202, 40, .45);
+  border-radius: 2px; cursor: pointer; overflow: hidden;
+  touch-action: none;
+}
+.tl-ins.on { background: rgba(255, 202, 40, .38); border-color: #ffca28; }
+/* 待确认用虚线：与框的复核标记同一套语义，不给它新颜色 */
+.tl-ins.pending { border-style: dashed; }
+.tl-ins-t {
+  font-size: 8.5px; line-height: 1; color: #ffd66b;
+  padding: 0 6px; white-space: nowrap; overflow: hidden;
+  pointer-events: none;
+}
+.tl-ins-h {
+  position: absolute; top: -1px; width: 4px; height: 14px;
+  background: rgba(255, 202, 40, .7); cursor: ew-resize; z-index: 2;
+}
+.tl-ins-h:nth-of-type(1) { left: 0; }
+.tl-ins-h:nth-of-type(2) { right: 0; }
+.tl-ins-h:hover { background: #ffca28; }
+/* width:100% 会和 flex:1 打架：画布会按整行宽度算，比轨迹条多出名称列的 138px，
+   结果曲线与轨迹条错位 138px。这里只留 flex 与 min-width:0 */
+.tl-vla-canvas { flex: 1 1 0; min-width: 0; height: 46px; margin-right: 8px; display: block; }
 
 .tl-row { display: flex; align-items: center; height: 18px; }
 .tl-row.on { background: rgba(79, 195, 247, .08); }
