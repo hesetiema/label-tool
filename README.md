@@ -34,8 +34,8 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 ```bash
 pnpm build      # 类型检查 + 生产构建
 pnpm typecheck  # 只做类型检查
-pnpm test       # 分层校验 + 791 项断言（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 预标注 / 150 P3 回收），无需浏览器
-pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核，共 254 项
+pnpm test       # 分层校验 + 887 项断言（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 预标注 / 150 P3 回收 / 96 P3 多任务），无需浏览器
+pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核 / 占据与光流，共 304 项
 ```
 
 > `test:browser` 复用本机 Edge，不需要 `playwright install`；仓库不把 playwright 列为依赖，
@@ -78,6 +78,7 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 E
 | **大序列懒加载** | 超过 20 帧或 120MB 时只解码首帧，其余切帧时在 worker 中按需解析并写入 IndexedDB；标注仍全量加载，4D 能力不受影响 | — |
 | **文档级持久化** | IndexedDB v3 分段存储（文档头 / 任务段 / 点云 blob / 使用时间）；改一个框只写几 KB，v1 草稿可自动迁移；**doc-first 恢复**（标注读文档、点云读帧缓存），生命周期/稀疏状态/复核标记刷新后原样保留 | — |
 | **预标注与复核** | 三种 Provider（确定性 mock / NDJSON 推理服务 / 离线结果 JSON）走同一套 `AsyncGenerator` 协议，可进度、可中断；逐帧结果按 `modelTrackId` 或 IoU 链成轨迹，四种合并策略（全部待复核 / 只补空帧 / 命中替换 / 投票改类别）；模型框以**灰色虚线 + 置信度角标**呈现，`A` 接受 / `X` 拒绝 / `Tab` 下一处；导出只含已接受与人工标注；与人工框冲突时保留人工几何并进队列裁决 | — |
+| **多任务与衍生真值** | 任务注册表把"校验 / 派生 / 序列化 / 体积 / 进度"收成一份契约；**占据**由框 + 地面派生（box carving、地面只用来剪底不写成占格），稀疏索引 + RLE 落 BlobStore，内容寻址让撤销 = 切回旧引用；`InstancedMesh` 渲染 + 高度切片，ROI 单格增删可撤销；**光流**用框内点刚体流 + 地面带自车运动估计（搜索而非 RANSAC，结果确定性），箭头层只看框内点；**跨任务一致性** I1 框内占据率 / I2 框内类别 / I3 语义实例映射；导出 `.occ` + spec，配 `scripts/occ2npz.py` 直出 npz | — |
 | **帧缓存淘汰（全局 LRU / LFU）** | 配额超过 85% 时先自救：在**所有可重新解码**的数据集里淘汰，跨数据集按同一把尺子排序（含另一个标签页声明可重解码的数据集），直到回到 70%。三种策略：`lru` 最久未用 / `lfu` 最少使用 / `hybrid` 默认先清「只读过一次」的帧再按时间；两侧当前帧邻域都受保护，整帧（位置 + 颜色 + 标签）一起进出；删了对端的帧会反向广播让它撤回落盘记账；腾不够如实报缺口；恢复型会话一帧不动 | — |
 | **本地缓存回收** | 大载荷按 `payload/<hash>` 内容寻址 + 引用计数（文档/历史双向校验）；帧缓存按数据集归属清扫；启动、换数据集、清草稿、配额超限四处触发，未知键默认保留；每次清扫进审计流（`studio.gcAudit()`） | — |
 | **本地样本列表** | 菜单「本地样本列表…」列出本地落盘的每一份标注：场景、帧数、有哪些任务段、多久以前存的。可二次确认删除；当前样本（会被下次自动保存写回）与其它标签页正在编辑的样本不提供删除 | — |
@@ -108,7 +109,7 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 E
 | [⑧ 4D 轨迹叠加回放](docs/08-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、轨迹线渲染、回放定时器 |
 | [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
 | [⑩ 相机导演：关键帧运镜与录制](docs/10-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、MediaRecorder |
-| [⑪ 4D 多任务与 VLA 改造方案](docs/11-4d-multitask-vla-upgrade-plan.md) | `src/domain/*` | 从画框工具到 4D 数据生产；P0/P1 内核、本地持久化与缓存回收、**P2 预标注与复核**已落地，文末附实现进度与偏差说明 |
+| [⑪ 4D 多任务与 VLA 改造方案](docs/11-4d-multitask-vla-upgrade-plan.md) | `src/domain/*` | 从画框工具到 4D 数据生产；P0/P1 内核、本地持久化与缓存回收、P2 预标注与复核、**P3 多任务（占据 / 光流 / 跨任务一致性）**已落地，文末附实现进度与偏差说明 |
 
 另外两个可直接读源码的专题（无独立教程）：`core/io/formats/` 是 KITTI / DAIR-V2X / nuScenes / Waymo 的格式适配与坐标约定；`core/semantics.ts` 是 SemanticKITTI 官方类别表、learning_map（原始 34 类 → 训练 20 类）、`.label` 高低 16 位（语义 / 实例）的读写与统计。
 
@@ -129,8 +130,9 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 E
 | 版本管理 | 标注多版本、回滚、审计日志 | **本地草稿已做**（IndexedDB 自动保存 + 刷新恢复 + 离开拦截），缺服务端多版本 / 回滚 / 审计日志 |
 | 权限协作 | 标注员 / 质检员 / 管理员分权 | 无，单用户 |
 | 质检流程 | 抽检、返修、通过率统计 | **指标有了**（IoU / kappa / 漏误标率），**流程没有** |
-| 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 3D 框 + **逐点语义分割**（导入 / 着色 / 持久化）；车道线等仍未覆盖 |
+| 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 3D 框 + **逐点语义分割**（导入 / 着色 / 持久化）+ **占据 / 光流**（由框派生、可抽检修正）；车道线 / 关键点 / 可行驶区域仍未覆盖 |
 | 预标注 | CenterPoint / PointPillars 等模型产出候选框 | **消费端已就绪**（Provider 协议 + 三种适配器 + 合并 + 复核队列 + 导出闸门）；缺真实模型服务，演示用确定性 mock |
+| 多任务一致性 | 跨任务约束自动发现"框和占据对不上" | **I1 框内占据率 / I2 框内类别 / I3 语义实例映射**已实现；I4 光流刚体误差 / I5 车道线在可行驶区域内留到规则引擎 |
 | 跟踪 | 马氏距离 + JPDA / 多假设 + 轨迹优化 | Kalman + Hungarian 已实现，但只用 2D 常速度 + 欧氏距离 |
 
 难点不在单点算法，而在**让几百人并发标注还不乱**。
@@ -175,16 +177,22 @@ src/
 │   └── camera/           # cameraTrajectory.ts（关键帧 + 样条采样 + JSON 序列化）
 ├── domain/               # 纯 TS 内核：不依赖 Vue / Three / 浏览器 API（scripts/check-layers.mjs 机器校验）
 │   ├── model/            # document.ts（v2 文档）· track.ts · command.ts（可序列化命令）· scene.ts · issue.ts
+│   │                     # task.ts（任务注册表：校验 / 派生 / 序列化 / 体积 / 进度）
+│   ├── derive/           # occupancy.ts（占据：网格数学 / box carving / 地面 / RLE / 打包）
+│   │                     # flow.ts（刚体流 / 自车运动估计 / 箭头采样）
+│   ├── qa/               # crossTask.ts（I1 框内占据率 / I2 类别 / I3 语义映射）
 │   ├── store/            # trackStore · applyCommand · commandHistory · editSession · materialize
 │   │                     # blobRefs（引用抽取）· restorePlan（doc-first 恢复计划）· tabLease（跨标签页判定）
 │   │                     # library（样本列表判定）· frameBudget（帧缓存淘汰计划：LRU / LFU / 跨数据集）
 │   ├── ops/              # trackOps（生命周期 / 拆分 / 裁剪）· interpolate（插值）· smooth（RTS 平滑）
 │   │                     # mergePreLabel（预标注身份关联 + 四种合并策略）· review（复核队列 / 裁决 / 导出闸门）
+│   │                     # taskPayload（setTaskPayload 命令构造：描述对象 / 主引用 / 深拷贝）
 │   └── io/               # legacyDocument（v1 快照 → v2 文档迁移）
 ├── ports/                # 端口：dataSource / documentStore / blobStore / preAnnotation（流式预标注协议）
 ├── adapters/             # 适配器：IndexedDB 文档与 blob 存储 · PCD worker 池（优先级队列）· 帧加载
 │                         # blobGc / studioGc（清扫）· gcAudit（审计）· tabBus（跨标签页租约与广播）
 │                         # blobKeys（键规范）· frameCloudStore（帧缓存 + 使用时间）
+│                         # occupancyStore（占据帧的 payload 存取）
 │                         # preAnnotate/：mockProvider（确定性）· httpProvider（NDJSON）· fileProvider（离线结果）· parse
 ├── state/                # 状态层：core 持有共享状态，五个模块各自管一摊业务，useStudio 只做装配
 │   ├── studioCore.ts     # 共享 ref / 历史栈 / 工具与外观 / 锁定隐藏 / 渲染同步
@@ -195,6 +203,7 @@ src/
 │   ├── useCameraDirector.ts # 关键帧、运镜播放、WebM 录制
 │   ├── useLibrary.ts     # 本地样本列表：读列表 / 删除判定 / 二次确认 / 删后收尾
 │   ├── usePreAnnotation.ts # 预标注：跑 Provider / 合并 / 复核队列 / 裁决 / 复核态快捷键
+│   ├── useTasks.ts       # 多任务：占据派生 / 渲染层缓存 / ROI 单格 / 自车运动 / 一致性 / 导出
 │   ├── useStudio.ts      # 装配层：viewer、事件、URL 路由、自动保存、生命周期
 │   └── studioContext.ts  # provide/inject 注入键
 ├── viewer/               # Three.js 渲染层（单一 3D 视口 + 按需渲染 + 射线拾取）
@@ -204,13 +213,14 @@ src/
 │   ├── ToolRail.vue      # 左侧图标工具条（选择 / 平移 / 画框 / 缩放 / 视图）
 │   ├── Stage.vue         # 3D 视口 + 三联正交条 + 相机分屏 + 视图切换
 │   ├── OrthoView.vue     # Top/Side/Front 2D 投影、手柄拖拽、滚轮缩放
-│   ├── RightPanel.vue    # 对象 / 标签 / 更多
+│   ├── RightPanel.vue    # 对象 / 标签 / 任务 / 更多
 │   ├── HelpModal.vue     # 快捷键与工作流
 │   ├── SampleList.vue    # 本地样本列表弹层（浏览 / 删除落盘文档）
 │   ├── ReviewQueue.vue   # 预标注复核队列（统计 / 策略 / 逐条裁决 / 快捷键说明）
 │   ├── CameraView.vue    # 相机图像 + 投影框
 │   └── panels/           # ObjectPanel · CategoryPanel · PropertyPanel · DataPanel
 │                         # SequencePanel · CameraDirectorPanel · PerformancePanel · QualityPanel
+│                         # TaskPanel（多任务：进度 / 占据 / 光流 / 一致性）
 ├── styles/               # 按职责拆分的样式
 │   ├── index.css         # 汇总入口
 │   ├── base.css          # 变量 / 重置 / 基础控件
@@ -303,6 +313,14 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
   关掉后 `A` 仍是平移）。待复核与已拒绝的框**不进导出**；人工标注永远导出。
   也可以「导入预标注结果 JSON…」吃别的工具的结果（认本项目导出格式、裸数组、SUSTechPOINTS 三种写法）。
   合并策略（全部待复核 / 只补空帧 / 命中替换 / 投票改类别）在队列顶部切换，只影响下一次合并。
+- **多任务（占据 / 光流 / 一致性）**：右侧「任务」页，或菜单 →「多任务」。
+  「生成全段」把当前轨迹按 200×200×16 @0.4m 的网格刻成占据（有地面点就先剪掉框底以下的体素 ——
+  地面**不**写成占格，占据训练里地面是 free），每帧 RLE 后按内容哈希落 BlobStore，改一格就换一个引用、撤销即切回旧引用。
+  勾「显示占据层」后可用高度切片看内部结构；鼠标停在点云上取坐标，再点「补一格 / 删一格」做单格修正。
+  「估计自车运动」用两帧地面带做粗到细的刚体搜索，落盘 `dx, dy, dyaw, rmse`（残差 > 0.2m 会提示仅参考）；
+  「箭头」画的是上一帧框内点 → 刚体预测位置。生成完点「校验本帧 / 校验前 24 帧」跑 I1/I2/I3，
+  问题行点一下跳到该帧。导出得到 `.occ` + `spec.json`，训练侧用
+  `python3 scripts/occ2npz.py xxx-occupancy.occ -o xxx.npz` 转成 CSR 稀疏张量（`--dense` 出稠密体素）。
 - **导入自己的数据**：右上菜单「导入 PCD（可多选组成时序）」；同时选中同名 JSON 会自动读取标注。
 - **导出**：单帧是 SUSTechPOINTS 兼容数组；整段序列是 `{ format, frames:[{ index, objects }] }`，脚本可逐帧拆开。
   「插值补帧」按文档范围把中间帧补齐；「RTS 平滑」在此基础上用后向平滑去掉轨迹抖动

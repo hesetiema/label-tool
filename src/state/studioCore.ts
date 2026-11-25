@@ -11,7 +11,7 @@
  * 约定：所有会改变标注的编辑动作都走 mutate()，保证撤销栈完整。
  */
 import { ref, computed, nextTick, watch, shallowRef } from 'vue'
-import type { PointCloudViewer } from '../viewer/PointCloudViewer'
+import type { PointCloudViewer, OccupancyLayerData } from '../viewer/PointCloudViewer'
 import { HistoryStack, cloneBoxes } from '../core/history'
 import { extractTrajectories, type FrameData } from '../core/sequence/sequence'
 import type { TemporalReport } from '../core/sequence/temporalQA'
@@ -154,6 +154,19 @@ export function createStudioCore() {
   const showTrajectories = ref(false)
   const reviewBoxes = ref<Box3D[]>([])
   const showReview = ref(false)
+
+  /**
+   * 多任务渲染层（占据 / 光流）。
+   *
+   * 【为什么放在 core 而不是 useTasks】
+   *   `syncViewer` 是唯一的渲染同步入口，它只认识 core 里的 ref。
+   *   如果把层数据藏在业务模块里，syncViewer 就得回调业务模块取值，
+   *   于是"切帧 → 业务算 → 渲染"多了一跳，还制造了循环依赖。
+   *   业务模块负责"算出层数据"，core 负责"把层数据送进渲染器"。
+   */
+  const occLayer = shallowRef<OccupancyLayerData | null>(null)
+  const occSlice = ref<[number, number] | null>(null)
+  const flowSegments = shallowRef<Float32Array | null>(null)
 
   // ---- 报告类结果（由各模块写入，面板只读）----
   const qaReport = ref<QualityReport | null>(null)
@@ -546,6 +559,12 @@ export function createStudioCore() {
       currentFrame.value,
       primaryId.value,
     )
+    // 占据层按类别上色；切片只影响显示，不改数据
+    viewer.setOccupancyLayer(occLayer.value, {
+      slice: occSlice.value,
+      colorOf: (classId: string) => categoryOf(classId)?.color ?? 0x8fa3c8,
+    })
+    viewer.setFlowLayer(flowSegments.value)
     viewer.requestRender()
   }
 
@@ -656,6 +675,10 @@ export function createStudioCore() {
     showReview.value = false
     temporalReport.value = null
     origin.value = null
+    // 占据与光流同理：A 数据集派生出来的层挂到 B 的帧上，是最难解释的一种错
+    occLayer.value = null
+    occSlice.value = null
+    flowSegments.value = null
   })
 
   /** 切换布局后通知渲染器重算尺寸（分屏时视口变窄） */
@@ -771,6 +794,7 @@ export function createStudioCore() {
     layout, calib, imageUrl, tool, showOrtho, orthoMax,
     colorBy, pointColorBy, opacity, outlinedBorders, showOrientation,
     hiddenIds, lockedIds, categories, showTrajectories, reviewBoxes, showReview,
+    occLayer, occSlice, flowSegments,
     qaReport, temporalReport, canUndo, canRedo, undoLabel, origin, selectedBox, visibleBoxes,
     saveState, lastSavedAt, dirtyVersion, autosaveEnabled, cursor, frameNav,
     readOnly, readOnlyNote,

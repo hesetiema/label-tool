@@ -15,6 +15,7 @@ const {
   prevFrame, nextFrame, setFrame, jumpToBoxFrame, setLayout, persistNow, clearDraft,
   openList, numVal, fileInput, labelInput,
   openReview, runMock, importFile, running: preRunning, reviewStats,
+  generateOccupancy, runCrossCheck, exportOccupancy, occBusy,
 } = studio
 
 /** 预标注结果文件：解析失败由 importFile 兜住，这里只负责选文件 */
@@ -102,6 +103,14 @@ const saveText = () => {
           复核队列…
           <span v-if="reviewStats.tracks" class="menu-badge">{{ reviewStats.tracks }}</span>
         </button>
+        <div class="menu-sep"></div>
+        <div class="menu-title">多任务</div>
+        <button :disabled="!!occBusy" @click="act(() => { void generateOccupancy('frame') })">
+          {{ occBusy ? occBusy : '生成占据（当前帧）' }}
+        </button>
+        <button :disabled="!!occBusy" @click="act(() => { void generateOccupancy('all') })">生成占据（全段）</button>
+        <button :disabled="!!occBusy" @click="act(() => { void runCrossCheck('all') })">跨任务一致性校验</button>
+        <button @click="act(() => { void exportOccupancy() })">导出占据 .occ</button>
         <div class="menu-sep"></div>
         <div class="menu-title">本地草稿</div>
         <label class="menu-check">

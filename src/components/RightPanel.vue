@@ -13,6 +13,7 @@ import PropertyPanel from './panels/PropertyPanel.vue'
 import DataPanel from './panels/DataPanel.vue'
 import SequencePanel from './panels/SequencePanel.vue'
 import QualityPanel from './panels/QualityPanel.vue'
+import TaskPanel from './panels/TaskPanel.vue'
 import CameraDirectorPanel from './panels/CameraDirectorPanel.vue'
 import PerformancePanel from './panels/PerformancePanel.vue'
 
@@ -26,7 +27,7 @@ const hasSemantics = computed(() => !!cloud.value?.labels?.length)
 const stats = computed(() => (hasSemantics.value ? semanticStats(cloud.value!) : []))
 const hex = (color: number) => '#' + color.toString(16).padStart(6, '0')
 
-type Tab = 'objects' | 'labels' | 'more'
+type Tab = 'objects' | 'labels' | 'tasks' | 'more'
 const tab = ref<Tab>('objects')
 </script>
 
@@ -35,6 +36,7 @@ const tab = ref<Tab>('objects')
     <nav class="rp-tabs">
       <button :class="{ on: tab === 'objects' }" @click="tab = 'objects'">对象</button>
       <button :class="{ on: tab === 'labels' }" @click="tab = 'labels'">标签</button>
+      <button :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">任务</button>
       <button :class="{ on: tab === 'more' }" @click="tab = 'more'">更多</button>
     </nav>
 
@@ -87,6 +89,7 @@ const tab = ref<Tab>('objects')
       </template>
 
       <CategoryPanel v-else-if="tab === 'labels'" />
+      <TaskPanel v-else-if="tab === 'tasks'" />
 
       <div v-else class="more-list">
         <details open>

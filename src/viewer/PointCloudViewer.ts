@@ -69,6 +69,30 @@ function isDashed(box: RenderBox): boolean {
   return box.review === 'pending' || box.review === 'rejected'
 }
 
+/**
+ * 占据层的渲染输入。
+ *
+ * 【为什么是结构类型而不是 import domain 的 OccupancyGridSpec】
+ *   渲染器只关心"网格怎么摆、哪些格是满的、每格什么类"，
+ *   不关心这个 spec 是从文档来的还是临时算的。结构类型让 viewer 不依赖 domain，
+ *   `check-layers` 的约束也就自然成立（虽然它只禁 domain → UI，方向反过来同样该干净）。
+ */
+export interface OccupancyLayerData {
+  resolution: number
+  origin: { x: number; y: number; z: number }
+  size: { x: number; y: number; z: number }
+  classIds: string[]
+  occupied: Uint32Array
+  labels: Uint8Array
+}
+
+export interface OccupancyLayerOptions {
+  /** 只显示这个高度区间（world z，米） */
+  slice?: [number, number] | null
+  /** 类别配色。默认统一冷灰，调用方通常传类别色 */
+  colorOf?: (classId: string, classIndex: number) => number
+}
+
 export class PointCloudViewer {
   private renderer: THREE.WebGLRenderer
   private scene = new THREE.Scene()
@@ -512,6 +536,144 @@ export class PointCloudViewer {
     this.needsRender = true
   }
 
+  /* ------------------------------------------------------------------
+   * 占据栅格层
+   * ------------------------------------------------------------------
+   * 【为什么用 InstancedMesh 而不是逐体素 Mesh】
+   *   一帧三五万个占用体素，逐个 Mesh 就是三五万个 draw call 级别的对象，
+   *   光是建对象就要几百毫秒。实例化把绘制压到一次，位置矩阵放一个 buffer。
+   *   超过 6 万体素时退化成点云 —— 那时体素已经小于像素，画方块没有意义。
+   *
+   * 【为什么切片是"过滤"而不是裁剪平面】
+   *   裁剪平面要在片元里做，半透明体素的排序会乱；而"只看 z ∈ [0,2]"
+   *   本来就是离散选择，重建实例更简单，也不会出现"切了一半的方块"。
+   * ------------------------------------------------------------------ */
+
+  /** 层数据签名：长度 + 内容哈希 + 切片。内容哈希让 ROI 改一格也能被识别 */
+  private occSig = ''
+  private occObject?: THREE.InstancedMesh | THREE.Points
+
+  setOccupancyLayer(layer: OccupancyLayerData | null, opts: OccupancyLayerOptions = {}) {
+    const sig = layer
+      ? `${layer.occupied.length}|${hashUint32(layer.occupied)}|${opts.slice?.join(',') ?? ''}|${layer.size.x}x${layer.size.y}x${layer.size.z}|${layer.classIds.join(',')}`
+      : 'null'
+    if (sig === this.occSig) return
+    this.occSig = sig
+
+    if (this.occObject) {
+      this.scene.remove(this.occObject)
+      this.occObject.geometry.dispose()
+      const mat = this.occObject.material as THREE.Material | THREE.Material[]
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
+      else mat.dispose()
+      this.occObject = undefined
+    }
+    this.needsRender = true
+    if (!layer || !layer.occupied.length) return
+
+    const { resolution: res, origin, size } = layer
+    const slice = opts.slice ?? null
+    const nx = size.x
+    const ny = size.y
+    const colorOf = opts.colorOf ?? (() => 0x8fa3c8)
+
+    const items: Array<{ x: number; y: number; z: number; color: number }> = []
+    for (let k = 0; k < layer.occupied.length; k++) {
+      const i = layer.occupied[k]
+      const iz = Math.floor(i / (nx * ny))
+      const rem = i - iz * nx * ny
+      const iy = Math.floor(rem / nx)
+      const ix = rem - iy * nx
+      const z = origin.z + (iz + 0.5) * res
+      if (slice && (z < slice[0] || z > slice[1])) continue
+      const classId = layer.classIds[layer.labels[k]] ?? ''
+      items.push({
+        x: origin.x + (ix + 0.5) * res,
+        y: origin.y + (iy + 0.5) * res,
+        z,
+        color: colorOf(classId, layer.labels[k]),
+      })
+    }
+    if (!items.length) return
+
+    if (items.length > 60_000) {
+      const pos = new Float32Array(items.length * 3)
+      const col = new Float32Array(items.length * 3)
+      const c = new THREE.Color()
+      for (let i = 0; i < items.length; i++) {
+        pos[i * 3] = items[i].x
+        pos[i * 3 + 1] = items[i].y
+        pos[i * 3 + 2] = items[i].z
+        c.setHex(items[i].color)
+        col[i * 3] = c.r
+        col[i * 3 + 1] = c.g
+        col[i * 3 + 2] = c.b
+      }
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+      const points = new THREE.Points(geo, new THREE.PointsMaterial({
+        size: res * 0.8, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.9,
+      }))
+      points.renderOrder = 3
+      this.occObject = points
+      this.scene.add(points)
+      return
+    }
+
+    const geo = new THREE.BoxGeometry(res * 0.94, res * 0.94, res * 0.94)
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true, opacity: 0.3, depthWrite: false,
+    })
+    const mesh = new THREE.InstancedMesh(geo, material, items.length)
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    const color = new THREE.Color()
+    for (let i = 0; i < items.length; i++) {
+      tmpMatrix.makeTranslation(items[i].x, items[i].y, items[i].z)
+      mesh.setMatrixAt(i, tmpMatrix)
+      color.setHex(items[i].color)
+      mesh.setColorAt(i, color)
+    }
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    mesh.renderOrder = 3
+    mesh.frustumCulled = false
+    this.occObject = mesh
+    this.scene.add(mesh)
+  }
+
+  /**
+   * 光流箭头层。
+   * `segments` 每 6 个数一对端点（起点 xyz、终点 xyz），由 domain 侧算好。
+   * 这里不做任何物理，只负责"把线段画出来"—— 方向对不对是 domain 的事，
+   * 渲染层猜方向只会让两边都难测。
+   */
+  setFlowLayer(segments: Float32Array | null) {
+    const sig = segments ? `${segments.length}|${hashFloat32(segments)}` : 'null'
+    if (sig === this.flowSig) return
+    this.flowSig = sig
+    if (this.flowObject) {
+      this.scene.remove(this.flowObject)
+      this.flowObject.geometry.dispose()
+      ;(this.flowObject.material as THREE.Material).dispose()
+      this.flowObject = undefined
+    }
+    this.needsRender = true
+    if (!segments || segments.length < 6) return
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(segments, 3))
+    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color: 0x5ad1ff, transparent: true, opacity: 0.8, depthTest: false,
+    }))
+    line.renderOrder = 5
+    line.frustumCulled = false
+    this.flowObject = line
+    this.scene.add(line)
+  }
+
+  private flowSig = ''
+  private flowObject?: THREE.LineSegments
+
   /** 读取当前 3D 相机位姿，供上层「记录当前视角」使用 */
   getCameraPose(): CameraPose {
     const p = this.camera.position
@@ -734,6 +896,8 @@ export class PointCloudViewer {
     this.setWatermark(false)
     this.setCameraTrajectory(null)
     this.clearHover()
+    this.setOccupancyLayer(null)
+    this.setFlowLayer(null)
     for (const vis of this.boxVisuals.values()) {
       vis.edges.geometry.dispose()
       ;(vis.edges.material as THREE.Material).dispose()
@@ -758,4 +922,25 @@ function colorOfTrack(id: string): number {
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
   const palette = [0x4fc3f7, 0xff7043, 0x66bb6a, 0xab47bc, 0xffca28, 0x26c6da, 0xff4081, 0x8bc34a]
   return palette[Math.abs(h) % palette.length]
+}
+
+/** 内容哈希：ROI 改一格但数量不变时，靠它让签名失效 */
+function hashUint32(arr: Uint32Array): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < arr.length; i++) {
+    h ^= arr[i]
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h
+}
+
+function hashFloat32(arr: Float32Array): number {
+  let h = 0x811c9dc5
+  // 只看位置字节的前 3 位精度：光流箭头本来就是毫米级近似，
+  // 为了 1e-7 的浮点尾数重建整层几何不值得
+  for (let i = 0; i < arr.length; i++) {
+    h ^= Math.round(arr[i] * 100) | 0
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h
 }

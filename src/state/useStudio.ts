@@ -43,6 +43,7 @@ import { useQuality } from './useQuality'
 import { useCameraDirector } from './useCameraDirector'
 import { useLibrary } from './useLibrary'
 import { usePreAnnotation } from './usePreAnnotation'
+import { useTasks } from './useTasks'
 import type { Command } from '../domain/model/command'
 import { nextNumericId } from '../domain/model/ids'
 
@@ -550,6 +551,19 @@ export function useStudio() {
   })
 
   /**
+   * 多任务（P3）：占据派生 / 光流 / 跨任务一致性。
+   *
+   * 它和预标注共享同一条 `applyEdit`：大载荷写入也必须是可撤销的命令，
+   * 否则"改了一帧占据，撤销只撤回来框"会让两份真值永久错位。
+   */
+  const tasks = useTasks(core, {
+    applyEdit,
+    blobs: () => studioStore()?.blobs ?? null,
+    say: (msg) => { core.statusText.value = msg },
+    gotoFrame: (frame) => sequence.gotoFrameIndex(frame),
+  })
+
+  /**
    * 复核快捷键的先行拦截。
    *
    * 用捕获阶段是因为 `annotation.onKeyDown` 注册在同一节点（window）的冒泡阶段：
@@ -944,6 +958,7 @@ export function useStudio() {
     ...camera,
     ...library,
     ...preAnnotation,
+    ...tasks,
     showHelp,
     menuOpen,
     persistNow,

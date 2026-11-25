@@ -387,3 +387,86 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ------------------------------------------------------------------
+ * 任务面板（P3 多任务）
+ * ------------------------------------------------------------------
+ * 用密度而不是留白：这一页的信息是"哪个任务差多少、哪一帧对不上"，
+ * 行高收到 24px 才能一屏看完五个任务的进度与问题。
+ */
+.tk-panel h3 { display: flex; align-items: center; gap: 6px; }
+.tk-panel h3.tk-sec {
+  margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .04em;
+}
+.tk-task-list { list-style: none; margin: 0; padding: 0; }
+.tk-task {
+  display: flex; align-items: center; gap: 7px; padding: 3px 0;
+  font-size: 11px; color: var(--text);
+}
+.tk-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: none;
+  background: var(--border); border: 1px solid transparent;
+}
+.tk-dot.on { background: #5ce0a0; }
+.tk-dot.warn { background: #ffb74d; }
+.tk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-prog { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tk-badge {
+  min-width: 16px; padding: 0 4px; border-radius: 8px; text-align: center;
+  font-size: 9.5px; color: #ffb74d; background: rgba(255, 183, 77, .14);
+  border: 1px solid rgba(255, 183, 77, .4);
+}
+.tk-issues { margin-top: 4px; }
+.tk-issue {
+  font-size: 10.5px; color: var(--muted); padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--border); margin-bottom: 2px;
+}
+.tk-issue.error { border-left-color: #ff7b72; color: #ffb0a8; }
+.tk-issue.warn { border-left-color: #ffb74d; }
+.tk-kv {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  font-size: 10.5px; padding: 2px 0;
+}
+.tk-kv span { color: var(--muted); }
+.tk-kv b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.tk-mono { font-variant-numeric: tabular-nums; font-size: 10px; }
+.tk-classes { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.tk-class-chip {
+  font-size: 9.5px; padding: 1px 5px; border-radius: 3px;
+  color: var(--muted); background: var(--panel-2); border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.tk-class-rest { opacity: .72; border-style: dashed; }
+.tk-row { display: flex; align-items: center; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+.tk-busy {
+  font-size: 10.5px; color: #9fe8ff; padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+.tk-slice, .tk-paint {
+  margin: 6px 0 8px; padding: 6px 8px; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--panel-2);
+}
+.tk-slice-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 10.5px; color: var(--muted); margin-bottom: 4px; gap: 8px;
+}
+.tk-slice-head b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.tk-range { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); }
+.tk-range input { flex: 1; }
+.tk-select {
+  flex: 1; min-width: 70px; font-size: 11px; padding: 2px 4px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+}
+.tk-issue-list { list-style: none; margin: 4px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.tk-issue-line {
+  display: flex; gap: 6px; align-items: baseline; padding: 4px 6px; cursor: pointer;
+  border-radius: 4px; border-left: 2px solid var(--border); margin-bottom: 2px;
+}
+.tk-issue-line:hover { background: var(--panel-2); }
+.tk-issue-line.warn { border-left-color: #ffb74d; }
+.tk-issue-line.error { border-left-color: #ff7b72; }
+.tk-code {
+  flex: none; font-size: 9px; color: var(--muted); font-family: ui-monospace, monospace;
+}
+.tk-msg { flex: 1; font-size: 10.5px; color: var(--text); line-height: 1.35; }
