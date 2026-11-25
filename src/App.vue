@@ -16,6 +16,7 @@ import RightPanel from './components/RightPanel.vue'
 import StatusBar from './components/StatusBar.vue'
 import HelpModal from './components/HelpModal.vue'
 import SampleList from './components/SampleList.vue'
+import ReviewQueue from './components/ReviewQueue.vue'
 
 const studio = useStudio()
 provide(StudioKey, studio)
@@ -31,6 +32,8 @@ provide(StudioKey, studio)
  *   studio.openList()               本地样本列表（浏览 / 删除落盘文档）
  *   studio.runBlobGc({ reclaimBytes: 5e6 })  强制腾出 5MB（配额淘汰的手测入口）
  *   studio.setEvictionPolicy('lfu') 切换淘汰策略（lru / lfu / hybrid，URL 用 ?evict=）
+ *   studio.runMock()                跑演示预标注（确定性），合入后自动开复核队列
+ *   studio.stats.value              复核统计（待裁决轨迹 / 帧 / 冲突数）
  *   studio.persistedSnapshot()      落盘记账（为什么这次保存没走点云外置）
  * 生产构建不挂 —— 这不是公开 API，只是排障窗口。
  */
@@ -50,5 +53,6 @@ if (import.meta.env.DEV) {
     <StatusBar />
     <HelpModal />
     <SampleList />
+    <ReviewQueue />
   </div>
 </template>

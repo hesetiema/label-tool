@@ -313,6 +313,17 @@ function screenPoly(box: Box3D): { x: number; y: number }[] {
   return poly
 }
 
+/**
+ * 未确认的框画虚线：预测 / 遮挡，以及待复核、已拒绝。
+ * 判据与 3D 视口的 `isDashed` 保持一致 —— 两处画法不一致，
+ * 用户会以为"这个框在正交图里是确定的"。
+ */
+function isUnconfirmed(box: Box3D): boolean {
+  if (box.visibility === 'occluded' || box.visibility === 'predicted') return true
+  const review = (box as Box3D & { review?: string }).review
+  return review === 'pending' || review === 'rejected'
+}
+
 function drawBox(box: Box3D) {
   if (!ctx) return
   const primary = box.id === props.selectedId
@@ -336,7 +347,7 @@ function drawBox(box: Box3D) {
     }
     ctx.strokeStyle = stroke
     ctx.lineWidth = primary ? 2 : selected ? 1.8 : hovered ? 2.2 : 1.4
-    ctx.setLineDash(box.visibility === 'occluded' || box.visibility === 'predicted' ? [5, 4] : [])
+    ctx.setLineDash(isUnconfirmed(box) ? [5, 4] : [])
     // 悬停光晕：单画一条更粗的浅色描边，24 个框叠在一起时也能一眼看出指着谁
     if (hovered) {
       ctx.save()
@@ -358,7 +369,7 @@ function drawBox(box: Box3D) {
       ctx.fill()
       ctx.strokeStyle = stroke
       ctx.lineWidth = primary ? 2 : selected ? 1.8 : hovered ? 2.2 : 1.3
-      ctx.setLineDash(box.visibility === 'occluded' || box.visibility === 'predicted' ? [5, 4] : [])
+      ctx.setLineDash(isUnconfirmed(box) ? [5, 4] : [])
       if (hovered) {
         ctx.save()
         ctx.setLineDash([])

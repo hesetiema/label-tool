@@ -30,8 +30,9 @@ import type { Box3D } from '../../core/types'
 import type { BoxGeometry } from '../model/geometry'
 import { angleDelta, cloneVec3, geometryEquals, hermite, lerpAngle } from '../model/geometry'
 import type { SampleDocument } from '../model/document'
-import type { SourceKind, Track, Visibility } from '../model/track'
+import type { ObservationState, SourceKind, Track, Visibility } from '../model/track'
 import { endpointVelocity, endpointYawRate, findKeyframeSpan } from '../model/track'
+import { isExportableState } from '../ops/review'
 import type { TrackId } from '../model/ids'
 
 /** 渲染层用的框视图：Box3D 的超集，能区分"投影视图"与"真值" */
@@ -39,6 +40,15 @@ export interface Box3DView extends Box3D {
   trackId: TrackId
   frame: number
   sourceKind: SourceKind
+  /**
+   * 复核状态与置信度。
+   *
+   * 【为什么放在视图而不是 Box3D】`Box3D` 是"框"的通用形状，导出格式、
+   * 渲染器、老代码都吃它；复核是**本工具的流程概念**，只有界面需要。
+   * 放在视图上，既能让渲染器画出"待复核的灰色虚线"，又不会污染导出结构。
+   */
+  review?: ObservationState['review']
+  confidence?: number
 }
 
 export type MaterializeInterp = 'exact' | 'linear' | 'hermite'
@@ -71,6 +81,15 @@ export interface MaterializeOptions {
    * 用户手工确认过的框不该被算法移动。
    */
   paths?: ReadonlyMap<TrackId, SmoothPath>
+  /**
+   * 导出闸门：只产出"可导出"的帧（模型给的、且尚未被接受 / 被拒绝的帧除外）。
+   *
+   * 【为什么由物化层负责而不是导出函数过滤】导出有三条路径（单帧、镜像、
+   * 流式全量），各自过滤必然漏一条。判据放在"帧 → 框"的唯一出口，
+   * 就不可能"画面上少一个框、导出里还留着"。
+   * 渲染路径不要打开它 —— 待复核的框必须看得见，否则没法复核。
+   */
+  acceptedOnly?: boolean
 }
 
 /** 'outside' 是 domain 概念；渲染器只认三种状态，映射为 predicted */
@@ -88,6 +107,8 @@ export interface SampledGeometry {
   sourceKind: SourceKind
   /** true 表示该帧几何是"外推/补间"得到的，不是人工确认 */
   interpolated: boolean
+  review?: ObservationState['review']
+  confidence?: number
 }
 
 /**
@@ -105,6 +126,9 @@ export function sampleTrack(
   if (frame < track.lifecycle.first || frame > track.lifecycle.last) return null
 
   const state = readStates ? track.states.get(frame) : undefined
+  // 导出闸门：这一帧如果还是"模型猜的、没人确认过"，就不该进入训练数据。
+  // 放在最前面是刻意的 —— 拦在补间之前，免得先把待复核的几何插值出去
+  if (opts.acceptedOnly && !isExportableState(state)) return null
   const span = findKeyframeSpan(track, frame)
 
   // ---- 命中关键帧 ----
@@ -118,6 +142,7 @@ export function sampleTrack(
       visibility: state?.visibility ?? 'visible',
       sourceKind: state?.source.kind ?? span.a.source.kind,
       interpolated: false,
+      ...(state ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) } : {}),
     }
   }
 
@@ -172,6 +197,7 @@ export function sampleTrack(
       visibility: state?.visibility ?? 'visible',
       sourceKind: state?.source.kind ?? (smoothed ? 'derived' : 'interp'),
       interpolated: true,
+      ...(state ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) } : {}),
     }
   }
 
@@ -209,6 +235,7 @@ export function sampleTrack(
     visibility: state?.visibility ?? 'predicted',
     sourceKind: 'interp',
     interpolated: true,
+    ...(state ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) } : {}),
   }
 }
 
@@ -230,6 +257,8 @@ export function materializeTrack(
     visibility: toLegacyVisibility(sampled.visibility),
     attributes: { ...track.attributes },
     sourceKind: sampled.sourceKind,
+    ...(sampled.review !== undefined ? { review: sampled.review } : {}),
+    ...(sampled.confidence !== undefined ? { confidence: sampled.confidence } : {}),
   }
 }
 

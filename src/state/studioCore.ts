@@ -486,6 +486,12 @@ export function createStudioCore() {
 
   /** 统一的取色入口：3D 视口、正交视图、对象列表、相机投影都调它 */
   function colorOf(box: Box3D): number {
+    // 复核状态优先于类别配色：待复核的框一眼要能认出来，
+    // 否则"模型猜的"和"人标的"在画面上长得一模一样，复核就退化成逐条读列表
+    const review = (box as Box3D & { review?: string }).review
+    if (review === 'pending') return 0x9aa4b2
+    if (review === 'conflict') return 0xff7043
+    if (review === 'rejected') return 0x546070
     if (colorBy.value === 'instance') {
       return INSTANCE_PALETTE[hashString(box.id) % INSTANCE_PALETTE.length]
     }

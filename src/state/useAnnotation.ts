@@ -10,6 +10,7 @@
  *   - 3D 视口单击 = 射线拾取选中
  */
 import { ref } from 'vue'
+import { isExportableView } from '../domain/ops/review'
 import { cloneBoxes } from '../core/history'
 import { parseSequence, serializeLabels, serializeSequence, downloadJson, downloadBlob } from '../core/io/label'
 import { sequenceBlob } from '../adapters/sequenceExport'
@@ -415,8 +416,12 @@ export function useAnnotation(core: StudioCore) {
   /** 只导当前帧：保持 SUSTechPOINTS 兼容（单帧数组） */
   function doExportFrame() {
     const suffix = frames.value.length ? `-${String(currentFrame.value + 1).padStart(4, '0')}` : ''
-    downloadJson(`${baseName()}${suffix}.json`, serializeLabels(boxes.value))
-    statusText.value = `已导出当前帧 ${boxes.value.length} 个框（SUSTechPOINTS 格式）`
+    // 导出闸门：模型给的、还没被接受的框不进训练数据（人工框不受影响）
+    const list = boxes.value.filter((b) => isExportableView(b as Box3D & { review?: string; sourceKind?: string }))
+    downloadJson(`${baseName()}${suffix}.json`, serializeLabels(list))
+    const dropped = boxes.value.length - list.length
+    statusText.value = `已导出当前帧 ${list.length} 个框（SUSTechPOINTS 格式）`
+      + (dropped ? `，${dropped} 个待复核/已拒绝的模型框未导出` : '')
   }
 
   /**
@@ -430,10 +435,15 @@ export function useAnnotation(core: StudioCore) {
     }
     // 导出吃 frames 镜像：先从真值全量刷新，避免少帧或旧框
     core.refreshFrameBoxes()
-    const payload = frames.value.map((f) => ({ index: f.index, boxes: f.boxes }))
+    const payload = frames.value.map((f) => ({
+      index: f.index,
+      boxes: f.boxes.filter((b) => isExportableView(b as Box3D & { review?: string; sourceKind?: string })),
+    }))
     downloadJson(`${baseName()}-sequence.json`, serializeSequence(payload))
-    const total = frames.value.reduce((n, f) => n + f.boxes.length, 0)
+    const total = payload.reduce((n, f) => n + f.boxes.length, 0)
+    const dropped = frames.value.reduce((n, f) => n + f.boxes.length, 0) - total
     statusText.value = `已导出 ${frames.value.length} 帧 / ${total} 个框的整段序列`
+      + (dropped ? `（${dropped} 个待复核/已拒绝的模型框未导出）` : '')
   }
 
   /**
@@ -454,7 +464,7 @@ export function useAnnotation(core: StudioCore) {
     const [from, to] = store.document.range
     const frames = Math.max(0, to - from + 1)
     downloadBlob(`${baseName()}-sequence-interp.json`, sequenceBlob(store, {
-      materialize: { mode: 'linear' },
+      materialize: { mode: 'linear', acceptedOnly: true },
     }))
     statusText.value = `已导出第 ${from}–${to} 帧（共 ${frames} 帧，插值补帧）· ${store.trackCount} 条轨迹`
   }
@@ -475,7 +485,7 @@ export function useAnnotation(core: StudioCore) {
     const [from, to] = store.document.range
     const { paths, skipped } = smoothDocument(store.document)
     downloadBlob(`${baseName()}-sequence-smooth.json`, sequenceBlob(store, {
-      materialize: { mode: 'linear', paths },
+      materialize: { mode: 'linear', paths, acceptedOnly: true },
     }))
     const jittery = skipped.filter((s) => s.reason === 'shift-too-large')
     const tail = jittery.length

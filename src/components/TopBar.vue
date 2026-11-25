@@ -4,7 +4,7 @@
  * 左侧：文件 / 数据集菜单；中间：撤销重做 + 帧导航；右侧：保存状态 + 相机 + 帮助。
  * 只保留高频动作，其余都收进菜单，避免一排按钮把画布挤小。
  */
-import { inject } from 'vue'
+import { inject, ref } from 'vue'
 import { StudioKey } from '../state/studioContext'
 
 const studio = inject(StudioKey)!
@@ -14,7 +14,21 @@ const {
   loadDemo, loadRealData, loadSequence, doUndo, doRedo, doExportFrame, doExportAll, doExportSeq, doExportSmooth,
   prevFrame, nextFrame, setFrame, jumpToBoxFrame, setLayout, persistNow, clearDraft,
   openList, numVal, fileInput, labelInput,
+  openReview, runMock, importFile, running: preRunning, reviewStats,
 } = studio
+
+/** 预标注结果文件：解析失败由 importFile 兜住，这里只负责选文件 */
+const preLabelInput = ref<HTMLInputElement | null>(null)
+function pickPreLabel() {
+  menuOpen.value = false
+  preLabelInput.value?.click()
+}
+function onPreLabelFile(e: Event) {
+  const el = e.target as HTMLInputElement
+  const file = el.files?.[0]
+  el.value = ''
+  if (file) void importFile(file)
+}
 
 /** 帧号输入：回车或失焦即跳转，越界按边界夹住并把输入框纠正回来 */
 function onFrameInput(e: Event) {
@@ -79,6 +93,16 @@ const saveText = () => {
         <button :disabled="!frames.length" @click="act(doExportSeq)">整段序列 JSON（插值补帧）</button>
         <button :disabled="!frames.length" @click="act(doExportSmooth)">整段序列 JSON（RTS 平滑）</button>
         <div class="menu-sep"></div>
+        <div class="menu-title">预标注</div>
+        <button :disabled="preRunning" @click="act(() => { void runMock() })">
+          {{ preRunning ? '推理中…' : '跑演示模型（确定性）' }}
+        </button>
+        <button @click="pickPreLabel">导入预标注结果 JSON…</button>
+        <button @click="act(openReview)">
+          复核队列…
+          <span v-if="reviewStats.tracks" class="menu-badge">{{ reviewStats.tracks }}</span>
+        </button>
+        <div class="menu-sep"></div>
         <div class="menu-title">本地草稿</div>
         <label class="menu-check">
           <input v-model="autosaveEnabled" type="checkbox" /> 自动保存
@@ -140,6 +164,7 @@ const saveText = () => {
       <button class="tb-icon" title="快捷键与工作流 (F1)" @click="showHelp = true">?</button>
       <input ref="fileInput" type="file" accept=".pcd" multiple hidden @change="studio.importFiles" />
       <input ref="labelInput" type="file" accept=".json" hidden @change="studio.onLabelFile" />
+      <input ref="preLabelInput" type="file" accept=".json" hidden @change="onPreLabelFile" />
     </div>
   </header>
 </template>

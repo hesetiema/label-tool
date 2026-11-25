@@ -41,6 +41,14 @@ import { smoothDocument, smoothTrack } from '../src/domain/ops/smooth.ts'
 import {
   decorateLibrary, describeAge, formatStamp, judgeRemove, librarySummary, taskLabel,
 } from '../src/domain/store/library.ts'
+import { bevIoU } from '../src/domain/model/geometry.ts'
+import {
+  buildMergeCommand as buildPreLabelMerge, defaultMergePolicy, linkProposals,
+  type MergePolicy, type ModelObject,
+} from '../src/domain/ops/mergePreLabel.ts'
+import {
+  buildReviewCommand, collectReviewRows, isExportableState, isExportableView, reviewStats,
+} from '../src/domain/ops/review.ts'
 import {
   DEFAULT_EVICTION_POLICY, EVICTION_POLICIES, groupFrames, isEvictionPolicy, neighborhoodKeys,
   planFrameEviction, type FrameBlobRef,
@@ -720,6 +728,213 @@ check('全被保护时也报缺口', (() => {
 check('需要腾 0 字节时不报缺口', planFrameEviction({
   entries: five, reclaimBytes: 0, evictableDatasetKeys: ['ds1'],
 }).shortfall === 0)
+
+
+/* ==================================================================
+ * 预标注：BEV IoU / 身份关联 / 四种合并策略 / 复核门禁
+ * ================================================================== */
+console.log('\n[预标注] BEV 重叠度')
+
+const pGeo = (x: number, y = 0, yaw = 0, sx = 4, sy = 2) => ({
+  position: { x, y, z: 0.75 }, scale: { x: sx, y: sy, z: 1.5 }, yaw,
+})
+
+check('完全重合的 IoU 为 1', Math.abs(bevIoU(pGeo(0), pGeo(0)) - 1) < 1e-9, String(bevIoU(pGeo(0), pGeo(0))))
+check('完全分离的 IoU 为 0', bevIoU(pGeo(0), pGeo(10)) === 0)
+check('错开半个车长的 IoU ≈ 1/3', Math.abs(bevIoU(pGeo(0), pGeo(2)) - 1 / 3) < 1e-6, String(bevIoU(pGeo(0), pGeo(2))))
+check('同中心转 90° 的 IoU ≈ 1/3', Math.abs(bevIoU(pGeo(0), pGeo(0, 0, Math.PI / 2)) - 1 / 3) < 1e-6,
+  String(bevIoU(pGeo(0), pGeo(0, 0, Math.PI / 2))))
+check('退化尺寸不抛错、返回 0', bevIoU(pGeo(0, 0, 0, 0, 0), pGeo(0)) === 0)
+check('IoU 对称', Math.abs(bevIoU(pGeo(0), pGeo(1.3, 0.4)) - bevIoU(pGeo(1.3, 0.4), pGeo(0))) < 1e-12)
+
+console.log('\n[预标注] 身份关联')
+
+const pObj = (frame: number, x: number, extra: Partial<ModelObject> = {}): ModelObject => ({
+  frame, classId: 'Car', geometry: pGeo(x), confidence: 0.8, ...extra,
+})
+
+const withIds = [0, 1, 2, 3, 4].flatMap((f) => [
+  pObj(f, f * 0.6, { modelTrackId: 'car-1' }),
+  pObj(f, 6 + f * 0.2, { modelTrackId: 'car-2' }),
+])
+const linkedById = linkProposals(withIds)
+check('有 modelTrackId 时按 id 分组', linkedById.length === 2, String(linkedById.length))
+check('每条提案收齐 5 帧', linkedById.every((p) => p.objects.length === 5))
+check('提案按首帧与 id 稳定排序', linkedById[0].modelTrackId === 'car-1')
+
+const noIds = [0, 1, 2, 3, 4].map((f) => pObj(f, f * 0.6))
+check('无 id 时靠 IoU 链成一条', linkProposals(noIds).length === 1, String(linkProposals(noIds).length))
+check('每帧前进 5 米（IoU 掉到 0）会断成两条', (() => {
+  const jump = [0, 1, 2, 3].map((f) => pObj(f, f * 5))
+  return linkProposals(jump).length === 4
+})())
+check('maxGap 之外的观测另起一条', (() => {
+  const gap = [pObj(0, 0), pObj(9, 0.2)]
+  return linkProposals(gap).length === 2 && linkProposals(gap, { maxGap: 10 }).length === 1
+})())
+check('类别不一致不链接（classMustMatch）', (() => {
+  const mixed = [pObj(0, 0), pObj(1, 0.2, { classId: 'Pedestrian', geometry: pGeo(0.2) })]
+  return linkProposals(mixed).length === 2 && linkProposals(mixed, { classMustMatch: false }).length === 1
+})())
+check('乱序输入仍按帧升序输出', (() => {
+  const shuffled = [pObj(2, 1.2, { modelTrackId: 'a' }), pObj(0, 0, { modelTrackId: 'a' }), pObj(1, 0.6, { modelTrackId: 'a' })]
+  const p = linkProposals(shuffled)[0]
+  return p.objects.map((o) => o.frame).join(',') === '0,1,2'
+})())
+check('同帧同 id 重复时保留高置信', (() => {
+  const dup = [pObj(0, 0, { modelTrackId: 'a', confidence: 0.4 }), pObj(0, 0, { modelTrackId: 'a', confidence: 0.9 })]
+  const p = linkProposals(dup)[0]
+  return p.objects.length === 1 && p.objects[0].confidence === 0.9
+})())
+
+console.log('\n[预标注] 合并策略')
+
+const pPolicy = (patch: Partial<MergePolicy> = {}): MergePolicy => ({ ...defaultMergePolicy(), ...patch })
+let pIdSeq = 100
+// 分配契约：把"本次已占用"交上来，避免批量建轨时撞号
+const nextId = (used: ReadonlySet<string>) => {
+  let n = ++pIdSeq
+  while (used.has(String(n))) n++
+  pIdSeq = n
+  return String(n)
+}
+
+// append：不动已有标注，全部新建为待复核
+{
+  const d = buildDocumentFromFrames([{ index: 0, boxes: [mk('1', 0)] }])
+  const proposals = linkProposals([0, 1, 2].map((f) => pObj(f, 20 + f * 0.6, { modelTrackId: 'x' })))
+  const plan = buildPreLabelMerge(d, proposals, pPolicy(), nextId)
+  const store = new TrackStore(d)
+  check('append 产出新建命令', plan.result.created.length === 1 && !!plan.command)
+  if (plan.command) store.exec(plan.command)
+  const track = d.tasks.boxes.tracks.find((t) => t.id === plan.result.created[0])!
+  check('append 生成的轨迹带 3 个关键帧', track.keyframes.length === 3)
+  check('append 每帧状态是 pending', [...track.states.values()].every((s) => s.review === 'pending'))
+  check('append 血缘记下模型来源', track.keyframes[0].source.kind === 'model')
+  check('append 不影响已有框', d.tasks.boxes.tracks.length === 2)
+  if (plan.command) store.undo()
+  check('合并撤销后轨迹消失', d.tasks.boxes.tracks.length === 1)
+}
+
+// fill-gaps：只补空帧
+{
+  const d = buildDocumentFromFrames([{ index: 0, boxes: [mk('1', 20)] }])
+  const proposals = linkProposals([0, 1, 2].map((f) => pObj(f, 20 + f * 0.6, { modelTrackId: 'x' })))
+  const plan = buildPreLabelMerge(d, proposals, pPolicy({ strategy: 'fill-gaps' }), nextId)
+  const created = plan.result.created.length ? d.tasks.boxes.tracks : []
+  const store = new TrackStore(d)
+  if (plan.command) store.exec(plan.command)
+  const t = d.tasks.boxes.tracks[1]!
+  check('fill-gaps 跳过已有框的帧', t.keyframes.map((k) => k.frame).join(',') === '1,2', t.keyframes.map((k) => k.frame).join(','))
+  check('fill-gaps 记下被跳过的框数', plan.result.skipped === 1, String(plan.result.skipped))
+  void created
+}
+
+// minConfidence
+{
+  const d = buildDocumentFromFrames([{ index: 0, boxes: [] }])
+  const low = linkProposals([pObj(0, 0, { confidence: 0.1, modelTrackId: 'a' })])
+  const plan = buildPreLabelMerge(d, low, pPolicy({ minConfidence: 0.5 }), nextId)
+  check('低于置信度下限被过滤并计数', !plan.command && plan.result.skipped === 1)
+}
+
+// replace-track：命中模型轨迹则更新
+{
+  const src = [0, 1].map((f) => pObj(f, f * 0.6, { modelTrackId: 'x' }))
+  const d0 = buildDocumentFromFrames([{ index: 0, boxes: [] }, { index: 1, boxes: [] }])
+  const plan0 = buildPreLabelMerge(d0, linkProposals(src), pPolicy(), nextId)
+  const store = new TrackStore(d0)
+  if (plan0.command) store.exec(plan0.command)
+  const id = plan0.result.created[0]
+
+  const shifted = src.map((o) => ({ ...o, geometry: pGeo(o.geometry.position.x + 0.05), confidence: 0.9 }))
+  const plan1 = buildPreLabelMerge(d0, linkProposals(shifted), pPolicy({ strategy: 'replace-track' }), nextId)
+  check('replace-track 命中模型轨迹时更新而非新建', plan1.result.created.length === 0 && plan1.result.updated[0] === id,
+    JSON.stringify(plan1.result))
+  if (plan1.command) store.exec(plan1.command)
+  const track = d0.tasks.boxes.tracks.find((t) => t.id === id)!
+  check('更新后几何跟着模型走', Math.abs(track.keyframes[0].geometry.position.x - 0.05) < 1e-9)
+  check('更新后仍只有一条轨迹', d0.tasks.boxes.tracks.length === 1)
+}
+
+// replace-track + 人工轨迹 + protectManual → 冲突
+{
+  const d = buildDocumentFromFrames([{ index: 0, boxes: [mk('1', 0)] }, { index: 1, boxes: [] }])
+  const proposals = linkProposals([0, 1].map((f) => pObj(f, f * 0.6, { modelTrackId: 'x' })))
+  const plan = buildPreLabelMerge(d, proposals, pPolicy({ strategy: 'replace-track' }), nextId)
+  const store = new TrackStore(d)
+  if (plan.command) store.exec(plan.command)
+  check('命中人工轨迹时记冲突', plan.result.conflicts.length === 1, String(plan.result.conflicts.length))
+  check('冲突帧不覆盖人工几何', d.tasks.boxes.tracks.find((t) => t.id === '1')!.keyframes[0].geometry.position.x === 0)
+  check('冲突之外的空帧仍然收下', d.tasks.boxes.tracks.length === 2)
+}
+
+// protectManual = false 时允许覆盖
+{
+  const d = buildDocumentFromFrames([{ index: 0, boxes: [mk('1', 0)] }])
+  const proposals = linkProposals([pObj(0, 0.4, { modelTrackId: 'x' })])
+  const plan = buildPreLabelMerge(d, proposals, pPolicy({ strategy: 'replace-track', protectManual: false }), nextId)
+  const store = new TrackStore(d)
+  if (plan.command) store.exec(plan.command)
+  const t = d.tasks.boxes.tracks.find((x) => x.id === '1')!
+  check('关掉 protectManual 后人工几何被覆盖', Math.abs(t.keyframes[0].geometry.position.x - 0.4) < 1e-9)
+  check('覆盖后该帧回到待复核', t.states.get(0)?.review === 'pending')
+}
+
+// class-vote：默认人工优先（只记冲突、不改类），放开保护后才按票改
+{
+  const mkDoc = () => buildDocumentFromFrames([{ index: 0, boxes: [mk('1', 0)] }, { index: 1, boxes: [mk('1', 0.6)] }])
+  const votes = () => linkProposals([0, 1].map((f) => pObj(f, f * 0.6, { modelTrackId: 'p', classId: 'Pedestrian' })))
+
+  const guarded = mkDoc()
+  const gPlan = buildPreLabelMerge(guarded, votes(), pPolicy({ strategy: 'class-vote', classMustMatch: false }), nextId)
+  check('class-vote 默认不改人工类别', guarded.tasks.boxes.tracks[0].classId === 'Car', guarded.tasks.boxes.tracks[0].classId)
+  check('class-vote 仍记录类别冲突', gPlan.result.conflicts.length === 2, String(gPlan.result.conflicts.length))
+  check('class-vote 被保护时产出空命令', gPlan.command === null)
+
+  const free = mkDoc()
+  const fPlan = buildPreLabelMerge(free, votes(), pPolicy({ strategy: 'class-vote', classMustMatch: false, protectManual: false }), nextId)
+  const store = new TrackStore(free)
+  if (fPlan.command) store.exec(fPlan.command)
+  check('放开保护后按投票改类', free.tasks.boxes.tracks[0].classId === 'Pedestrian', free.tasks.boxes.tracks[0].classId)
+  check('class-vote 不动几何', free.tasks.boxes.tracks[0].keyframes[0].geometry.position.x === 0)
+}
+
+console.log('\n[预标注] 复核队列与导出闸门')
+{
+  const d = buildDocumentFromFrames([{ index: 0, boxes: [] }, { index: 1, boxes: [] }])
+  const low = linkProposals([pObj(0, 0, { modelTrackId: 'a', confidence: 0.35 }), pObj(0, 20, { modelTrackId: 'b', confidence: 0.9 })])
+  const plan = buildPreLabelMerge(d, low, pPolicy(), nextId)
+  const store = new TrackStore(d)
+  if (plan.command) store.exec(plan.command)
+  const rows = collectReviewRows(d)
+  check('复核队列按低置信在前', rows[0].confidence < rows[1].confidence, JSON.stringify(rows.map((r) => r.confidence)))
+  check('统计待裁决轨迹数', reviewStats(d).tracks === 2, String(reviewStats(d).tracks))
+  check('统计模型帧数', reviewStats(d).modelFrames === 2)
+
+  const first = rows[0].trackId
+  const cmd = buildReviewCommand(d.tasks.boxes.tracks.filter((t) => t.id === first), 'accepted')!
+  store.exec(cmd)
+  check('接受后该轨迹离开队列', collectReviewRows(d).length === 1)
+  check('接受计入 accepted', reviewStats(d).accepted === 1, String(reviewStats(d).accepted))
+  check('同一对象重复裁决返回空命令', buildReviewCommand(d.tasks.boxes.tracks.filter((t) => t.id === first), 'accepted') === null)
+  store.undo()
+  check('裁决可撤销', collectReviewRows(d).length === 2)
+
+  check('人工帧永远可导出', isExportableState(null) && isExportableView({ review: 'none', sourceKind: 'manual' }))
+  check('待复核的模型帧拦在导出外', !isExportableView({ review: 'pending', sourceKind: 'model' }))
+  check('已接受的模型帧可导出', isExportableView({ review: 'accepted', sourceKind: 'model' }))
+  check('已拒绝的模型帧拦在导出外', !isExportableView({ review: 'rejected', sourceKind: 'model' }))
+
+  const frame = d.tasks.boxes.tracks[0].keyframes[0].frame
+  const all = materializeFrame(d, frame)
+  const accepted = d.tasks.boxes.tracks.filter((t) => t.states.get(frame)?.review === 'accepted')
+  const gate = materializeFrame(d, frame, { acceptedOnly: true })
+  check('物化闸门按状态过滤', gate.length === all.length - (all.length - accepted.length) && gate.length >= accepted.length,
+    `${gate.length}/${all.length}`)
+  check('物化闸门不误伤人工帧', materializeFrame(buildDocumentFromFrames([{ index: 0, boxes: [mk('1', 0)] }]), 0, { acceptedOnly: true }).length === 1)
+}
+
 
 console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
 if (failed > 0) process.exit(1)

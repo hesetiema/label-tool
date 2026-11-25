@@ -42,6 +42,9 @@ import { useSequence } from './useSequence'
 import { useQuality } from './useQuality'
 import { useCameraDirector } from './useCameraDirector'
 import { useLibrary } from './useLibrary'
+import { usePreAnnotation } from './usePreAnnotation'
+import type { Command } from '../domain/model/command'
+import { nextNumericId } from '../domain/model/ids'
 
 export function useStudio() {
   const core = createStudioCore()
@@ -487,6 +490,80 @@ export function useStudio() {
     say: (msg) => { core.statusText.value = msg },
   })
 
+  /**
+   * 执行一条"跨帧的大命令"（预标注合并、复核裁决）。
+   *
+   * 【为什么单独抽出来】这几步顺序是硬性的：先 exec 改真值，再刷新镜像，
+   * 再重算当前帧视图，最后才 syncViewer / markDirty。任何一处顺序颠倒
+   * 都会出现"画面上是旧的、导出是新的"或"没触发自动保存"。
+   * 各处业务代码自己写这五行，迟早会漏一步。
+   */
+  function applyEdit(cmd: Command): void {
+    const s = core.store.value
+    if (!s) return
+    s.exec(cmd)
+    core.refreshFrameBoxes(cmd.meta.affects.frames)
+    core.boxes.value = core.materializeNow()
+    core.pruneSelection()
+    core.syncHistoryUi()
+    core.syncViewer()
+    core.markDirty()
+  }
+
+  /**
+   * 预标注与复核。
+   *
+   * 依赖显式列出而不是把 core 整个传进去：这段功能的边界就是
+   * "读文档 / 写命令 / 跳帧 / 选中"，不需要别的。
+   */
+  const preAnnotation = usePreAnnotation({
+    doc: () => core.doc.value,
+    range: () => core.doc.value?.range ?? [0, -1],
+    totalFrames: () => core.frames.value.length,
+    currentFrame: () => core.frameNumber(),
+    nextTrackId: (used) => {
+      // used 里既有库里已有的 id，也有"本次合并刚分配但还没落库"的 id。
+      // 两个集合取并再算，才能一次合并建多条时不会撞号
+      const all = new Set(used)
+      for (const t of core.store.value?.tracks ?? []) all.add(t.id)
+      for (const b of core.boxes.value) all.add(b.id)
+      return nextNumericId(all)
+    },
+    applyEdit,
+    gotoFrame: (frame) => sequence.gotoFrameIndex(frame),
+    selectTrack: (id) => {
+      core.selectMany([id])
+      core.syncViewer()
+    },
+    cloud: () => core.cloud.value,
+    say: (msg) => { core.statusText.value = msg },
+  })
+
+  /**
+   * 文档变化（别的入口的撤销、删除、改类别）之后，复核队列要跟着重算。
+   *
+   * 只在面板打开时算：关闭时没人看这两个数，而 `collectReviewRows` 要扫全部
+   * 轨迹的 states —— 拖框时每帧都扫一遍会白烧 CPU。
+   */
+  watch(core.docVersion, () => {
+    if (preAnnotation.reviewOpen.value) preAnnotation.refresh()
+  })
+
+  /**
+   * 复核快捷键的先行拦截。
+   *
+   * 用捕获阶段是因为 `annotation.onKeyDown` 注册在同一节点（window）的冒泡阶段：
+   * 捕获阶段先跑，`stopPropagation()` 之后冒泡那一路就不再执行。
+   * 只有面板打开时 `handleKey` 才返回 true，其余情况这条监听器等于不存在。
+   */
+  function onReviewKey(e: KeyboardEvent): void {
+    const tag = (e.target as HTMLElement)?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+    if (!preAnnotation.handleKey(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
   let saveTimer: number | undefined
   let saving = false
   /** 撤销"对端淘汰了本端帧"的订阅 */
@@ -781,6 +858,9 @@ export function useStudio() {
 
     window.addEventListener('keydown', annotation.onKeyDown)
     window.addEventListener('keydown', onResizeShortcut)
+    // 复核快捷键要在常规键位之前拿到：捕获阶段注册，面板打开时才消费 A/X/Tab，
+    // 关掉面板立刻归还给原快捷键（A 仍然是沿 +y 平移）
+    window.addEventListener('keydown', onReviewKey, true)
     window.addEventListener('beforeunload', onBeforeUnload)
 
     // 排定启动数据集：显式 URL 参数优先，其次本地草稿，最后演示场景
@@ -850,6 +930,7 @@ export function useStudio() {
     for (const fn of viewportCleanup) fn()
     window.removeEventListener('keydown', annotation.onKeyDown)
     window.removeEventListener('keydown', onResizeShortcut)
+    window.removeEventListener('keydown', onReviewKey, true)
     window.removeEventListener('beforeunload', onBeforeUnload)
     viewer?.dispose()
   })
@@ -862,6 +943,7 @@ export function useStudio() {
     ...quality,
     ...camera,
     ...library,
+    ...preAnnotation,
     showHelp,
     menuOpen,
     persistNow,

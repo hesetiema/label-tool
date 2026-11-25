@@ -51,6 +51,24 @@ const tmpMatrix = new THREE.Matrix4()
 const tmpQuat = new THREE.Quaternion()
 const tmpVec = new THREE.Vector3()
 
+/**
+ * 渲染层看到的框：Box3D 加上可选的复核状态。
+ *
+ * 【为什么用交叉类型而不是改 Box3D】导出格式、正交视图、老代码都吃 Box3D；
+ * 复核是流程概念，只有画面需要。交叉类型让"多传两个字段"零成本成立，
+ * 也不需要把 core 的类型改成"知道标注流程"的样子。
+ */
+export type RenderBox = Box3D & {
+  review?: 'none' | 'pending' | 'accepted' | 'rejected' | 'conflict'
+  confidence?: number
+}
+
+/** 这一帧该不该画成虚线：预测/遮挡之外，待复核与已拒绝也是"未确认" */
+function isDashed(box: RenderBox): boolean {
+  if (box.visibility === 'occluded' || box.visibility === 'predicted') return true
+  return box.review === 'pending' || box.review === 'rejected'
+}
+
 export class PointCloudViewer {
   private renderer: THREE.WebGLRenderer
   private scene = new THREE.Scene()
@@ -177,7 +195,7 @@ export class PointCloudViewer {
     if (pointColorChanged && this.currentCloud) this.setPointCloud(this.currentCloud)
   }
 
-  private makeLabelSprite(box: Box3D, color: number): THREE.Sprite {
+  private makeLabelSprite(box: RenderBox, color: number): THREE.Sprite {
     const canvas = document.createElement('canvas')
     canvas.width = 256
     canvas.height = 64
@@ -189,7 +207,12 @@ export class PointCloudViewer {
     ctx.fillRect(0, 0, 4, 64)
     ctx.fillStyle = '#eef4fb'
     ctx.font = '500 28px system-ui, sans-serif'
-    const tag = box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : ''
+    const reviewTag = box.review === 'pending'
+      ? ` 待复核${box.confidence !== undefined ? ` ${box.confidence.toFixed(2)}` : ''}`
+      : box.review === 'conflict' ? ' 冲突'
+        : box.review === 'rejected' ? ' 已拒绝'
+          : ''
+    const tag = (box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : '') + reviewTag
     ctx.fillText(`${box.label} #${box.id}${tag}`, 14, 42)
     const tex = new THREE.CanvasTexture(canvas)
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }))
@@ -198,7 +221,7 @@ export class PointCloudViewer {
     return sprite
   }
 
-  private paintLabelSprite(sprite: THREE.Sprite, box: Box3D, color: number) {
+  private paintLabelSprite(sprite: THREE.Sprite, box: RenderBox, color: number) {
     const tex = (sprite.material as THREE.SpriteMaterial).map as THREE.CanvasTexture
     const canvas = tex.image as HTMLCanvasElement
     const ctx = canvas.getContext('2d')!
@@ -210,20 +233,25 @@ export class PointCloudViewer {
     ctx.fillRect(0, 0, 4, 64)
     ctx.fillStyle = '#eef4fb'
     ctx.font = '500 28px system-ui, sans-serif'
-    const tag = box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : ''
+    const reviewTag = box.review === 'pending'
+      ? ` 待复核${box.confidence !== undefined ? ` ${box.confidence.toFixed(2)}` : ''}`
+      : box.review === 'conflict' ? ' 冲突'
+        : box.review === 'rejected' ? ' 已拒绝'
+          : ''
+    const tag = (box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : '') + reviewTag
     ctx.fillText(`${box.label} #${box.id}${tag}`, 14, 42)
     tex.needsUpdate = true
   }
 
   /** 用 8 角点生成线框，顶点顺序与原仓库一致 */
-  private makeEdges(box: Box3D, color: number): THREE.LineSegments {
+  private makeEdges(box: RenderBox, color: number): THREE.LineSegments {
     const v = boxToVertices(box)
     const pts: number[] = []
     const p = (i: number) => [v[i * 4], v[i * 4 + 1], v[i * 4 + 2]]
     for (const [a, b] of EDGE_INDICES) pts.push(...p(a), ...p(b))
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
-    const predicted = box.visibility === 'occluded' || box.visibility === 'predicted'
+    const predicted = isDashed(box)
     if (predicted) {
       const dashed = new THREE.LineSegments(geo, new THREE.LineDashedMaterial({
         color, dashSize: 0.4, gapSize: 0.3, transparent: true, opacity: 0.75, depthTest: false,
@@ -273,11 +301,12 @@ export class PointCloudViewer {
   }
 
   /** selLevel：0 未选中 / 1 次选中 / 2 主选中。进签名才能让多选变化触发重建 */
-  private boxSignature(box: Box3D, color: number, selLevel: number): string {
+  private boxSignature(box: RenderBox, color: number, selLevel: number): string {
     return [
       box.position.x, box.position.y, box.position.z,
       box.scale.x, box.scale.y, box.scale.z, box.yaw,
       box.label, box.visibility ?? 'visible', color, selLevel,
+      box.review ?? '', box.confidence ?? -1,
       this.appearance.outlinedBorders ? 1 : 0,
       this.appearance.showOrientation ? 1 : 0,
       this.appearance.opacity,
@@ -289,7 +318,7 @@ export class PointCloudViewer {
    * 多选时主选中用黄、次选中用白，和正交视图的配色保持一致。
    */
   setBoxes(
-    boxes: Box3D[],
+    boxes: RenderBox[],
     selectedIds: ReadonlySet<string>,
     primaryId: string | null,
     colorOf: (box: Box3D) => number,
