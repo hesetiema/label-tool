@@ -15,11 +15,12 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 
 打开后会**自动加载一个程序化生成的演示场景**（地面 + 车道线 + 车辆/行人点云），无需任何外部数据即可体验完整流程。
 
-界面按 **CVAT 3D 的交互骨架**组织：顶部是数据集菜单与帧导航，左侧是图标工具条，中间是 3D 透视视口，底部是 **Top / Side / Front 三联正交视图**，右侧是 **对象 / 标签 / 外观** 面板。画框不再在 BEV 里凭空拖拽，而是对齐 CVAT 的两步法：**在 Top 视图拖出底面矩形 → 在 Side 视图拖绿点调高度**。
+界面按 **CVAT 3D 的交互骨架**组织：顶部是数据集菜单与帧导航，左侧是图标工具条，中间是 3D 透视视口，底部是 **Top / Side / Front 三联正交视图**，右侧是 **对象 / 标签 / 任务 / VLA / 更多** 面板（外观与属性都在对象页里）。画框不再在 BEV 里凭空拖拽，而是对齐 CVAT 的两步法：**在 Top 视图拖出底面矩形 → 在 Side 视图拖绿点调高度**。
 
 想看**真实数据**？点左上角 **Point Cloud → 真实数据**，即可一键加载 SUSTechPOINTS 官方样例：**66,899 个真实激光雷达点 + 24 个标注框**，能看到 LiDAR 特有的同心圆扫描线、真实车辆/行人点云。加载后自动进入**分屏模式**：左边点云、右边前视相机图，并把 3D 框投影到图像上（约 10 个框在前视可见），直观验证多传感器对齐。也可直接访问 `http://127.0.0.1:5173/?data=real` 直达。
 
-> 侧栏不再有 Tab：时序、质检、运镜、性能都收进右侧「更多」的折叠区，主流程只保留标注本身。
+> 右侧面板收成 5 个 Tab：**对象 / 标签 / 任务 / VLA / 更多**。时序、质检、运镜、性能都收在「更多」里，
+> 主流程只保留标注本身。
 
 三个直达链接，覆盖最值得先看的能力（`?data=real` / `?data=sequence` / `?data=qa`）：
 
@@ -94,7 +95,7 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 E
 
 ## 3. 学习路线（按顺序读 docs/）
 
-这个仓库既是可运行的工具，也是一套教程。①–⑥ 是从零到能用的主线，⑦–⑩ 是工程化与 4D 进阶：
+这个仓库既是可运行的工具，也是一套教程。①–⑥ 是从零到能用的主线，⑦–⑪ 是工程化、4D 与多任务进阶：
 
 | 文档 | 配套源码 | 一句话 |
 |---|---|---|
@@ -110,7 +111,7 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 E
 | [⑧ 4D 轨迹叠加回放](docs/08-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、轨迹线渲染、回放定时器 |
 | [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
 | [⑩ 相机导演：关键帧运镜与录制](docs/10-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、MediaRecorder |
-| [⑪ 4D 多任务与 VLA 改造方案](docs/11-4d-multitask-vla-upgrade-plan.md) | `src/domain/*` | 从画框工具到 4D 数据生产；P0/P1 内核、本地持久化与缓存回收、P2 预标注与复核、**P3 多任务（占据 / 光流 / 跨任务一致性）**已落地，文末附实现进度与偏差说明 |
+| [⑪ 4D 多任务与 VLA 改造方案](docs/11-4d-multitask-vla-upgrade-plan.md) | `src/domain/*` | 从画框工具到 4D 数据生产；P0/P1 内核、本地持久化与缓存回收、P2 预标注与复核、**P3 多任务（占据 / 光流 / 跨任务一致性）**、**P4 VLA（指令段 / 动作通道 / 对齐校验 / JSONL 互通）**已落地，文末附实现进度与偏差说明 |
 
 另外两个可直接读源码的专题（无独立教程）：`core/io/formats/` 是 KITTI / DAIR-V2X / nuScenes / Waymo 的格式适配与坐标约定；`core/semantics.ts` 是 SemanticKITTI 官方类别表、learning_map（原始 34 类 → 训练 20 类）、`.label` 高低 16 位（语义 / 实例）的读写与统计。
 
@@ -131,7 +132,7 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 E
 | 版本管理 | 标注多版本、回滚、审计日志 | **本地草稿已做**（IndexedDB 自动保存 + 刷新恢复 + 离开拦截），缺服务端多版本 / 回滚 / 审计日志 |
 | 权限协作 | 标注员 / 质检员 / 管理员分权 | 无，单用户 |
 | 质检流程 | 抽检、返修、通过率统计 | **指标有了**（IoU / kappa / 漏误标率），**流程没有** |
-| 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 3D 框 + **逐点语义分割**（导入 / 着色 / 持久化）+ **占据 / 光流**（由框派生、可抽检修正）；车道线 / 关键点 / 可行驶区域仍未覆盖 |
+| 任务类型 | 3D 框 + 分割 + 车道线 + 关键点 + 可行驶区域 | 3D 框 + **逐点语义分割**（导入 / 着色 / 持久化）+ **占据 / 光流**（由框派生、可抽检修正）+ **VLA 指令—动作对齐**；车道线**只有校验与存储、没有编辑器**（`lane` 任务 `editor: ''`），关键点 / 可行驶区域仍未覆盖 |
 | 预标注 | CenterPoint / PointPillars 等模型产出候选框 | **消费端已就绪**（Provider 协议 + 三种适配器 + 合并 + 复核队列 + 导出闸门）；缺真实模型服务，演示用确定性 mock |
 | 多任务一致性 | 跨任务约束自动发现"框和占据对不上" | **I1 框内占据率 / I2 框内类别 / I3 语义实例映射**已实现；I4 光流刚体误差 / I5 车道线在可行驶区域内留到规则引擎 |
 | 跟踪 | 马氏距离 + JPDA / 多假设 + 轨迹优化 | Kalman + Hungarian 已实现，但只用 2D 常速度 + 欧氏距离 |
@@ -182,6 +183,7 @@ src/
 │   │                     # task.ts（任务注册表：校验 / 派生 / 序列化 / 体积 / 进度）
 │   ├── derive/           # occupancy.ts（占据：网格数学 / box carving / 地面 / RLE / 打包）
 │   │                     # flow.ts（刚体流 / 自车运动估计 / 箭头采样）
+│   ├── vla/              # rules.ts（11 条对齐校验）· demo.ts（确定性合成）· resample.ts（重采样与统计）
 │   ├── qa/               # crossTask.ts（I1 框内占据率 / I2 类别 / I3 语义映射）
 │   ├── store/            # trackStore · applyCommand · commandHistory · editSession · materialize
 │   │                     # blobRefs（引用抽取）· restorePlan（doc-first 恢复计划）· tabLease（跨标签页判定）
@@ -190,14 +192,14 @@ src/
 │   │                     # mergePreLabel（预标注身份关联 + 四种合并策略）· review（复核队列 / 裁决 / 导出闸门）
 │   │                     # taskPayload（setTaskPayload 命令构造：描述对象 / 主引用 / 深拷贝）
 │   │                     # vlaEdit（指令区间 / 文本 / 对齐 / 符号约定的纯函数）
-│   └── io/               # legacyDocument（v1 快照 → v2 文档迁移）
+│   └── io/               # legacyDocument（v1 快照 → v2 文档迁移）· vlaJsonl（VLA 的 JSONL 导入导出）
 ├── ports/                # 端口：dataSource / documentStore / blobStore / preAnnotation（流式预标注协议）
 ├── adapters/             # 适配器：IndexedDB 文档与 blob 存储 · PCD worker 池（优先级队列）· 帧加载
 │                         # blobGc / studioGc（清扫）· gcAudit（审计）· tabBus（跨标签页租约与广播）
 │                         # blobKeys（键规范）· frameCloudStore（帧缓存 + 使用时间）
 │                         # occupancyStore（占据帧的 payload 存取）
 │                         # preAnnotate/：mockProvider（确定性）· httpProvider（NDJSON）· fileProvider（离线结果）· parse
-├── state/                # 状态层：core 持有共享状态，五个模块各自管一摊业务，useStudio 只做装配
+├── state/                # 状态层：core 持有共享状态，九个业务模块各自管一摊，useStudio 只做装配
 │   ├── studioCore.ts     # 共享 ref / 历史栈 / 工具与外观 / 锁定隐藏 / 渲染同步
 │   ├── useAnnotation.ts  # 建框、直接操作、撤销重做、复制粘贴、导入导出、快捷键
 │   ├── useDataset.ts     # 演示 / 真实数据 / 多帧 PCD 导入 / 草稿恢复
@@ -217,7 +219,9 @@ src/
 │   ├── ToolRail.vue      # 左侧图标工具条（选择 / 平移 / 画框 / 缩放 / 视图）
 │   ├── Stage.vue         # 3D 视口 + 三联正交条 + 相机分屏 + 视图切换
 │   ├── OrthoView.vue     # Top/Side/Front 2D 投影、手柄拖拽、滚轮缩放
-│   ├── RightPanel.vue    # 对象 / 标签 / 任务 / 更多
+│   ├── RightPanel.vue    # 对象 / 标签 / 任务 / VLA / 更多
+│   ├── Timeline.vue      # 底部时间线：轨迹条 / 关键帧 / 指令条 / 通道曲线 / 当前帧游标
+│   ├── StatusBar.vue     # 状态栏：坐标读数 / 提示 / 只读与保存状态
 │   ├── HelpModal.vue     # 快捷键与工作流
 │   ├── SampleList.vue    # 本地样本列表弹层（浏览 / 删除落盘文档）
 │   ├── ReviewQueue.vue   # 预标注复核队列（统计 / 策略 / 逐条裁决 / 快捷键说明）
@@ -225,6 +229,7 @@ src/
 │   └── panels/           # ObjectPanel · CategoryPanel · PropertyPanel · DataPanel
 │                         # SequencePanel · CameraDirectorPanel · PerformancePanel · QualityPanel
 │                         # TaskPanel（多任务：进度 / 占据 / 光流 / 一致性）
+│                         # VlaPanel（VLA：指令段 / 动作通道 / 对齐校验 / JSONL）
 ├── styles/               # 按职责拆分的样式
 │   ├── index.css         # 汇总入口
 │   ├── base.css          # 变量 / 重置 / 基础控件
@@ -265,7 +270,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 | 左工具条 | 选择 `V` / 平移 `H` / 画框 `N` / 放大缩小 / 适应数据 / 复位 / 正交条开关 |
 | 主视口 | 3D 透视。单击框选中，拖拽旋转/平移，双击复位 |
 | 三联视图 | Top / Side / Front。双击任一视图最大化，顶部出现 Top/Side/Front 切换 |
-| 右侧面板 | 对象（锁定/隐藏/排序 + 详情 + 外观）、标签（增删类别/改色）、更多（数据集/时序/质检/运镜/性能） |
+| 右侧面板 | 对象（锁定/隐藏/排序 + 详情 + 外观）、标签（增删类别/改色）、任务（多任务进度与派生）、VLA（指令段与动作通道）、更多（数据集/时序/质检/运镜/性能） |
 
 ### 6.2 标注流程（CVAT 两步法）
 

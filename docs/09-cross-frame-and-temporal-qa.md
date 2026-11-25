@@ -93,5 +93,5 @@ UI 里每条问题可点击跳到对应帧。
 - 跨帧编辑：`src/core/sequence/sequence.ts` — `propagateBox` / `PropagateScope`
 - 时序质检：`src/core/sequence/temporalQA.ts` — `evaluateTemporal` / `injectTemporalDefects` / `TemporalReport`
 - 交互层：`src/state/useSequence.ts` — `doPropagate` / `runTemporalQA` / `runTemporalDemo`
-- 测试：`tests/core-check.ts` — 12 项 4D 断言
+- 测试：`tests/core-check.ts` — 本篇能力当批新增 12 项 4D 断言（该文件现累计 227 项）
 - 前序：[⑧ 4D 轨迹叠加回放](08-4d-trajectory-replay.md) · [⑦ 工程化能力](07-engineering-p0.md)

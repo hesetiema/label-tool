@@ -444,7 +444,7 @@ export const laneAdapter: TaskAdapter<import('./document').LaneTaskData> = {
 /**
  * VLA：语言—动作对齐。
  *
- * 校验逻辑在 `domain/vla/rules`，不写在这里 —— 它有 10 条规则、需要自己的
+ * 校验逻辑在 `domain/vla/rules`，不写在这里 —— 它有 11 条规则、需要自己的
  * 选项与辅助函数，塞进 task.ts 会让这个文件变成"所有任务的 validate 合集"，
  * 而它存在的意义恰恰是"每个任务只需要在注册表里占一行"。
  */
@@ -481,7 +481,7 @@ export const vlaAdapter: TaskAdapter<import('./vla').VlaTaskData> = {
  * 默认注册表。
  *
  * vla 在 P4 之前**故意不注册**：注册了却没有任何校验与编辑器，
- * 只会在"任务"面板里多一个永远 0% 的条目。现在它有 10 条规则和独立面板了。
+ * 只会在"任务"面板里多一个永远 0% 的条目。现在它有 11 条规则和独立面板了。
  */
 export function createDefaultRegistry(): TaskRegistry {
   return new TaskRegistry()

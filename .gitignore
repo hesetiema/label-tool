@@ -6,8 +6,8 @@ dist/
 # 本地数据集 / 大数据文件（不入库）
 datasets/
 
-# 测试运行时临时文件
-tests/.check.bundle.mjs
+# 测试运行时临时文件（每支测试各一个 bundle，正常结束后脚本自删）
+tests/.*.bundle.mjs
 
 # 浏览器自动化临时 profile / 截图
 .tmp-edge-*/

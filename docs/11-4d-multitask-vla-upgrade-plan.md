@@ -1171,7 +1171,8 @@ export interface VlaTaskData {
 
 - **导入**：支持 JSONL，一行一个样本：
   `{"sample_id":"...","instructions":[{"text":"...","start_frame":0,"end_frame":45}],"actions":{"steer":[...],"throttle":[...]}}`
-- **合成**：`generateVlaDemo()` 基于演示序列生成 20 条指令 + 4 通道平滑曲线，用于打通链路与演示。
+- **合成**：`generateVlaDemo()` 基于演示序列生成 20 条指令 + 4 通道平滑曲线，用于打通链路与演示
+  （实现取 5 段而非 20 段，理由见 27.7）。
 - **LLM 辅助分段**：可选，产出 `source.kind='model'` 且 `confirmed=false`，必须人工逐条确认才能导出。**不把 LLM 生成当标注**。
 
 #### 5.4.5 验收
@@ -1768,7 +1769,7 @@ export function migrateV1(snapshot: SessionSnapshot): SampleDocument {
 | 性能门禁 | `performance.now()` 断言（宽松） | 切帧、单帧规则、RLE 编解码 | 8 项 |
 | 手工清单 | 浏览器 | 交互、视觉、跨浏览器 | 每阶段 20 条 |
 
-**为什么不引入 Vitest/Playwright**：项目当前零测试框架依赖，`pnpm test:core` 用 esbuild 打包后 node 执行，启动 < 1s。在 500 项以内这个方案完全够用，且对贡献者友好。等引入真正的浏览器 E2E 需求（如拖拽手柄的像素级回归）再评估 Playwright。
+**为什么不引入 Vitest/Playwright**：项目当前零测试框架依赖，`pnpm test:core` 用 esbuild 打包后 node 执行，启动 < 1s。写方案时预估"500 项以内够用"，现在八支合计 1005 项、单支仍是同一套打包直跑 —— 真正决定成本的是打包方式（每支一个 bundle，不落测试框架的解析开销），不是断言条数；等引入真正的浏览器 E2E 需求（如拖拽手柄的像素级回归）再评估 Playwright。
 
 ### 9.2 必测的 12 类性质
 
@@ -1941,11 +1942,11 @@ export function migrateV1(snapshot: SessionSnapshot): SampleDocument {
 | `src/domain/ops/interpolate.ts` | Hermite / 线性插值、尺寸恒定、补帧规划、coasting |
 | `src/domain/ops/trackOps.ts` | 建/删/改/插值/传播/复制/合并/拆分/遮挡标记的命令构造 |
 | `src/domain/io/legacyDocument.ts` | v1（整帧 `Box3D[]`）→ v2 文档；反向导出逐帧框 |
-| `src/ports/*.ts` | `BlobStore` / `DataSource` / `DocumentStore` 三个端口（无实现） |
-| `src/components/Timeline.vue` | 轨迹时间线：跨度条 + 关键帧刻度 + 当前帧指针 + 拆分/合并/补帧入口 |
+| `src/ports/*.ts` | `BlobStore` / `DataSource` / `DocumentStore` / `PreAnnotation` 四个端口，实现都在 `adapters/` |
+| `src/components/Timeline.vue` | 轨迹时间线：跨度条 + 关键帧刻度 + 当前帧指针 + 拆分/合并/补帧入口（P4 起再加指令条与四通道曲线） |
 | `scripts/check-layers.mjs` | 分层机器校验（domain 不得依赖 vue/three/UI，core 不得依赖 domain） |
-| `tests/domain-check.ts` | 119 项内核断言 |
-| `tests/studio-check.ts` | 40 项状态层集成断言（装载 → 编辑 → 撤销 → 切帧） |
+| `tests/domain-check.ts` | 119 项内核断言（P1 时；现 247 项） |
+| `tests/studio-check.ts` | 40 项状态层集成断言（P1 时；现 47 项。装载 → 编辑 → 撤销 → 切帧） |
 
 ### 16.2 接入方式（双写期）
 
@@ -3293,8 +3294,8 @@ VLA（P4）、规则引擎（P5）、车道线编辑不在这一批，原因分�
 | `estimateBytes(payload)` | 多大、要不要懒加载 | 配额与"哪个任务在吃空间" |
 | `progress(doc)` | 做了多少 | 任务面板的进度行 |
 
-注册进 `createDefaultRegistry()` 的是 boxes / occupancy / flow / semantic / lane 五个。
-P4 之前 **vla 故意不注册**（没有校验与编辑器时，注册了只会在面板里多一个永远 0% 的行）；
+P3 结束时注册进 `createDefaultRegistry()` 的是 boxes / occupancy / flow / semantic / lane 五个，
+**vla 故意不注册**（没有校验与编辑器时，注册了只会在面板里多一个永远 0% 的行）；
 第 27 章把它补上了，现在默认是六个。
 
 `validate` 返回 `QaIssue[]` 而不是抛异常 —— 导入别人的文档时，"占据帧号越界"
@@ -3491,7 +3492,8 @@ pnpm build          通过
 - **车道线编辑**：`lane` 任务只有校验与存储，没有画线与拟合。
 - **跨样本共享占据**：内容寻址已经让"同一帧被两个样本引用时只存一份"成立，
   但还没有"从另一个样本复制占据"的入口。
-- **VLA（P4）**：指令段与动作通道的数据结构已在 `document.ts`，编辑与对齐未开始。
+- **VLA（P4）**：P3 收尾时只有数据结构（在 `document.ts`），编辑与对齐未开始；
+  第 27 章已补上编辑、对齐校验与 JSONL 互通。
 
 ---
 
@@ -3505,7 +3507,7 @@ pnpm build          通过
         │                              │                                │
         └──────── 时间线两行共享同一个帧游标 ──────────┘                │
                                        │                                │
-                                  十条规则 ──▶ 面板问题列表 ──▶ JSONL 导出 ──▶ scripts/vla_check.py 回读
+                                  11 条规则 ──▶ 面板问题列表 ──▶ JSONL 导出 ──▶ scripts/vla_check.py 回读
 ```
 
 ### 27.1 要标的是三个对象，不是两个
@@ -3589,7 +3591,7 @@ isExportableState({ review, source })  // source.kind !== 'model' 直接放行�
 这样"不把 LLM 生成当标注"不是靠自觉，而是和框走同一道闸门 —— 改一处不会漏另一处。
 导出时被挡掉的条数写进 JSONL 的 `dropped` 字段，让训练侧知道少了几个。
 
-### 27.5 十条规则：五条必做、两条降级、两条不做、一条补充
+### 27.5 十二条规则：六条照做、三条补充、一条降级、一条默认关、一条不做
 
 | 规则 | 级别 | 本期 | 说明 |
 |---|---|---|---|
@@ -3672,6 +3674,12 @@ pctSlotEnd(f)   // 第 f 帧占 [pct(f), pct(f+1))，条形右边界用它
 阶跃满足前者违反后者，长余弦满足后者但"起转"太慢。12 帧 smoothstep 在 10Hz 下：
 起转约 0.18s（< 0.5 ✓），二阶差分峰值 `6A/12² ≈ 0.033`（< 0.05 ✓）。这两个数是算出来的，不是试出来的。
 
+**为什么是 5 段而不是方案里的 20 段**：段数多不等于验证得多。5 段正好一一覆盖 `signMap`
+里的五个标签（`keep-lane` / `turn-left` / `go-straight` / `lane-change-right` / `stop`），
+每条规则都至少有一个正例和一个反例（反例靠注入）。再加 15 段只是把同一套语义重复一遍，
+却会把时间线挤满 —— 段边界看不清，反而失去"能看出对齐错位"这个最重要的用途。
+真实数据的段数由数据决定，合成数据的段数由"要覆盖哪些分支"决定。
+
 ### 27.8 JSONL：容错取向与独立回读
 
 **对外 snake_case，对内 camelCase**，换算只在 `domain/io/vlaJsonl.ts` 一层做。
@@ -3710,12 +3718,12 @@ pctSlotEnd(f)   // 第 f 帧占 [pct(f), pct(f+1))，条形右边界用它
 | 方案要求 | 现状 |
 |---|---|
 | 300 帧片段能加载、编辑指令段、绘动作曲线，帧游标三线同步 | 时间线两行 + 面板共用 `frameNo`；浏览器用例用 120 帧（默认 5 帧太短，测不出问题） |
-| 9 条规则注入后全报、且不误报干净数据 | 实现 8 条 + 补充 3 条 + 降级 2 条（见 27.5）；干净基线 0 问题有用例守着 |
+| 9 条规则注入后全报、且不误报干净数据 | 实现 11 条（6 条照做 + 3 条补充 + 1 条降级 + 1 条默认关），另有 1 条不做（见 27.5）；干净基线 0 问题有用例守着 |
 | 导出 JSONL 能被独立 Python 脚本读回 | `scripts/vla_check.py`，实测坏样本退出码 1 |
 
 ```
-pnpm test:vla       117 项（重采样 / 合成 / 十条规则 / 编辑 / JSONL / 注册表 / 命令）
-node scripts/browser/vla.mjs   44 项（生成 / 时间线双行 / 对角对齐 / 区间编辑与撤销 / 注入错误 / 导出 / 面板 / 清除）
+pnpm test:vla       117 项（重采样 / 合成 / 11 条规则 / 编辑 / JSONL / 注册表 / 命令）
+node scripts/browser/vla.mjs   44 项（生成 / 时间线双行 / 指令条对齐与跳帧 / 区间编辑与撤销 / 注入错误 / 导出 / 面板 / 清除）
 pnpm test           1005 项全过（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 / 150 P3 回收 / 97 多任务 / 117 VLA）
 pnpm test:browser   346 项全过（12 支）
 pnpm build          通过

@@ -199,7 +199,8 @@ const hasOcc = computed(() => occEntries.value.length > 0)
     <div v-else-if="lastCheck" class="hint-small">没有发现跨任务冲突</div>
     <div class="hint-small">
       I1 框内占据率 / I2 框内类别一致 / I3 语义实例映射不悬空。
-      光流与车道线两条规则依赖 P5 规则引擎，本期未做。
+      跨任务的 I4 光流刚体误差 / I5 车道线落在可行驶区域内，留到 P5 规则引擎
+      （光流本身的可靠性由「任务」页的 TASK_FLOW_UNRELIABLE 单独报）。
     </div>
   </section>
 </template>
