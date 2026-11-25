@@ -6,7 +6,8 @@ import { boxSizeSummary } from '../viewer/canvasPrimitives'
 const studio = inject(StudioKey)!
 const {
   cloud, statusText, boxes, frames, currentFrame, selectedId, selectedCount,
-  tool, saveState, lockedIds, cursor, hoverId,
+  tool, saveState, lockedIds, cursor, hoverId, readOnly, readOnlyNote,
+  takeoverScene, peerTabs,
 } = studio
 
 /** 鼠标指着的对象：3D 视口和正交视图共用同一个悬停状态 */
@@ -17,6 +18,16 @@ const hoveredBox = computed(() => (hoverId.value ? boxes.value.find((b) => b.id 
   <footer class="statusbar">
     <span class="status-dot" :class="saveState"></span>
     <span class="status-text">{{ statusText }}</span>
+    <!-- 跨标签页：同一样本已在别处编辑时本页只读，点一下可接管 -->
+    <span
+      v-if="readOnly"
+      class="status-chip readonly"
+      :title="readOnlyNote || '该样本已在另一个标签页打开；点此接管编辑权'"
+      @click="takeoverScene"
+    >只读 · 接管</span>
+    <span v-else-if="peerTabs.length" class="status-chip" title="同源其它标签页（各自独立编辑不同样本）">
+      其它标签页 {{ peerTabs.length }}
+    </span>
     <span class="spacer"></span>
     <span class="status-coord mono" title="光标处的点云坐标（悬停在正交视图上读取）">
       <template v-if="cursor">

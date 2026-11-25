@@ -11,10 +11,14 @@
  */
 import { ref } from 'vue'
 import { cloneBoxes } from '../core/history'
-import { parseSequence, serializeLabels, serializeSequence, downloadJson } from '../core/io/label'
+import { parseSequence, serializeLabels, serializeSequence, downloadJson, downloadBlob } from '../core/io/label'
+import { sequenceBlob } from '../adapters/sequenceExport'
+import { smoothDocument } from '../domain/ops/smooth'
 import { parseLabelsAuto } from '../core/io/formats'
 import { fitBoxToPoints, estimateYawByPCA, pointInBoxBev } from '../core/geometry/box'
 import { DEFAULT_CATEGORIES, type Box3D } from '../core/types'
+import { toGeometry } from '../domain/model/geometry'
+import { buildCopyToFramesBatchCommand } from '../domain/ops/trackOps'
 import type { StudioCore } from './studioCore'
 
 export interface DrawRect {
@@ -56,12 +60,14 @@ export function useAnnotation(core: StudioCore) {
       scale: { x: Math.max(0.3, rect.length), y: Math.max(0.3, rect.width), z: height },
       yaw: 0,
     }
-    mutate('新建框', () => {
+    const applied = mutate('新建框', () => {
       boxes.value.push(box)
       selectedId.value = box.id
       origin.value = cloneBoxes([box])[0]
     })
     core.tool.value = 'select'
+    // 只读形态下 mutate 不会执行：状态栏已被它写成"只读"原因，这里不能再报"已新建"
+    if (!applied) return
     statusText.value = `新建 ${box.label} #${box.id}：在 Side 视图拖绿点调高度，或在属性面板精调`
   }
 
@@ -88,11 +94,12 @@ export function useAnnotation(core: StudioCore) {
       scale: fitted?.scale ?? { x: rect.x1 - rect.x0, y: rect.y1 - rect.y0, z: cat.defaultSize[2] },
       yaw: fitted?.yaw ?? 0,
     }
-    mutate('拟合新建框', () => {
+    const applied = mutate('拟合新建框', () => {
       boxes.value.push(box)
       selectedId.value = box.id
       origin.value = cloneBoxes([box])[0]
     })
+    if (!applied) return
     statusText.value = `新建框 ${box.label} #${box.id}（用 ${indices.length} 个点自动拟合）`
   }
 
@@ -278,9 +285,9 @@ export function useAnnotation(core: StudioCore) {
     const src = selectedBoxes.value
     if (!src.length) return
     const copies = cloneAsNew(src)
-    mutate('复制框', () => {
+    if (!mutate('复制框', () => {
       boxes.value.push(...copies)
-    })
+    })) return
     adoptSelection(copies.map((c) => c.id))
     statusText.value = copies.length > 1 ? `已复制 ${copies.length} 个对象` : `已复制为 #${copies[0].id}`
   }
@@ -297,9 +304,9 @@ export function useAnnotation(core: StudioCore) {
   function pasteClipboard() {
     if (!clipboard.length) return
     const copies = cloneAsNew(clipboard)
-    mutate('粘贴框', () => {
+    if (!mutate('粘贴框', () => {
       boxes.value.push(...copies)
-    })
+    })) return
     adoptSelection(copies.map((c) => c.id))
     statusText.value = copies.length > 1 ? `已粘贴 ${copies.length} 个对象` : `已粘贴为 #${copies[0].id}`
   }
@@ -310,7 +317,8 @@ export function useAnnotation(core: StudioCore) {
    * 目标帧已有同 id 的框就跳过，不覆盖已经手工调过的标注。
    */
   function copyToFrames(scope: CopyScope) {
-    if (!frames.value.length) {
+    const s = core.store.value
+    if (!frames.value.length || !s) {
       statusText.value = '跨帧复制需要先加载多帧序列'
       return
     }
@@ -319,37 +327,43 @@ export function useAnnotation(core: StudioCore) {
       statusText.value = '先选中要复制的框'
       return
     }
-    // 当前帧的工作副本必须先写回序列，否则复制出去的可能是删改前的旧框
-    frames.value[currentFrame.value].boxes = cloneBoxes(boxes.value)
     const from = currentFrame.value
     const targets: number[] = []
     for (let i = 0; i < frames.value.length; i++) {
       if (i === from) continue
       if (scope === 'next' && i !== from + 1) continue
       if (scope === 'forward' && i <= from) continue
-      targets.push(i)
+      targets.push(frames.value[i].index)
     }
     if (!targets.length) {
       statusText.value = scope === 'next' ? '当前已经是最后一帧' : '没有可复制的目标帧'
       return
     }
-    let added = 0
+
+    // 目标帧已有该轨迹的关键帧就跳过，不覆盖已经手工调过的标注
     let skipped = 0
-    for (const ti of targets) {
-      const frame = frames.value[ti]
-      const have = new Set(frame.boxes.map((b) => b.id))
-      for (const b of src) {
-        if (have.has(b.id)) { skipped++; continue }
-        frame.boxes.push(cloneBoxes([b])[0])
-        added++
-      }
+    const items: Array<{ trackId: string; frames: number[]; geometry: ReturnType<typeof toGeometry> }> = []
+    for (const b of src) {
+      const track = s.getTrack(b.id)
+      if (!track) continue
+      const have = new Set(track.keyframes.map((k) => k.frame))
+      const missing = targets.filter((f) => !have.has(f))
+      skipped += targets.length - missing.length
+      if (missing.length) items.push({ trackId: b.id, frames: missing, geometry: toGeometry(b) })
     }
+
+    const command = buildCopyToFramesBatchCommand(items, `复制 ${src.length} 个对象到其他帧`)
+    const scopeText = scope === 'next' ? '下一帧' : scope === 'forward' ? '后续帧' : '全部帧'
+    if (!command) {
+      statusText.value = `${scopeText}里都已经有这些对象（跳过 ${skipped} 个），未新增`
+      return
+    }
+    s.exec(command)
+    core.refreshFrameBoxes(command.meta.affects.frames)
     markDirty()
     syncViewer()
-    const scopeText = scope === 'next' ? '下一帧' : scope === 'forward' ? '后续帧' : '全部帧'
-    statusText.value = added
-      ? `已把 ${src.length} 个对象复制到${scopeText}：新增 ${added} 个框${skipped ? `，跳过 ${skipped} 个已存在` : ''}`
-      : `${scopeText}里都已经有这些对象（跳过 ${skipped} 个），未新增`
+    const added = command.meta.affects.frames.length
+    statusText.value = `已把 ${src.length} 个对象复制到${scopeText}：新增 ${added} 帧${skipped ? `，跳过 ${skipped} 处已存在` : ''}（Ctrl+Z 可回退）`
   }
 
   /** 删除所有选中；锁定的自动跳过，并明确告诉用户跳过了几个 */
@@ -360,10 +374,10 @@ export function useAnnotation(core: StudioCore) {
       return
     }
     const skipped = selectedCount.value - ids.length
-    mutate(ids.length > 1 ? `删除 ${ids.length} 个框` : '删除框', () => {
+    if (!mutate(ids.length > 1 ? `删除 ${ids.length} 个框` : '删除框', () => {
       boxes.value = boxes.value.filter((b) => !ids.includes(b.id))
       selectedId.value = null
-    })
+    })) return
     statusText.value = ids.length > 1
       ? `已删除 ${ids.length} 个对象${skipped ? `（跳过 ${skipped} 个锁定）` : ''}`
       : `已删除 #${ids[0]}`
@@ -414,11 +428,60 @@ export function useAnnotation(core: StudioCore) {
       doExportFrame()
       return
     }
-    frames.value[currentFrame.value].boxes = cloneBoxes(boxes.value)
+    // 导出吃 frames 镜像：先从真值全量刷新，避免少帧或旧框
+    core.refreshFrameBoxes()
     const payload = frames.value.map((f) => ({ index: f.index, boxes: f.boxes }))
     downloadJson(`${baseName()}-sequence.json`, serializeSequence(payload))
     const total = frames.value.reduce((n, f) => n + f.boxes.length, 0)
     statusText.value = `已导出 ${frames.value.length} 帧 / ${total} 个框的整段序列`
+  }
+
+  /**
+   * 导出整段序列（真值 + 插值补帧）。
+   *
+   * 与 `doExportAll` 的区别值得说清楚，两者不是替代关系：
+   *   doExportAll    吃 frames 镜像 —— 只有翻到过的帧，内容与屏幕一致；
+   *   doExportSeq    吃 TrackStore.materializeAll —— 按 document.range 全范围补帧，
+   *                  中间帧用线性插值算出来，是"给训练用的连续轨迹"。
+   * 后者是流式的：引擎不会为了导出 500 帧而先生成 10 万个对象数组。
+   */
+  function doExportSeq() {
+    const store = core.store.value
+    if (!store) {
+      statusText.value = '还没有可导出的文档'
+      return
+    }
+    const [from, to] = store.document.range
+    const frames = Math.max(0, to - from + 1)
+    downloadBlob(`${baseName()}-sequence-interp.json`, sequenceBlob(store, {
+      materialize: { mode: 'linear' },
+    }))
+    statusText.value = `已导出第 ${from}–${to} 帧（共 ${frames} 帧，插值补帧）· ${store.trackCount} 条轨迹`
+  }
+
+  /**
+   * 导出整段（RTS 平滑）。
+   *
+   * 关键帧位置一律不动（人工确认过的框不该被算法挪），只把中间帧的抖动修平。
+   * 抖动过大（> 0.3m）的轨迹整条放弃并在状态栏点名 —— 那种情况该去修标注，
+   * 而不是接受一条"看起来顺、位置错"的轨迹。
+   */
+  function doExportSmooth() {
+    const store = core.store.value
+    if (!store) {
+      statusText.value = '还没有可导出的文档'
+      return
+    }
+    const [from, to] = store.document.range
+    const { paths, skipped } = smoothDocument(store.document)
+    downloadBlob(`${baseName()}-sequence-smooth.json`, sequenceBlob(store, {
+      materialize: { mode: 'linear', paths },
+    }))
+    const jittery = skipped.filter((s) => s.reason === 'shift-too-large')
+    const tail = jittery.length
+      ? `；${jittery.length} 条抖动过大未平滑（最大 ${jittery[0].maxShift.toFixed(2)}m）`
+      : ''
+    statusText.value = `已导出第 ${from}–${to} 帧（RTS 平滑 ${paths.size}/${store.trackCount} 条轨迹${tail}）`
   }
 
   /** 导入标注：单帧数组直接覆盖；本工具的序列文件按帧号合并 */
@@ -453,6 +516,8 @@ export function useAnnotation(core: StudioCore) {
       }
       core.ensureCategories(boxes.value)
       selectedId.value = null
+      // 导入的是 v1 结构（整帧框），重建文档后才进入 4D 真值
+      core.rebuildDocument()
       resetHistory()
       syncViewer()
       markDirty()
@@ -604,6 +669,6 @@ export function useAnnotation(core: StudioCore) {
     toggleSelectBox, selectGroup, selectAllBoxes, relabelSelected, refitSelected,
     applyBox, applyBoxes, setBoxProp, duplicateSelected, copySelected, pasteClipboard, deleteSelected,
     copyToFrames,
-    doUndo, doRedo, doExportFrame, doExportAll, onLabelFile, onKeyDown, pickAt,
+    doUndo, doRedo, doExportFrame, doExportAll, doExportSeq, doExportSmooth, onLabelFile, onKeyDown, pickAt,
   }
 }

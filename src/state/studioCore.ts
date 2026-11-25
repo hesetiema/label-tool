@@ -10,7 +10,7 @@
  *
  * 约定：所有会改变标注的编辑动作都走 mutate()，保证撤销栈完整。
  */
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, shallowRef } from 'vue'
 import type { PointCloudViewer } from '../viewer/PointCloudViewer'
 import { HistoryStack, cloneBoxes } from '../core/history'
 import { extractTrajectories, type FrameData } from '../core/sequence/sequence'
@@ -18,6 +18,10 @@ import type { TemporalReport } from '../core/sequence/temporalQA'
 import type { QualityReport } from '../core/quality/quality'
 import type { Calibration } from '../core/io/calibration'
 import { DEFAULT_CATEGORIES, type Box3D, type ObjectCategory, type PointCloud } from '../core/types'
+import { TrackStore } from '../domain/store/trackStore'
+import type { SampleDocument } from '../domain/model/document'
+import { buildDocumentFromFrames } from '../domain/io/legacyDocument'
+import type { FrameLoader } from '../adapters/frameLoader'
 
 /** 主视口布局：仅点云 / 点云+相机分屏 / 仅相机 */
 export type Layout = 'cloud' | 'split' | 'camera'
@@ -28,8 +32,12 @@ export type Tool = 'select' | 'pan' | 'draw'
 /** 正交视图名，与 CVAT 的 Top / Side / Front 对应 */
 export type OrthoAxis = 'top' | 'side' | 'front'
 
-/** 自动保存状态，直接驱动状态栏文案 */
-export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'off'
+/**
+ * 自动保存状态，直接驱动状态栏文案。
+ * `readonly` 是跨标签页协调的产物：同一样本已有别的标签页在写，
+ * 本页只能看不能存（见 adapters/tabBus.ts）。
+ */
+export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'off' | 'readonly'
 
 /**
  * 重置历史时的清理范围。
@@ -87,6 +95,32 @@ export function createStudioCore() {
   // ---- 帧序列 ----
   const frames = ref<FrameData[]>([])
   const currentFrame = ref(0)
+  /**
+   * 懒加载数据源句柄。为空表示"所有帧的点云都在内存里"（演示、小数据集、草稿恢复）。
+   * 有值时 `frames[i].lazy === true` 的帧要调 `loadFrameCloud` 才能显示。
+   */
+  const frameLoader = shallowRef<FrameLoader | null>(null)
+  /**
+   * 数据集缓存键：`local#<首文件名>#<帧数>`。
+   * 逐帧点云落盘/回读、草稿恢复都用它；不用 doc.sampleId 是因为文档 id
+   * 由 sceneId+range 生成，而 range 在导入前后可能变，键必须稳定。
+   */
+  const datasetKey = ref('')
+
+  // ---- 4D 真值容器 ----
+  /**
+   * P1 之后，`boxes` 不再是真值，而是"当前帧的物化视图"：
+   *   TrackStore 才是唯一可写真值，boxes 由它物化而来。
+   *
+   * 为什么还保留这个 ref：全仓 58 处 `boxes.value` 读写（渲染、质检、导出都吃它）。
+   * 改签名会波及十几个模块，而语义降级后它们全部继续正确 —— 这正是方案 4.6 的兼容层。
+   */
+  const doc = shallowRef<SampleDocument | null>(null)
+  const store = shallowRef<TrackStore | null>(null)
+  /** 文档修订号：TrackStore 不做深层响应式，UI 靠它触发重算 */
+  const docVersion = ref(0)
+  /** 旧的整帧快照栈：仅在 store 尚未建立（空工作区）时兜底 */
+  const history = new HistoryStack<Box3D[]>({ limit: 100 })
 
   // ---- 视图与相机标定 ----
   const layout = ref<Layout>('cloud')
@@ -126,8 +160,7 @@ export function createStudioCore() {
   const temporalReport = ref<TemporalReport | null>(null)
 
   // ---- 撤销重做 ----
-  // 用 Box3D[] 的完整快照作为命令状态：框数据很小，快照比逐字段写逆操作更可靠
-  const history = new HistoryStack<Box3D[]>({ limit: 100 })
+  // store 存在时走文档级命令历史；不存在时退回整帧快照（空工作区兜底）
   const canUndo = ref(false)
   const canRedo = ref(false)
   const undoLabel = ref('')
@@ -138,6 +171,17 @@ export function createStudioCore() {
   /** 任何需要落盘的改动都 +1，装配层 watch 它做防抖保存 */
   const dirtyVersion = ref(0)
   const autosaveEnabled = ref(true)
+
+  /**
+   * 只读形态：同一样本已经在另一个标签页里被编辑。
+   *
+   * 为什么用"只读"而不是"两边都写、冲突时合并"：
+   *   文档是整段覆盖写的，两侧的内存状态没有任何共同祖先可参照，
+   *   三方合并在标注场景里会产出"框复活""轨迹重复"这类更难解释的结果。
+   *   同一样本单写者 + 显式接管，是唯一能保证"不会静默丢框"的做法。
+   */
+  const readOnly = ref(false)
+  const readOnlyNote = ref('只读：该样本已在另一个标签页打开')
 
   /** 跨帧传播的"编辑前"基准：选中框时由标注模块写入，时序模块读取 */
   const origin: { value: Box3D | null } = { value: null }
@@ -241,10 +285,148 @@ export function createStudioCore() {
   /** 点云被替换时调用，下次 syncViewer 会强制重传几何体 */
   function invalidateCloud() { lastCloudRef = null }
 
+  /** 当前帧在文档里的帧号（frames 数组下标 ≠ frame.index，导入数据可能跳号） */
+  function frameNumber(index = currentFrame.value): number {
+    if (!frames.value.length) return 0
+    return frames.value[index]?.index ?? index
+  }
+
+  /**
+   * 文档的场景标识 —— 也就是 `sampleId = sceneId#start-end` 的前半段。
+   *
+   * 【为什么不能写死 'workspace'】
+   *   帧数相同的两个数据集会算出同一个 sampleId，而 sampleId 就是文档在
+   *   IndexedDB 里的主键：导入第二个 21 帧数据集会把第一个的文档覆盖掉。
+   *   doc-first 恢复信任文档，一旦撞号就会把 A 的框安到 B 的帧上 ——
+   *   这种错不会报错，只会让人标错车。
+   *
+   *   所以身份取"数据集键"（懒加载导入有 `local#文件名#帧数`），
+   *   没有键时退回显示名（演示、单帧导入）。两者都比固定字符串强。
+   */
+  function sceneIdentity(): string {
+    if (datasetKey.value) return datasetKey.value
+    return `workspace:${datasetName.value || 'imported'}`
+  }
+
+  /**
+   * 用当前 frames / boxes 重建文档与 store。
+   * 数据集装载、标注导入、草稿恢复都调用它 —— 这些路径的输入还是 v1 结构
+   * （整帧 Box3D），迁移在 `buildDocumentFromFrames` 里完成。
+   */
+  function rebuildDocument(): SampleDocument | null {
+    if (!frames.value.length && !boxes.value.length) {
+      doc.value = null
+      store.value = null
+      docVersion.value++
+      return null
+    }
+    const legacy = frames.value.length
+      ? frames.value.map((f) => ({ index: f.index, boxes: f.boxes }))
+      : [{ index: 0, boxes: boxes.value }]
+    const next = buildDocumentFromFrames(legacy, { sceneId: sceneIdentity(), updatedBy: 'local' })
+    doc.value = next
+    store.value = new TrackStore(next)
+    docVersion.value++
+    // 物化回来：保证内存里只有一份"视图"，且 id/label/visibility 已被规范化
+    boxes.value = store.value.materialize(frameNumber())
+    return next
+  }
+
+  /**
+   * 直接装载一份已存在的文档（doc-first 恢复用）。
+   *
+   * 与 `rebuildDocument()` 的区别：那边从 v1 逐帧框重新聚合轨迹，
+   * 会丢掉生命周期、稀疏状态、复核标记、轨迹属性 —— 这些只存在 v2 文档里。
+   * 恢复时必须"原样装上"，所以这里不做任何迁移，只建 store 并物化当前帧。
+   *
+   * 调用前提：`frames` / `currentFrame` 已经设好（物化要知道当前是哪一帧）。
+   */
+  function installDocument(next: SampleDocument): void {
+    doc.value = next
+    store.value = new TrackStore(next)
+    docVersion.value++
+    boxes.value = store.value.materialize(frameNumber())
+  }
+
+  /** 从真值物化指定帧（不传则当前帧） */
+  function materializeNow(index = currentFrame.value): Box3D[] {
+    const s = store.value
+    if (!s) return cloneBoxes(boxes.value)
+    return s.materialize(frameNumber(index))
+  }
+
+  function frameBoxCount(index: number): number {
+    const s = store.value
+    if (s) return s.materialize(frameNumber(index)).length
+    return frames.value[index]?.boxes.length ?? 0
+  }
+
+  /**
+   * 换数据源时必须显式调用：旧加载器的 LRU 里还挂着上一个数据集几十 MB 的点云，
+   * 不清掉就是"打开新数据集后内存一直不降"。
+   */
+  function setFrameLoader(loader: FrameLoader | null) {
+    frameLoader.value?.dispose()
+    frameLoader.value = loader
+  }
+
+  /** 该帧的点云是否需要按需解码。未建立加载器时永远返回 false */
+  function isFrameLazy(index: number): boolean {
+    const f = frames.value[index]
+    if (!f || !frameLoader.value) return false
+    return f.lazy === true || f.cloud.count === 0
+  }
+
+  /**
+   * 按需解码一帧点云，并回填 `frames[index].cloud`。
+   * 并发调用同一帧由 FrameLoader 折叠成一个 Promise，所以切帧抖动不会重复解码。
+   */
+  async function loadFrameCloud(index: number): Promise<PointCloud | null> {
+    const f = frames.value[index]
+    if (!f) return null
+    if (f.cloud.count > 0) {
+      f.lazy = false
+      return f.cloud
+    }
+    const loader = frameLoader.value
+    if (!loader) return null
+    // 传数组下标而不是 f.index：草稿恢复可能帧号跳号（0,1,5,6），
+    // 而数据源句柄是按"第几个可用帧"寻址的，两者不能混用。
+    const cloud = await loader.get(index)
+    f.cloud = cloud
+    f.lazy = false
+    // 预取相邻帧：用户绝大多数操作是"往后翻"，点一帧等三帧的账很难受
+    loader.prefetch(index, 1)
+    return cloud
+  }
+
+  /**
+   * 把真值写回 frames 的镜像。
+   *
+   * frames 仍然是质检 / 导出 / 轨迹叠加的输入（它们吃 FrameData[]），
+   * P1 不重写这些模块，所以每次命令后只刷新受影响的帧。
+   * 不传 list 表示全量刷新 —— 只在导出/质检前调用，O(帧数 × 轨迹数)。
+   */
+  function refreshFrameBoxes(list?: number[]) {
+    if (!frames.value.length) return
+    const s = store.value
+    const only = list ? new Set(list) : null
+    for (const f of frames.value) {
+      if (only && !only.has(f.index)) continue
+      f.boxes = s ? s.materialize(f.index) : cloneBoxes(f.boxes)
+    }
+    docVersion.value++
+  }
+
+  function bumpDoc() {
+    docVersion.value++
+  }
+
   function syncHistoryUi() {
-    canUndo.value = history.canUndo
-    canRedo.value = history.canRedo
-    undoLabel.value = history.undoLabel
+    const s = store.value
+    canUndo.value = s ? s.canUndo : history.canUndo
+    canRedo.value = s ? s.canRedo : history.canRedo
+    undoLabel.value = s ? s.undoLabel : history.undoLabel
   }
 
   /** 任何改动都调用它：驱动自动保存 + 让 3D 视口重绘 */
@@ -363,29 +545,80 @@ export function createStudioCore() {
 
   /**
    * 统一的"可撤销变更"入口 —— 所有编辑操作都必须走这里。
+   *
+   * 双写期的实现（方案 5.1.2）：老代码继续直接改 `boxes.value`，
+   * 这里在前后各物化一次当前帧、按 trackId 对比差异，自动翻译成命令。
+   * 好处是 30+ 个编辑调用点一行都不用改，坏处是每次编辑多两次物化
+   * （当前帧几十个框，成本远低于一次渲染）。
+   *
    * @param mergeKey 相同 key 且在时间窗口内的连续操作合并成一条（拖拽只算一次撤销）
+   * @returns 是否真的执行了。只读形态下为 false —— 调用方据此不要再报"已新建 / 已删除"，
+   *          否则界面上一片"成功"，画布上什么都没发生。
    */
-  function mutate(label: string, fn: () => void, mergeKey?: string) {
-    const before = cloneBoxes(boxes.value)
-    fn()
-    const after = cloneBoxes(boxes.value)
-    history.commit(before, after, label, mergeKey)
+  function mutate(label: string, fn: () => void, mergeKey?: string): boolean {
+    if (readOnly.value) {
+      statusText.value = readOnlyNote.value
+      return false
+    }
+    const s = store.value
+    if (s) {
+      const frame = frameNumber()
+      const session = s.beginEdit(frame)
+      fn()
+      const cmd = session.diffAfter(boxes.value, label, mergeKey)
+      if (cmd) {
+        s.exec(cmd)
+        boxes.value = s.materialize(frame)
+        refreshFrameBoxes([frame])
+      }
+    } else {
+      const before = cloneBoxes(boxes.value)
+      fn()
+      history.commit(before, cloneBoxes(boxes.value), label, mergeKey)
+    }
     syncHistoryUi()
     syncViewer()
     markDirty()
+    return true
   }
 
-  /** 取出上一步快照（连同操作名）。调用方负责把结果写回 boxes 并同步 UI */
+  /** 取出上一步（连同操作名）。跨帧历史由 TrackStore 保证，切帧不再清空 */
   function undoState(): { label: string; state: Box3D[] } | null {
-    const label = history.undoLabel
-    const state = history.undo()
-    return state ? { label, state } : null
+    if (readOnly.value) {
+      statusText.value = readOnlyNote.value
+      return null
+    }
+    const s = store.value
+    if (!s) {
+      const label = history.undoLabel
+      const state = history.undo()
+      return state ? { label, state } : null
+    }
+    const label = s.undoLabel
+    const cmd = s.undo()
+    if (!cmd) return null
+    boxes.value = s.materialize(frameNumber())
+    refreshFrameBoxes(cmd.meta.affects.frames)
+    return { label, state: boxes.value }
   }
 
   function redoState(): { label: string; state: Box3D[] } | null {
-    const label = history.redoLabel
-    const state = history.redo()
-    return state ? { label, state } : null
+    if (readOnly.value) {
+      statusText.value = readOnlyNote.value
+      return null
+    }
+    const s = store.value
+    if (!s) {
+      const label = history.redoLabel
+      const state = history.redo()
+      return state ? { label, state } : null
+    }
+    const label = s.redoLabel
+    const cmd = s.redo()
+    if (!cmd) return null
+    boxes.value = s.materialize(frameNumber())
+    refreshFrameBoxes(cmd.meta.affects.frames)
+    return { label, state: boxes.value }
   }
 
   const resetHooks: { scope: ResetScope; fn: () => void }[] = []
@@ -396,10 +629,12 @@ export function createStudioCore() {
   }
 
   /**
-   * 清空撤销栈。数据集切换必须调用；切帧时用 keepPlayback/keepQA 保留回放与质检报告。
+   * 清空撤销栈。数据集切换必须调用；切帧不再调用（历史是文档级的）。
+   * 注意只清命令历史，不动文档本身 —— 真值是数据，历史是操作记录。
    */
   function resetHistory(opts: { keepPlayback?: boolean; keepQA?: boolean } = {}) {
     history.clear()
+    store.value?.clearHistory()
     syncHistoryUi()
     for (const hook of resetHooks) {
       if (hook.scope === 'playback' && opts.keepPlayback) continue
@@ -426,9 +661,10 @@ export function createStudioCore() {
     })
   }
 
-  /** 全局唯一的框 id：必须扫过所有帧，否则第 2 帧新建框会撞上第 1 帧别的目标 */
+  /** 全局唯一的框 id：必须扫过所有轨迹，否则第 2 帧新建框会撞上第 1 帧别的目标 */
   function nextBoxId(): string {
     const used = new Set<string>()
+    if (store.value) for (const t of store.value.tracks) used.add(t.id)
     for (const b of boxes.value) used.add(b.id)
     for (const f of frames.value) for (const b of f.boxes) used.add(b.id)
     let max = 0
@@ -524,11 +760,14 @@ export function createStudioCore() {
   return {
     viewportRef, camViewRef, boxes, selectedId, selectedIds, selectedBoxes, selectedCount,
     cloud, statusText, datasetName, frames, currentFrame,
+    doc, store, docVersion, rebuildDocument, installDocument, materializeNow, frameBoxCount, frameNumber,
+    refreshFrameBoxes, bumpDoc, frameLoader, setFrameLoader, isFrameLazy, loadFrameCloud, datasetKey,
     layout, calib, imageUrl, tool, showOrtho, orthoMax,
     colorBy, pointColorBy, opacity, outlinedBorders, showOrientation,
     hiddenIds, lockedIds, categories, showTrajectories, reviewBoxes, showReview,
     qaReport, temporalReport, canUndo, canRedo, undoLabel, origin, selectedBox, visibleBoxes,
     saveState, lastSavedAt, dirtyVersion, autosaveEnabled, cursor, frameNav,
+    readOnly, readOnlyNote,
     hoverId, setHover, linkZoom, orthoZoom, broadcastZoom, linkPan, orthoPan, broadcastPan,
     getViewer, setViewer, invalidateCloud, mutate, syncViewer, syncHistoryUi, markDirty, setCursor,
     undoState, redoState, resetHistory, onReset, setLayout,

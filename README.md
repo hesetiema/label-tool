@@ -34,8 +34,12 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 ```bash
 pnpm build      # 类型检查 + 生产构建
 pnpm typecheck  # 只做类型检查
-pnpm test       # 核心算法自检（140 项断言，无需浏览器）
+pnpm test       # 分层校验 + 702 项断言（227 核心 / 197 4D 内核 / 47 状态层 / 81 P0 / 150 P3 回收），无需浏览器
+pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰（含跨标签页全局淘汰）
 ```
+
+> `test:browser` 复用本机 Edge，不需要 `playwright install`；仓库不把 playwright 列为依赖，
+> 首次运行会按「项目依赖 → `PLAYWRIGHT_PATH` → `npx` 缓存」三级查找，找不到会给可执行的提示。
 
 
 ---
@@ -55,7 +59,7 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | 框编辑 | 直接拖手柄，或 WASD / QE / RF + 属性面板精调 | `box_op.js` |
 | 类别与 ID | 类别可增删改色；导入未知类别自动登记；obj_id 全局唯一 | `obj_cfg.js` |
 | **对象管理** | 锁定 / 隐藏 / 排序 / 删除，外观可按类别或实例着色、调透明度 | — |
-| 导入导出 | 单帧兼容 SUSTechPOINTS；**整段序列**一键导出（不再只导当前帧） | `save.js` |
+| 导入导出 | 单帧兼容 SUSTechPOINTS；**整段序列**一键导出（不再只导当前帧）；另提供「插值补帧」「RTS 平滑」两种流式导出 | `save.js` |
 | **多格式适配** | 导入标注自动识别 KITTI `.txt` / DAIR-V2X JSON / nuScenes 关系表 / Waymo JSON / SUSTechPOINTS，统一转成内部 `Box3D`；坐标与旋转约定集中在 `conventions.ts`，DontCare 以跳过统计提示 | — |
 | **逐点语义分割** | PCD `label` 字段或 SemanticKITTI `.label` 导入（**官方原始 id + 高 16 位跨帧实例 id 都保留**）；3D 与三联正交视图支持「默认 / 语义」着色、类别占比图例；内置官方 34 类配色与 learning_map；下采样与 IndexedDB 草稿不丢标签；`?data=semantic` 直达演示 | — |
 | **本地草稿** | IndexedDB 自动保存 / 刷新恢复 / 离开拦截，无需后端 | — |
@@ -63,12 +67,20 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | **跨帧复制** | 把选中框按**同 id** 复制到下一帧 / 后续帧 / 全部帧，直接构成轨迹；目标帧已有同 id 则跳过 | batch 模式 |
 | **相机投影** | 3D 框投影到前视相机图像，多传感器融合对照；支持可选径向-切向畸变校正（OpenCV `k1,k2,p1,p2,k3`，兼容 KITTI `D` / OpenCalib `Distortion`） | `calib.js` + `image.js` |
 | **分屏视图** | 点云 / 分屏 / 相机 三种布局；相机图上的框参与同一套选中与悬停联动 | — |
-| **撤销重做** | 命令模式 + 状态快照，`Ctrl+Z` / `Ctrl+Shift+Z`；拖拽自动合并为一次 | — |
+| **撤销重做** | 文档级命令历史（`Ctrl+Z` / `Ctrl+Shift+Z`），拖拽自动合并为一次；**切帧不再清空历史**，跨帧编辑可回退 | — |
 | **多帧时序** | 5 帧演示序列、obj_id 跨帧保持一致、首末帧轨迹插值补全中间帧 | batch 模式 |
 | **4D 轨迹叠加回放** | 同目标多帧中心点连成轨迹线（已走过段高亮），播放/暂停/调速逐帧回放，选中目标整条轨迹高亮 | — |
 | **相机运镜** | 关键帧 + 转场/停留时间 + 样条/缓入缓出；镜头时间线与数据帧时间线相互独立，可保存/打开轨迹 JSON | rviz_cinematographer `CameraTrajectory` |
 | **演示视频录制** | `canvas.captureStream` + `MediaRecorder` 导出 WebM，可选 fps、VP9/VP8、右下角水印 | rviz_cinematographer `Recorder` |
 | **跨帧编辑** | 把选中框的改动传播到同 id 框：整框替换 / 增量平移 × 后续/前序/全部帧 | — |
+| **4D 真值内核** | `Track`（稀疏关键帧 + 逐帧观测状态）取代"整帧框数组"；`Box3D` 降级为物化视图，渲染/质检/导出零改动；命令可序列化、可审计 | — |
+| **轨迹时间线** | 画布下方按帧展示每条轨迹的跨度与关键帧，点击跳帧、双击补关键帧、**拖两端改生命周期**、右键补帧/拆分/裁剪/锁定/删除、一键拆分/合并/插值补全 | — |
+| **大序列懒加载** | 超过 20 帧或 120MB 时只解码首帧，其余切帧时在 worker 中按需解析并写入 IndexedDB；标注仍全量加载，4D 能力不受影响 | — |
+| **文档级持久化** | IndexedDB v3 分段存储（文档头 / 任务段 / 点云 blob / 使用时间）；改一个框只写几 KB，v1 草稿可自动迁移；**doc-first 恢复**（标注读文档、点云读帧缓存），生命周期/稀疏状态/复核标记刷新后原样保留 | — |
+| **帧缓存淘汰（全局 LRU / LFU）** | 配额超过 85% 时先自救：在**所有可重新解码**的数据集里淘汰，跨数据集按同一把尺子排序（含另一个标签页声明可重解码的数据集），直到回到 70%。三种策略：`lru` 最久未用 / `lfu` 最少使用 / `hybrid` 默认先清「只读过一次」的帧再按时间；两侧当前帧邻域都受保护，整帧（位置 + 颜色 + 标签）一起进出；删了对端的帧会反向广播让它撤回落盘记账；腾不够如实报缺口；恢复型会话一帧不动 | — |
+| **本地缓存回收** | 大载荷按 `payload/<hash>` 内容寻址 + 引用计数（文档/历史双向校验）；帧缓存按数据集归属清扫；启动、换数据集、清草稿、配额超限四处触发，未知键默认保留；每次清扫进审计流（`studio.gcAudit()`） | — |
+| **本地样本列表** | 菜单「本地样本列表…」列出本地落盘的每一份标注：场景、帧数、有哪些任务段、多久以前存的。可二次确认删除；当前样本（会被下次自动保存写回）与其它标签页正在编辑的样本不提供删除 | — |
+| **跨标签页协调** | 同一样本只允许一个标签页写（租约 6s TTL + 心跳），后开的转只读并在状态栏点「接管」切换；清扫前广播汇总对端引用，避免互删对方未落盘的载荷；刷新后仍是同一个"我"，不会被自己的旧租约锁住 | — |
 | **时序质检** | ID 跳变、速度突变、轨迹抖动、轨迹断裂四类检测，健康分 + 问题列表可跳帧；一键注入缺陷演示 | 智能审核 |
 | **遮挡状态机** | alive/occluded/dead 三态、Kalman coasting 预测续接、虚线渲染遮挡框、质检豁免遮挡缺口 | 4D 工具 |
 | **全局最优关联** | Kalman 预测 + 门控 + Hungarian 匹配；交叉案例演示贪心如何串 ID | — |
@@ -95,6 +107,7 @@ pnpm test       # 核心算法自检（140 项断言，无需浏览器）
 | [⑧ 4D 轨迹叠加回放](docs/08-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、轨迹线渲染、回放定时器 |
 | [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
 | [⑩ 相机导演：关键帧运镜与录制](docs/10-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、MediaRecorder |
+| [⑪ 4D 多任务与 VLA 改造方案](docs/11-4d-multitask-vla-upgrade-plan.md) | `src/domain/*` | 从画框工具到 4D 数据生产；P0/P1/P3 blob 回收已落地，文末附实现进度与偏差说明 |
 
 另外两个可直接读源码的专题（无独立教程）：`core/io/formats/` 是 KITTI / DAIR-V2X / nuScenes / Waymo 的格式适配与坐标约定；`core/semantics.ts` 是 SemanticKITTI 官方类别表、learning_map（原始 34 类 → 训练 20 类）、`.label` 高低 16 位（语义 / 实例）的读写与统计。
 
@@ -159,6 +172,17 @@ src/
 │   ├── sequence/         # sequence.ts（多帧关联 + 轨迹插值）· temporalQA.ts（时序质检）· tracker.ts（Hungarian + Kalman）
 │   ├── quality/          # quality.ts（IoU / 匹配 / kappa / 漏误标率）
 │   └── camera/           # cameraTrajectory.ts（关键帧 + 样条采样 + JSON 序列化）
+├── domain/               # 纯 TS 内核：不依赖 Vue / Three / 浏览器 API（scripts/check-layers.mjs 机器校验）
+│   ├── model/            # document.ts（v2 文档）· track.ts · command.ts（可序列化命令）· scene.ts · issue.ts
+│   ├── store/            # trackStore · applyCommand · commandHistory · editSession · materialize
+│   │                     # blobRefs（引用抽取）· restorePlan（doc-first 恢复计划）· tabLease（跨标签页判定）
+│   │                     # library（样本列表判定）· frameBudget（帧缓存淘汰计划：LRU / LFU / 跨数据集）
+│   ├── ops/              # trackOps（生命周期 / 拆分 / 裁剪）· interpolate（插值）· smooth（RTS 平滑）
+│   └── io/               # legacyDocument（v1 快照 → v2 文档迁移）
+├── ports/                # 端口：dataSource / documentStore / blobStore
+├── adapters/             # 适配器：IndexedDB 文档与 blob 存储 · PCD worker 池（优先级队列）· 帧加载
+│                         # blobGc / studioGc（清扫）· gcAudit（审计）· tabBus（跨标签页租约与广播）
+│                         # blobKeys（键规范）· frameCloudStore（帧缓存 + 使用时间）
 ├── state/                # 状态层：core 持有共享状态，五个模块各自管一摊业务，useStudio 只做装配
 │   ├── studioCore.ts     # 共享 ref / 历史栈 / 工具与外观 / 锁定隐藏 / 渲染同步
 │   ├── useAnnotation.ts  # 建框、直接操作、撤销重做、复制粘贴、导入导出、快捷键
@@ -166,6 +190,7 @@ src/
 │   ├── useSequence.ts    # 帧切换、回放、轨迹插值、跨帧传播、时序质检
 │   ├── useQuality.ts     # 质检报告、关联演示、百万点压测
 │   ├── useCameraDirector.ts # 关键帧、运镜播放、WebM 录制
+│   ├── useLibrary.ts     # 本地样本列表：读列表 / 删除判定 / 二次确认 / 删后收尾
 │   ├── useStudio.ts      # 装配层：viewer、事件、URL 路由、自动保存、生命周期
 │   └── studioContext.ts  # provide/inject 注入键
 ├── viewer/               # Three.js 渲染层（单一 3D 视口 + 按需渲染 + 射线拾取）
@@ -177,6 +202,7 @@ src/
 │   ├── OrthoView.vue     # Top/Side/Front 2D 投影、手柄拖拽、滚轮缩放
 │   ├── RightPanel.vue    # 对象 / 标签 / 更多
 │   ├── HelpModal.vue     # 快捷键与工作流
+│   ├── SampleList.vue    # 本地样本列表弹层（浏览 / 删除落盘文档）
 │   ├── CameraView.vue    # 相机图像 + 投影框
 │   └── panels/           # ObjectPanel · CategoryPanel · PropertyPanel · DataPanel
 │                         # SequencePanel · CameraDirectorPanel · PerformancePanel · QualityPanel
@@ -258,9 +284,19 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
 - **多帧时序**：右侧「更多 → 时序与 4D」，可逐帧切换、轨迹叠加、回放、插值补全、跨帧传播、时序质检。
 - **相机导演与录制**：右侧「更多 → 相机导演与录制」，关键帧运镜与 WebM 录制（Chrome / Edge）。
 - **性能压测 / 质检报告**：右侧「更多」，分别看体素下采样 + LOD 的实测 FPS、IoU / kappa 指标。
-- **本地草稿**：改动后约 1.2 秒自动写入 IndexedDB，刷新自动恢复；顶栏右侧显示「未保存 / 保存中 / 已保存 hh:mm」。数据超过 80MB 时会跳过自动保存，请手动导出。
+- **本地草稿**：改动后约 1.2 秒自动写入 IndexedDB，刷新自动恢复；顶栏右侧显示「未保存 / 保存中 / 已保存 hh:mm」。
+  恢复优先读 v2 文档（标注真值），点云来自快照或逐帧缓存：懒加载数据集只把「封面帧 + 当前帧」
+  的点云写进快照，其余切帧时回读，所以 500 帧序列的草稿也只有几 MB。
+  只有在点云无法回读（演示数据、落盘失败）时才退回全量内联，此时超过 80MB 会跳过自动保存并提示手动导出。
+- **删旧样本**：菜单 →「本地样本列表…」。删除只清文档（标注真值），帧缓存与没人引用的载荷由随后的清扫回收；
+  当前这份要用「清除当前样本草稿」，那条路会连帧缓存一起清。
+- **两个标签页**：同一样本只允许一个标签页编辑。第二个标签页打开后是可读的（状态栏有橙色「只读 · 接管」），
+  点击即接管；原标签页收到广播后立刻转只读，不会两边互相覆盖。刷新不会丢写权。
+  清理缓存前会先问一圈其它标签页，它们正在用的载荷与帧缓存不会被当成垃圾。
 - **导入自己的数据**：右上菜单「导入 PCD（可多选组成时序）」；同时选中同名 JSON 会自动读取标注。
 - **导出**：单帧是 SUSTechPOINTS 兼容数组；整段序列是 `{ format, frames:[{ index, objects }] }`，脚本可逐帧拆开。
+  「插值补帧」按文档范围把中间帧补齐；「RTS 平滑」在此基础上用后向平滑去掉轨迹抖动
+  （人工标注的帧不动，抖动超过 0.3m 的轨迹会被跳过并在状态栏点名）。
 - **读坐标**：鼠标停在任一正交视图上，状态栏右侧显示该处点云的 x/y/z；每个视图左下角有比例尺，用来判断网格一格的跨度。
 - **认对象**：把鼠标移到框上（3D 视口、任一正交视图、相机投影图都行），其余视图一起亮起来，框顶贴出「4.5 × 1.9 × 1.6 m · 12°」这样的尺寸摘要，状态栏同时给出对象名与 id——24 个框挤在一起时不用点下去试。三联条里场景常有几百米宽，框只有一两个像素时按框心 5px 内也算命中。
 - **比比例**：默认每个视图各自适应数据，长宽比悬殊的数据上显得扁平。既要看清细节又要横向比较尺寸时，在「外观」里勾上「三视图联动缩放」，三个视图就共享同一个米/像素；再勾上「三视图联动平移」，你在一个视图里挪到哪，另外两个也跟到同一个世界位置。

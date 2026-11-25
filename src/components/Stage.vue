@@ -8,9 +8,10 @@
  * 交互约定：所有正交视图共享同一份 boxes 与 selectedId，
  * 任何一处的拖拽都会回写 core，再由 props 同步到其余视图。
  */
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { StudioKey } from '../state/studioContext'
 import CameraView from './CameraView.vue'
+import Timeline from './Timeline.vue'
 import OrthoView from './OrthoView.vue'
 import type { OrthoAxis } from '../state/studioCore'
 import type { Box3D } from '../core/types'
@@ -21,8 +22,12 @@ const {
   showOrtho, orthoMax, cloud, opacity, outlinedBorders, showOrientation, colorOf, colorBy, pointColorBy,
   selectBox, toggleSelectBox, selectGroup, applyBox, applyBoxes, createBoxFromRect,
   currentCategory, categories, lockedIds, setCursor, hoverId, setHover,
-  orthoZoom, broadcastZoom, orthoPan, broadcastPan,
+  orthoZoom, broadcastZoom, orthoPan, broadcastPan, frames,
 } = studio
+
+/** 时间线开合由 Stage 持有：HUD 的底距要跟着让位，否则提示条会压住时间线 */
+const timelineOpen = ref(true)
+const hasTimeline = computed(() => frames.value.length > 0)
 
 const views: { axis: OrthoAxis; title: string }[] = [
   { axis: 'top', title: 'Top · x/y' },
@@ -72,7 +77,10 @@ const hint = computed(() => {
 </script>
 
 <template>
-  <main class="stage">
+  <main
+    class="stage"
+    :class="{ 'timeline-open': hasTimeline && timelineOpen, 'timeline-closed': hasTimeline && !timelineOpen }"
+  >
     <div class="stage-main" :class="{ split, 'ortho-maxed': !!orthoMax }">
       <div ref="viewportRef" class="viewport" v-show="!orthoMax"></div>
 
@@ -157,6 +165,8 @@ const hint = computed(() => {
         @maximize="toggleMax(v.axis)"
       />
     </div>
+
+    <Timeline v-model:open="timelineOpen" />
 
     <div v-if="orthoMax" class="view-switch">
       <button

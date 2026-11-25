@@ -163,6 +163,9 @@
 .view-switch button.restore { color: var(--muted); border-left: 1px solid var(--border); border-radius: 0 4px 4px 0; }
 
 /* ---------- 画布浮层 ---------- */
+.stage.timeline-open .stage-hud { bottom: 196px; }
+.stage.timeline-closed .stage-hud { bottom: 40px; }
+
 .stage-hud {
   position: absolute; left: 10px; bottom: 150px; display: flex; align-items: center; gap: 8px;
   pointer-events: none; z-index: 6;
@@ -234,8 +237,82 @@
   color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
 }
 
+/* ---------- 样本列表弹窗 ----------
+   复用 .modal 的外壳，只把内容区换成单列列表（帮助弹窗是两列网格） */
+.lib-modal { width: 640px; }
+.lib-head-right { display: flex; align-items: center; gap: 10px; }
+.lib-count {
+  margin-left: 7px; padding: 0 5px; border-radius: 8px; font-size: 10px;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.lib-usage {
+  font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.lib-body { padding: 10px 16px 16px; overflow-y: auto; display: block; }
+.lib-error {
+  margin: 0 0 8px; padding: 7px 9px; font-size: 11px; line-height: 1.5;
+  color: #ffb4ac; background: rgba(255,123,114,.10);
+  border: 1px solid rgba(255,123,114,.35); border-radius: 5px;
+}
+.lib-empty { margin: 18px 0; font-size: 12px; color: var(--muted); text-align: center; }
+.lib-list { list-style: none; margin: 0; padding: 0; }
+.lib-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 10px; border-radius: 6px; border: 1px solid transparent;
+}
+.lib-row + .lib-row { margin-top: 2px; }
+.lib-row:hover { background: var(--panel-2); border-color: var(--border); }
+/* 当前样本用左边一道强调色标出来：它不能删，视觉上要能和"可删的"区分 */
+.lib-row.current { border-left: 2px solid var(--accent); }
+.lib-row.busy { opacity: .55; }
+.lib-main { flex: 1; min-width: 0; }
+.lib-title { display: flex; align-items: baseline; gap: 7px; }
+.lib-scene { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-tag {
+  flex: 0 0 auto; padding: 0 5px; border-radius: 3px; font-size: 9.5px;
+  color: var(--accent); border: 1px solid rgba(90,169,255,.45); background: rgba(90,169,255,.10);
+}
+.lib-age { margin-left: auto; flex: 0 0 auto; font-size: 10.5px; color: var(--muted); }
+.lib-meta {
+  display: flex; align-items: center; gap: 6px; margin-top: 3px;
+  font-size: 10.5px; color: var(--muted); overflow: hidden; white-space: nowrap;
+}
+.lib-id {
+  font-family: var(--mono, ui-monospace, monospace); font-size: 10px; opacity: .8;
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+}
+.lib-sep { opacity: .45; }
+.lib-task {
+  padding: 0 4px; border-radius: 3px; font-size: 9.5px;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.lib-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.lib-btn {
+  padding: 3px 9px; font-size: 11px; color: var(--muted);
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+}
+.lib-btn:hover:not(:disabled) { color: var(--text); border-color: #4a5668; }
+.lib-btn:disabled { opacity: .4; cursor: not-allowed; }
+.lib-btn.danger { color: #ff9c93; border-color: rgba(255,123,114,.5); background: rgba(255,123,114,.12); }
+.lib-btn.danger:hover { background: rgba(255,123,114,.22); }
+.lib-note {
+  margin: 12px 0 0; padding: 8px 10px; font-size: 10.5px; line-height: 1.7;
+  color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+}
+
 /* 状态栏的多选高亮 */
 .status-chip.on { color: #ffe66d; border-color: rgba(255,230,109,.45); background: rgba(255,230,109,.10); }
+
+/* 只读 chip：可点击接管，所以要有"能点"的视觉暗示（手型 + 悬停提亮） */
+.status-chip.readonly {
+  color: #ffb74d;
+  border-color: rgba(255, 183, 77, .5);
+  background: rgba(255, 183, 77, .12);
+  cursor: pointer;
+}
+.status-chip.readonly:hover { background: rgba(255, 183, 77, .22); }
+.status-dot.readonly { background: #ffb74d; }
 
 /* 状态栏光标坐标：等宽数字，宽度固定住，避免鼠标一动整条状态栏抖动 */
 .status-coord {

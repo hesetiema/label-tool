@@ -25,6 +25,12 @@ export interface FrameData {
   index: number
   cloud: PointCloud
   boxes: Box3D[]
+  /**
+   * 点云尚未解码（懒加载数据集）。此时 `cloud.count === 0`，
+   * 由 `core.loadFrameCloud` 在切到该帧时按需解码。
+   * 这个标记只描述"点云在不在内存"，与标注无关 —— 标注永远是全量加载的。
+   */
+  lazy?: boolean
 }
 
 /**

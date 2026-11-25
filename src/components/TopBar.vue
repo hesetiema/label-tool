@@ -11,9 +11,9 @@ const studio = inject(StudioKey)!
 const {
   datasetName, frames, currentFrame, canUndo, canRedo, undoLabel, saveState, lastSavedAt,
   calib, layout, autosaveEnabled, menuOpen, showHelp,
-  loadDemo, loadRealData, loadSequence, doUndo, doRedo, doExportFrame, doExportAll,
+  loadDemo, loadRealData, loadSequence, doUndo, doRedo, doExportFrame, doExportAll, doExportSeq, doExportSmooth,
   prevFrame, nextFrame, setFrame, jumpToBoxFrame, setLayout, persistNow, clearDraft,
-  numVal, fileInput, labelInput,
+  openList, numVal, fileInput, labelInput,
 } = studio
 
 /** 帧号输入：回车或失焦即跳转，越界按边界夹住并把输入框纠正回来 */
@@ -45,6 +45,7 @@ const saveText = () => {
   if (saveState.value === 'saving') return '保存中…'
   if (saveState.value === 'dirty') return '未保存'
   if (saveState.value === 'error') return '保存失败'
+  if (saveState.value === 'readonly') return '只读 · 不写入'
   if (saveState.value === 'off') return '自动保存已关'
   if (saveState.value === 'saved' && lastSavedAt.value) {
     const d = new Date(lastSavedAt.value)
@@ -75,13 +76,16 @@ const saveText = () => {
         <div class="menu-title">导出</div>
         <button @click="act(doExportFrame)">当前帧 JSON <kbd>Ctrl S</kbd></button>
         <button :disabled="!frames.length" @click="act(doExportAll)">整段序列 JSON <kbd>Ctrl ⇧ S</kbd></button>
+        <button :disabled="!frames.length" @click="act(doExportSeq)">整段序列 JSON（插值补帧）</button>
+        <button :disabled="!frames.length" @click="act(doExportSmooth)">整段序列 JSON（RTS 平滑）</button>
         <div class="menu-sep"></div>
         <div class="menu-title">本地草稿</div>
         <label class="menu-check">
           <input v-model="autosaveEnabled" type="checkbox" /> 自动保存
         </label>
         <button @click="act(() => persistNow(true))">立即保存</button>
-        <button class="danger" @click="act(clearDraft)">清除本地草稿</button>
+        <button @click="act(() => { void openList() })">本地样本列表…</button>
+        <button class="danger" @click="act(clearDraft)">清除当前样本草稿</button>
       </div>
       <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
 
