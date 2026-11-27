@@ -16,7 +16,12 @@ import { onMounted, onBeforeUnmount, nextTick, ref, toRaw, watch } from 'vue'
 import { PointCloudViewer } from '../viewer/PointCloudViewer'
 import { issueTypeName } from '../core/sequence/temporalQA'
 import {
-  clearSession, estimateSnapshotBytes, loadDraftPointer, loadSession, saveSession, toStoredCloud,
+  clearSession,
+  estimateSnapshotBytes,
+  loadDraftPointer,
+  loadSession,
+  saveSession,
+  toStoredCloud,
 } from '../core/io/session'
 import type { StoredCloud } from '../core/io/session'
 import { studioStore } from '../adapters/studioStore'
@@ -27,8 +32,12 @@ import type { StoreGcResult } from '../adapters/studioGc'
 import type { FrameBudget } from '../adapters/blobGc'
 import { frameBlobKey } from '../adapters/blobKeys'
 import {
-  DEFAULT_EVICTION_POLICY, EVICTION_POLICY_LABEL, isEvictionPolicy, neighborhoodKeys,
-  type EvictionPolicy, type FrameEvictionPlan,
+  DEFAULT_EVICTION_POLICY,
+  EVICTION_POLICY_LABEL,
+  isEvictionPolicy,
+  neighborhoodKeys,
+  type EvictionPolicy,
+  type FrameEvictionPlan,
 } from '../domain/store/frameBudget'
 import { flushFrameUse } from '../adapters/frameCloudStore'
 import { tabBus } from '../adapters/tabBus'
@@ -74,15 +83,24 @@ export function useStudio() {
   })
 
   // store 每次 rebuildDocument 都会换实例，订阅随之换到新实例上（旧实例的钩子随对象回收）
-  watch(core.store, (s) => {
-    s?.onCommandDropped((refs) => reclaimer.noteDropped(refs))
-  }, { immediate: true })
+  watch(
+    core.store,
+    (s) => {
+      s?.onCommandDropped((refs) => reclaimer.noteDropped(refs))
+    },
+    { immediate: true },
+  )
 
   /**
    * 文档换了（装载 / 恢复 / 换数据集）就重新申请租约。
    * 用 sampleId 而不是 docVersion：后者每个命令都变，会让 claim 每次编辑都跑一遍。
    */
-  watch(() => core.doc.value?.sampleId ?? '', (id) => { void refreshLease(id) })
+  watch(
+    () => core.doc.value?.sampleId ?? '',
+    (id) => {
+      void refreshLease(id)
+    },
+  )
 
   /* ------------------------------------------------------------------
    * 跨标签页协调
@@ -97,7 +115,9 @@ export function useStudio() {
   const peerTabs = ref<ReturnType<typeof bus.peers>>([])
   let leaseSettled = ''
 
-  function syncPeerTabs() { peerTabs.value = bus.peers() }
+  function syncPeerTabs() {
+    peerTabs.value = bus.peers()
+  }
 
   /**
    * 申请当前样本的写权。样本 id 变了就要重新申请：
@@ -175,9 +195,10 @@ export function useStudio() {
    * 不支持时直接跑 —— 这只影响效率，不影响正确性。
    */
   function withGcLock<T>(fn: () => Promise<T>): Promise<T> {
-    const locks = (typeof navigator !== 'undefined'
-      ? (navigator as Navigator & { locks?: { request<R>(name: string, cb: () => Promise<R>): Promise<R> } }).locks
-      : undefined)
+    const locks =
+      typeof navigator !== 'undefined'
+        ? (navigator as Navigator & { locks?: { request<R>(name: string, cb: () => Promise<R>): Promise<R> } }).locks
+        : undefined
     if (!locks?.request) return fn()
     try {
       return locks.request('label-tool/blob-gc', fn)
@@ -214,7 +235,9 @@ export function useStudio() {
     try {
       const raw = localStorage.getItem(POLICY_KEY)
       if (isEvictionPolicy(raw)) return raw
-    } catch { /* 隐私模式：退回默认 */ }
+    } catch {
+      /* 隐私模式：退回默认 */
+    }
     return DEFAULT_EVICTION_POLICY
   }
 
@@ -223,7 +246,11 @@ export function useStudio() {
   function setEvictionPolicy(next: EvictionPolicy): void {
     if (!isEvictionPolicy(next)) return
     evictionPolicy.value = next
-    try { localStorage.setItem(POLICY_KEY, next) } catch { /* 存不了就只在本次会话生效 */ }
+    try {
+      localStorage.setItem(POLICY_KEY, next)
+    } catch {
+      /* 存不了就只在本次会话生效 */
+    }
     core.statusText.value = `帧缓存淘汰策略：${EVICTION_POLICY_LABEL[next]}（下次配额清扫生效）`
   }
 
@@ -321,8 +348,10 @@ export function useStudio() {
     const short = plan.shortfall > 0 ? `，仍差 ${formatBytes(plan.shortfall)}` : ''
     if (!plan.groups.length) return short ? `；可淘汰的帧不够${short}，建议导出后清理旧草稿` : ''
     const cross = plan.datasets.length > 1 ? `、跨 ${plan.datasets.length} 个数据集` : ''
-    return `，配额淘汰 ${plan.groups.length} 帧（${formatBytes(plan.bytes)}${cross}${short}）`
-      + `，策略${EVICTION_POLICY_LABEL[plan.policy]}，切回会重新解码`
+    return (
+      `，配额淘汰 ${plan.groups.length} 帧（${formatBytes(plan.bytes)}${cross}${short}）` +
+      `，策略${EVICTION_POLICY_LABEL[plan.policy]}，切回会重新解码`
+    )
   }
 
   /**
@@ -409,14 +438,13 @@ export function useStudio() {
           : {}),
       })
 
-      const peerNote = report.peerProtected
-        ? `，${report.peerProtected} 条因其它标签页在用而保留`
-        : ''
+      const peerNote = report.peerProtected ? `，${report.peerProtected} 条因其它标签页在用而保留` : ''
       const lruNote = describeEviction(report.lru)
 
       if (opts.dryRun) {
-        const msg = `预演：可回收 ${formatBytes(report.removeBytes)}（${report.remove.length} 条），`
-          + `保留 ${report.scanned - report.remove.length} 条${peerNote}${lruNote}`
+        const msg =
+          `预演：可回收 ${formatBytes(report.removeBytes)}（${report.remove.length} 条），` +
+          `保留 ${report.scanned - report.remove.length} 条${peerNote}${lruNote}`
         if (opts.manual) core.statusText.value = msg
         else console.info('[blob-gc]', msg, report.byReason)
         return report
@@ -489,7 +517,9 @@ export function useStudio() {
       if (!report || report.released <= 0) return ''
       return `已回收 ${formatBytes(report.removeBytes)} 缓存（${report.released} 条）`
     },
-    say: (msg) => { core.statusText.value = msg },
+    say: (msg) => {
+      core.statusText.value = msg
+    },
   })
 
   /**
@@ -538,7 +568,9 @@ export function useStudio() {
       core.syncViewer()
     },
     cloud: () => core.cloud.value,
-    say: (msg) => { core.statusText.value = msg },
+    say: (msg) => {
+      core.statusText.value = msg
+    },
   })
 
   /**
@@ -560,7 +592,9 @@ export function useStudio() {
   const tasks = useTasks(core, {
     applyEdit,
     blobs: () => studioStore()?.blobs ?? null,
-    say: (msg) => { core.statusText.value = msg },
+    say: (msg) => {
+      core.statusText.value = msg
+    },
     gotoFrame: (frame) => sequence.gotoFrameIndex(frame),
   })
 
@@ -573,7 +607,9 @@ export function useStudio() {
    */
   const vla = useVla(core, {
     applyEdit,
-    say: (msg) => { core.statusText.value = msg },
+    say: (msg) => {
+      core.statusText.value = msg
+    },
     gotoFrame: (frame) => sequence.gotoFrameIndex(frame),
   })
 
@@ -649,9 +685,7 @@ export function useStudio() {
     const frames = core.frames.value.map((f, i) => {
       const decoded = f.cloud.count > 0
       const bytes = f.cloud.positions.byteLength + (f.cloud.colors?.byteLength ?? 0)
-      const keep = decoded && (keepIndexes
-        ? keepIndexes.has(i)
-        : (!datasetKey || bytes <= cloudBudget))
+      const keep = decoded && (keepIndexes ? keepIndexes.has(i) : !datasetKey || bytes <= cloudBudget)
       if (keep) cloudBudget -= bytes
       return {
         index: f.index,
@@ -665,7 +699,7 @@ export function useStudio() {
       datasetName: core.datasetName.value,
       ...(datasetKey ? { datasetKey } : {}),
       ...(core.doc.value ? { sampleId: core.doc.value.sampleId } : {}),
-      cloudMode: spill ? 'spill' as const : 'inline' as const,
+      cloudMode: spill ? ('spill' as const) : ('inline' as const),
       cloud: core.cloud.value && !core.frames.value.length ? storedCloud(core.cloud.value) : null,
       frames,
       currentFrame: core.currentFrame.value,
@@ -686,7 +720,9 @@ export function useStudio() {
     if (!doc || !store) return
     try {
       await store.documents.save(doc)
-    } catch { /* 配额不足等情况由草稿保存的提示统一暴露 */ }
+    } catch {
+      /* 配额不足等情况由草稿保存的提示统一暴露 */
+    }
   }
 
   async function persistNow(manual = false) {
@@ -753,7 +789,9 @@ export function useStudio() {
       return
     }
     if (saveTimer) window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(() => { void persistNow() }, 1200)
+    saveTimer = window.setTimeout(() => {
+      void persistNow()
+    }, 1200)
   }
 
   watch(core.dirtyVersion, scheduleSave)
@@ -848,41 +886,70 @@ export function useStudio() {
     })
     syncPeerTabs()
 
-    const viewer = new PointCloudViewer(core.viewportRef.value)
-    core.setViewer(viewer)
+    /*
+     * WebGL 不可用（老显卡、禁用了硬件加速、驱动进了黑名单）时 `new WebGLRenderer`
+     * 会直接抛异常。以前这里是裸调用：抛出就意味着整个 `onMounted` 中断，
+     * 于是「点云没显示 + 三视图也不工作 + 所有按钮失灵」。
+     * 三视图是 2D canvas，它们不依赖 WebGL —— 所以正确的降级是：
+     * 3D 视口缺席、其余照常可用，并在状态栏说清楚原因。
+     */
+    let viewer: PointCloudViewer | null = null
+    try {
+      viewer = new PointCloudViewer(core.viewportRef.value, {
+        onContextChange: (status) => {
+          core.statusText.value =
+            status === 'lost'
+              ? '3D 视口图形上下文丢失（GPU 重置/休眠唤醒），等待浏览器恢复…标注数据未受影响，三视图仍可编辑'
+              : '3D 视口已恢复'
+        },
+      })
+      core.setViewer(viewer)
+    } catch (err) {
+      core.setViewer(null)
+      core.viewerUnavailable.value = `3D 渲染不可用：${(err as Error).message || 'WebGL 初始化失败'}。三视图与标注功能不受影响。`
+      core.statusText.value = '3D 视口无法初始化，已切到三视图模式'
+    }
     camera.syncCameraVisual()
 
-    // 3D 视口点击拾取：OrbitControls 拖拽结束也会触发 click，用位移阈值过滤
-    const el = viewer.renderLoopElement()
-    let downX = 0, downY = 0
-    const onDown = (e: MouseEvent) => { downX = e.clientX; downY = e.clientY }
-    const onClick = (e: MouseEvent) => {
-      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
-      annotation.onViewerClick(e)
-    }
-    el.addEventListener('mousedown', onDown)
-    el.addEventListener('click', onClick)
+    // 3D 视口有才绑拾取与悬停：没有 WebGL 时这些事件没有任何对象可打
+    const el = viewer?.renderLoopElement()
+    if (viewer && el) {
+      const v = viewer
+      // 3D 视口点击拾取：OrbitControls 拖拽结束也会触发 click，用位移阈值过滤
+      let downX = 0,
+        downY = 0
+      const onDown = (e: MouseEvent) => {
+        downX = e.clientX
+        downY = e.clientY
+      }
+      const onClick = (e: MouseEvent) => {
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
+        annotation.onViewerClick(e)
+      }
+      el.addEventListener('mousedown', onDown)
+      el.addEventListener('click', onClick)
 
-    // 3D 视口的悬停高亮：射线拾取，限频 ~20Hz。
-    // 拖拽（OrbitControls 旋转/平移）期间不拾取，否则视角一转光晕就乱跳。
-    let lastHoverAt = 0
-    const onHoverMove = (e: MouseEvent) => {
-      if (e.buttons) return
-      const now = performance.now()
-      if (now - lastHoverAt < 45) return
-      lastHoverAt = now
-      core.setHover(viewer.pickBox(e.clientX, e.clientY, core.visibleBoxes.value))
-    }
-    const onHoverLeave = () => core.setHover(null)
-    el.addEventListener('mousemove', onHoverMove)
-    el.addEventListener('mouseleave', onHoverLeave)
+      // 3D 视口的悬停高亮：射线拾取，限频 ~20Hz。
+      // 拖拽（OrbitControls 旋转/平移）期间不拾取，否则视角一转光晕就乱跳。
+      let lastHoverAt = 0
+      const onHoverMove = (e: MouseEvent) => {
+        if (e.buttons) return
+        const now = performance.now()
+        if (now - lastHoverAt < 45) return
+        lastHoverAt = now
+        core.setHover(v.pickBox(e.clientX, e.clientY, core.visibleBoxes.value))
+      }
+      const onHoverLeave = () => core.setHover(null)
+      el.addEventListener('mousemove', onHoverMove)
+      el.addEventListener('mouseleave', onHoverLeave)
 
-    viewportCleanup.push(() => {
-      el.removeEventListener('mousedown', onDown)
-      el.removeEventListener('click', onClick)
-      el.removeEventListener('mousemove', onHoverMove)
-      el.removeEventListener('mouseleave', onHoverLeave)
-    })
+      viewportCleanup.push(() => {
+        el.removeEventListener('mousedown', onDown)
+        el.removeEventListener('click', onClick)
+        el.removeEventListener('mousemove', onHoverMove)
+        el.removeEventListener('mouseleave', onHoverLeave)
+      })
+    }
 
     window.addEventListener('keydown', annotation.onKeyDown)
     window.addEventListener('keydown', onResizeShortcut)
@@ -920,20 +987,24 @@ export function useStudio() {
           if (doc) restored = await dataset.restoreFromDocument(doc, snapshot, pointer.datasetKey)
         }
         if (!restored && snapshot) restored = await dataset.restore(snapshot)
-      } catch { /* 草稿坏了就当没有 */ }
+      } catch {
+        /* 草稿坏了就当没有 */
+      }
       if (!restored) dataset.loadDemo()
     }
 
     // 首屏尺寸可能在 v-show 切换后变化，补一次
-    requestAnimationFrame(() => viewer.resize())
+    requestAnimationFrame(() => viewer?.resize())
 
     // 启动清扫：只有等装载/恢复都完成，才知道"当前数据集"和"草稿指向的数据集"。
     // 延迟一拍是为了不和首帧解码抢主线程。
-    window.setTimeout(() => { void runBlobGc({ trigger: 'startup' }) }, 1500)
+    window.setTimeout(() => {
+      void runBlobGc({ trigger: 'startup' })
+    }, 1500)
 
     ;(function animate() {
       requestAnimationFrame(animate)
-      viewer.render()
+      viewer?.render()
     })()
   })
 

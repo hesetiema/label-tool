@@ -18,11 +18,42 @@ import type { Box3D } from '../core/types'
 
 const studio = inject(StudioKey)!
 const {
-  viewportRef, camViewRef, visibleBoxes, selectedId, selectedIds, tool, layout, calib, imageUrl,
-  showOrtho, orthoMax, cloud, opacity, outlinedBorders, showOrientation, colorOf, colorBy, pointColorBy,
-  selectBox, toggleSelectBox, selectGroup, applyBox, applyBoxes, createBoxFromRect,
-  currentCategory, categories, lockedIds, setCursor, hoverId, setHover,
-  orthoZoom, broadcastZoom, orthoPan, broadcastPan, frames,
+  viewportRef,
+  camViewRef,
+  visibleBoxes,
+  selectedId,
+  selectedIds,
+  tool,
+  layout,
+  calib,
+  imageUrl,
+  showOrtho,
+  orthoMax,
+  cloud,
+  opacity,
+  outlinedBorders,
+  showOrientation,
+  colorOf,
+  colorBy,
+  pointColorBy,
+  viewerUnavailable,
+  selectBox,
+  toggleSelectBox,
+  selectGroup,
+  applyBox,
+  applyBoxes,
+  createBoxFromRect,
+  currentCategory,
+  categories,
+  lockedIds,
+  setCursor,
+  hoverId,
+  setHover,
+  orthoZoom,
+  broadcastZoom,
+  orthoPan,
+  broadcastPan,
+  frames,
 } = studio
 
 /** 时间线开合由 Stage 持有：HUD 的底距要跟着让位，否则提示条会压住时间线 */
@@ -82,7 +113,9 @@ const hint = computed(() => {
     :class="{ 'timeline-open': hasTimeline && timelineOpen, 'timeline-closed': hasTimeline && !timelineOpen }"
   >
     <div class="stage-main" :class="{ split, 'ortho-maxed': !!orthoMax }">
-      <div ref="viewportRef" class="viewport" v-show="!orthoMax"></div>
+      <div v-show="!orthoMax" ref="viewportRef" class="viewport"></div>
+      <!-- WebGL 初始化失败时画布永远是黑的：把原因写在这儿，而不是留一块黑框 -->
+      <div v-if="viewerUnavailable && !orthoMax" class="viewport-fallback">{{ viewerUnavailable }}</div>
 
       <OrthoView
         v-if="maxView"
@@ -169,18 +202,20 @@ const hint = computed(() => {
     <Timeline v-model:open="timelineOpen" />
 
     <div v-if="orthoMax" class="view-switch">
-      <button
-        v-for="v in views"
-        :key="v.axis"
-        :class="{ on: orthoMax === v.axis }"
-        @click="orthoMax = v.axis"
-      >{{ v.title.split(' ')[0] }}</button>
+      <button v-for="v in views" :key="v.axis" :class="{ on: orthoMax === v.axis }" @click="orthoMax = v.axis">
+        {{ v.title.split(' ')[0] }}
+      </button>
       <button class="restore" @click="orthoMax = null">还原三联</button>
     </div>
 
     <div class="stage-hud">
       <span class="hud-tool">{{ tool === 'select' ? '选择' : tool === 'pan' ? '平移' : '画框' }}</span>
-      <select v-if="tool === 'draw'" v-model="currentCategory" class="hud-select" title="新框类别（数字键 1-9 快速切换）">
+      <select
+        v-if="tool === 'draw'"
+        v-model="currentCategory"
+        class="hud-select"
+        title="新框类别（数字键 1-9 快速切换）"
+      >
         <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.name }}</option>
       </select>
       <span class="hud-hint">{{ hint }}</span>

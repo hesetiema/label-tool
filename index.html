@@ -1,16 +1,122 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <title>Point Cloud Label Studio · 点云标注学习工具</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1720'/%3E%3Cpath d='M16 6l8 4.6v10.8L16 26l-8-4.6V10.6z' fill='none' stroke='%2358c8e8' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M8 10.6L16 15l8-4.4M16 15v11' fill='none' stroke='%2358c8e8' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"
     />
+    <!--
+      首屏骨架屏：写在 HTML 里而不是 Vue 组件里，因为它要在 JS 下载、解析、
+      执之前就已经能画出来（three.js 分包 470KB，慢网下白屏 1-2 秒）。
+      Vue 挂载时会把 #app 的内容整体替换掉，这里不需要任何配合代码。
+      样式内联：外链 CSS 也在下载队列里，等它到就失去意义了。
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #0f1720;
+        color: #cfe3ef;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          'Microsoft YaHei',
+          sans-serif;
+      }
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .boot-bar,
+      .boot-rail,
+      .boot-panel,
+      .boot-stage {
+        background: linear-gradient(180deg, #16212c, #121b24);
+        border: 1px solid #1d2b38;
+      }
+      .boot-bar {
+        height: 44px;
+        border-width: 0 0 1px;
+      }
+      .boot-main {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+      }
+      .boot-rail {
+        width: 52px;
+        border-width: 0 1px 0 0;
+      }
+      .boot-panel {
+        width: 280px;
+        border-width: 0 0 0 1px;
+      }
+      .boot-stage {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        border: 0;
+        background: transparent;
+      }
+      .boot-spinner {
+        width: 28px;
+        height: 28px;
+        border: 2px solid #23384a;
+        border-top-color: #58c8e8;
+        border-radius: 50%;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      .boot-stage p {
+        margin: 0;
+        font-size: 13px;
+        color: #9db6c8;
+      }
+      .boot-stage small {
+        font-size: 11px;
+        color: #5f788a;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-spinner {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="boot">
+        <div class="boot-bar"></div>
+        <div class="boot-main">
+          <div class="boot-rail"></div>
+          <div class="boot-stage">
+            <div class="boot-spinner"></div>
+            <p>正在装载点云标注器…</p>
+            <small>首次打开要下载 three.js 与示例点云（约 1MB），之后走缓存</small>
+          </div>
+          <div class="boot-panel"></div>
+        </div>
+      </div>
+    </div>
+    <noscript>
+      <p style="padding: 24px">这个工具是纯前端应用，需要启用 JavaScript 才能运行。</p>
+    </noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
