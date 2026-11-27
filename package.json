@@ -18,34 +18,63 @@
     "build": "pnpm typecheck && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test": "pnpm check:layers && pnpm test:core && pnpm test:domain && pnpm test:studio && pnpm test:p0 && pnpm test:p2 && pnpm test:p3 && pnpm test:task && pnpm test:vla",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm check:layers && vitest run --coverage",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "check:layers": "node scripts/check-layers.mjs",
-    "test:core": "esbuild tests/core-check.ts --bundle --platform=node --format=esm --outfile=tests/.check.bundle.mjs && node tests/.check.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.check.bundle.mjs',{force:true})\"",
-    "test:domain": "esbuild tests/domain-check.ts --bundle --platform=node --format=esm --outfile=tests/.domain.bundle.mjs && node tests/.domain.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.domain.bundle.mjs',{force:true})\"",
-    "test:studio": "esbuild tests/studio-check.ts --bundle --platform=node --format=esm --outfile=tests/.studio.bundle.mjs && node tests/.studio.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.studio.bundle.mjs',{force:true})\"",
-    "test:p0": "esbuild tests/p0-check.ts --bundle --platform=node --format=esm --outfile=tests/.p0.bundle.mjs && node tests/.p0.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.p0.bundle.mjs',{force:true})\"",
-    "test:p2": "esbuild tests/p2-check.ts --bundle --platform=node --format=esm --outfile=tests/.p2.bundle.mjs && node tests/.p2.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.p2.bundle.mjs',{force:true})\"",
-    "test:p3": "esbuild tests/p3-check.ts --bundle --platform=node --format=esm --outfile=tests/.p3.bundle.mjs && node tests/.p3.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.p3.bundle.mjs',{force:true})\"",
     "test:browser": "node scripts/browser/run.mjs",
-    "test:task": "esbuild tests/task-check.ts --bundle --platform=node --format=esm --outfile=tests/.task.bundle.mjs && node tests/.task.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.task.bundle.mjs',{force:true})\"",
-    "test:vla": "esbuild tests/vla-check.ts --bundle --platform=node --format=esm --outfile=tests/.vla.bundle.mjs && node tests/.vla.bundle.mjs && node -e \"require('node:fs').rmSync('tests/.vla.bundle.mjs',{force:true})\""
+    "size": "size-limit",
+    "verify": "pnpm lint && pnpm typecheck && pnpm check:layers && pnpm test && pnpm build && pnpm size"
   },
   "dependencies": {
     "three": "^0.171.0",
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@size-limit/file": "^14.3.0",
     "@types/node": "^22.10.2",
     "@types/three": "^0.171.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vitest/coverage-v8": "^5.1.2",
     "esbuild": "^0.25.12",
+    "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.12.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "size-limit": "^14.3.0",
     "typescript": "~5.6.3",
+    "typescript-eslint": "^8.73.0",
     "vite": "^6.0.7",
+    "vitest": "^5.1.2",
+    "vue-eslint-parser": "^10.4.2",
     "vue-tsc": "^2.2.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
     ]
-  }
+  },
+  "size-limit": [
+    {
+      "name": "主包 index（gzip）",
+      "path": "dist/assets/index-*.js",
+      "limit": "160 kB"
+    },
+    {
+      "name": "three 分包（gzip，含按需引入的 OrbitControls）",
+      "path": "dist/assets/three-*.js",
+      "limit": "140 kB"
+    },
+    {
+      "name": "样式（gzip）",
+      "path": "dist/assets/index-*.css",
+      "limit": "12 kB"
+    }
+  ]
 }

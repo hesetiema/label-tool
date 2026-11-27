@@ -4,8 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 手动重跑：改了 Pages 设置、想强制重发一次部署时用
+  workflow_dispatch:
+
+# 同一分支的新提交直接顶掉旧的一次：PR 里连推三版时不必等三份 CI
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
+  # ---------------------------------------------------------------
+  # 第一段：全部校验。最便宜的排前面，失败得快
+  # ---------------------------------------------------------------
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -21,11 +34,95 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Core self-check
+      # 分层依赖校验 + 八支用例 + 覆盖率阈值（见 vitest.config.ts）
+      - name: Test
         run: pnpm test
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------
+  # 第二段：构建一次，产物给体积预算与部署共用
+  #   以前 deploy.yml 又跑了一遍 `pnpm build`：同一个 commit 被打包两次，
+  #   部署上去的东西也就没有经过体积预算的检验（两边的其实可能不一样）。
+  #   现在只有这里产出 dist，部署直接取这个 artifact。
+  # ---------------------------------------------------------------
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build
+
+      # 打包体积预算：超了就红，避免"没人注意的首屏翻倍"
+      - name: Bundle budget
+        run: pnpm size
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # 第三段：只在 main 上部署，复用上一段的 dist
+  # ---------------------------------------------------------------
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # 同一个 Pages 环境同时只允许一个部署；排队中的部署不取消正在进行的部署
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download dist
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

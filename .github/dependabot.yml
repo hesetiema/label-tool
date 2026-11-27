@@ -1,0 +1,49 @@
+version: 2
+updates:
+  # npm 依赖：每周一并提一次，按工具链分组，避免 8 个独立 PR 互相冲突
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      lint-and-format:
+        patterns:
+          - eslint
+          - '@eslint/*'
+          - typescript-eslint
+          - eslint-plugin-vue
+          - vue-eslint-parser
+          - eslint-config-prettier
+          - prettier
+      test-toolchain:
+        patterns:
+          - vitest
+          - '@vitest/*'
+          - '@types/node'
+      build-toolchain:
+        patterns:
+          - vite
+          - '@vitejs/*'
+          - vue-tsc
+          - typescript
+          - esbuild
+    ignore:
+      # three 的次版本经常带行为变更（材质/坐标约定），升级要人工过一遍
+      - dependency-name: three
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: '@types/three'
+        update-types: ['version-update:semver-major']
+
+  # GitHub Actions 本身也要跟版本：pin 太旧会被平台弃用（node20 → node24 那次）
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: 'chore(ci)'

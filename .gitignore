@@ -3,6 +3,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# 测试覆盖率（vitest --coverage 的 text/lcov 产物）
+coverage/
+
 # 本地数据集 / 大数据文件（不入库）
 datasets/
 
