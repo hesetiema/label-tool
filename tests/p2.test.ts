@@ -1,6 +1,6 @@
 /**
- * P2 预标注自检 —— 不需要浏览器：
- *   pnpm test:p2
+ * P2 预标注测试 —— 不需要浏览器：
+ *   pnpm test -- p2
  *
  * 覆盖三块"纯逻辑 + 适配器"的部分：
  *   1. mock provider：确定性（同种子同结果）、可中断、进度
@@ -10,6 +10,8 @@
  *
  * 真界面的走查在 `scripts/browser/p2.mjs`（快捷键、面板、撤销）。
  */
+import { it } from 'vitest'
+import { createChecker } from './harness.ts'
 import { createMockProvider } from '../src/adapters/preAnnotate/mockProvider.ts'
 import { createFileProvider } from '../src/adapters/preAnnotate/fileProvider.ts'
 import { createHttpProvider } from '../src/adapters/preAnnotate/httpProvider.ts'
@@ -18,20 +20,10 @@ import { buildMergeCommand, defaultMergePolicy, linkProposals } from '../src/dom
 import { buildReviewCommand, reviewStats } from '../src/domain/ops/review.ts'
 import { TrackStore } from '../src/domain/store/trackStore.ts'
 import { buildDocumentFromFrames } from '../src/domain/io/legacyDocument.ts'
-import type { Box3D, } from '../src/core/types.ts'
+import type { Box3D } from '../src/core/types.ts'
 import type { PreAnnotateChunk } from '../src/ports/preAnnotation.ts'
 
-let passed = 0
-let failed = 0
-function check(name: string, ok: boolean, detail = ''): void {
-  if (ok) {
-    passed++
-    console.log(`  ✓ ${name}`)
-  } else {
-    failed++
-    console.log(`  ✗ ${name}${detail ? `  → ${detail}` : ''}`)
-  }
-}
+const { check, finish } = createChecker()
 
 async function collect(gen: AsyncGenerator<PreAnnotateChunk>): Promise<PreAnnotateChunk[]> {
   const out: PreAnnotateChunk[] = []
@@ -50,14 +42,29 @@ console.log('\n[1] mock provider')
   check('不同种子产出不同', JSON.stringify(a) !== JSON.stringify(c))
   check('5 帧都收到了', a.length === 5 && a.map((x) => x.frame).join(',') === '0,1,2,3,4')
   check('进度单调到 1', a[a.length - 1].progress === 1 && a.every((x, i) => i === 0 || x.progress >= a[i - 1].progress))
-  check('每帧对象数不超过 perFrame', a.every((x) => x.objects.length <= 4))
-  check('对象都带 modelTrackId', a.every((x) => x.objects.every((o) => !!o.modelTrackId)))
-  check('置信度在 (0,1]', a.every((x) => x.objects.every((o) => o.confidence > 0 && o.confidence <= 1)))
+  check(
+    '每帧对象数不超过 perFrame',
+    a.every((x) => x.objects.length <= 4),
+  )
+  check(
+    '对象都带 modelTrackId',
+    a.every((x) => x.objects.every((o) => !!o.modelTrackId)),
+  )
+  check(
+    '置信度在 (0,1]',
+    a.every((x) => x.objects.every((o) => o.confidence > 0 && o.confidence <= 1)),
+  )
 
   const noDrop = await collect(createMockProvider({ seed: 3, dropRate: 0 }).run(REQ))
-  check('dropRate=0 时每帧满员', noDrop.every((x) => x.objects.length === 4))
+  check(
+    'dropRate=0 时每帧满员',
+    noDrop.every((x) => x.objects.length === 4),
+  )
   const noIds = await collect(createMockProvider({ seed: 3, withTrackIds: false }).run(REQ))
-  check('可关闭 modelTrackId（测降级链路）', noIds.every((x) => x.objects.every((o) => !o.modelTrackId)))
+  check(
+    '可关闭 modelTrackId（测降级链路）',
+    noIds.every((x) => x.objects.every((o) => !o.modelTrackId)),
+  )
 
   // 中断：拿到第一帧就 break，不应继续产出
   const controller = new AbortController()
@@ -79,11 +86,25 @@ console.log('\n[1] mock provider')
 
 console.log('\n[2] http provider')
 {
-  const ndjson = [
-    JSON.stringify({ frame: 0, objects: [{ classId: 'Car', position: { x: 1, y: 2, z: 0.75 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0, confidence: 0.8, modelTrackId: 't1' }], progress: 0.5 }),
-    'not json',
-    JSON.stringify({ frame: 1, objects: [], progress: 1 }),
-  ].join('\n') + '\n'
+  const ndjson =
+    [
+      JSON.stringify({
+        frame: 0,
+        objects: [
+          {
+            classId: 'Car',
+            position: { x: 1, y: 2, z: 0.75 },
+            scale: { x: 4, y: 2, z: 1.5 },
+            yaw: 0,
+            confidence: 0.8,
+            modelTrackId: 't1',
+          },
+        ],
+        progress: 0.5,
+      }),
+      'not json',
+      JSON.stringify({ frame: 1, objects: [], progress: 1 }),
+    ].join('\n') + '\n'
 
   const fakeFetch = (async () => new Response(ndjson, { status: 200 })) as unknown as typeof fetch
   const chunks = await collect(createHttpProvider({ url: 'http://x/pre', fetchImpl: fakeFetch }).run(REQ))
@@ -116,8 +137,14 @@ console.log('\n[3] file provider')
     format: 'pcl-label-studio/sequence',
     model: { id: 'offline', version: '2' },
     frames: [
-      { index: 0, objects: [{ label: 'Car', position: { x: 0, y: 0, z: 0.75 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0 }] },
-      { index: 2, objects: [{ label: 'Truck', position: { x: 5, y: 0, z: 1 }, scale: { x: 8, y: 2.5, z: 3 }, yaw: 0.1 }] },
+      {
+        index: 0,
+        objects: [{ label: 'Car', position: { x: 0, y: 0, z: 0.75 }, scale: { x: 4, y: 2, z: 1.5 }, yaw: 0 }],
+      },
+      {
+        index: 2,
+        objects: [{ label: 'Truck', position: { x: 5, y: 0, z: 1 }, scale: { x: 8, y: 2.5, z: 3 }, yaw: 0.1 }],
+      },
     ],
   }
   const p = createFileProvider(sequence, { name: 'offline.json' })
@@ -129,7 +156,19 @@ console.log('\n[3] file provider')
   check('模型身份来自文件', all[0].model.id === 'offline')
 
   const sustec = {
-    frames: [{ index: 0, objects: [{ psr: { position: { x: 1, y: 2, z: 0.5 }, scale: { x: 4, y: 2, z: 1 }, rotation: { z: 0.5 } }, obj_type: 'Car', obj_id: '7', score: 0.66 }] }],
+    frames: [
+      {
+        index: 0,
+        objects: [
+          {
+            psr: { position: { x: 1, y: 2, z: 0.5 }, scale: { x: 4, y: 2, z: 1 }, rotation: { z: 0.5 } },
+            obj_type: 'Car',
+            obj_id: '7',
+            score: 0.66,
+          },
+        ],
+      },
+    ],
   }
   const sustecChunks = await collect(createFileProvider(sustec).run(REQ))
   check('SUSTechPOINTS psr 格式可读', sustecChunks[0].objects.length === 1)
@@ -145,14 +184,21 @@ console.log('\n[3] file provider')
   }
   check('没有帧的文件被拒绝', bad.includes('没有可用的帧'), bad)
 
-  check('脏对象被剔除而不是整帧失败', parsePreObject({ classId: 'Car', position: { x: NaN, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } }) === null)
+  check(
+    '脏对象被剔除而不是整帧失败',
+    parsePreObject({ classId: 'Car', position: { x: NaN, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } }) === null,
+  )
   check('缺类别被剔除', parsePreObject({ position: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } }) === null)
 }
 
 console.log('\n[4] 接线：合入 → 闸门 → 接受 → 放行')
 {
   const mkBox = (id: string, x: number): Box3D => ({
-    id, label: 'Car', position: { x, y: 0, z: 1 }, scale: { x: 4, y: 2, z: 2 }, yaw: 0,
+    id,
+    label: 'Car',
+    position: { x, y: 0, z: 1 },
+    scale: { x: 4, y: 2, z: 2 },
+    yaw: 0,
   })
   const doc = buildDocumentFromFrames([
     { index: 0, boxes: [mkBox('1', 40)] },
@@ -190,8 +236,12 @@ console.log('\n[4] 接线：合入 → 闸门 → 接受 → 放行')
   check('接受后队列清空', reviewStats(doc).tracks === 0)
   store.undo()
   check('撤销后又回到待复核', reviewStats(doc).tracks === 4)
-  check('人工帧不受闸门影响', store.materialize(0, { acceptedOnly: true }).some((b) => b.id === '1'))
+  check(
+    '人工帧不受闸门影响',
+    store.materialize(0, { acceptedOnly: true }).some((b) => b.id === '1'),
+  )
 }
 
-console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
-if (failed > 0) process.exit(1)
+it('p2：mock/http/file provider 与复核闸门 全部断言通过', () => {
+  finish()
+})

@@ -1,6 +1,6 @@
 /**
- * P3 自检（无需浏览器）：blob 引用、计数器、回收计划、清扫与去重存储
- *   pnpm test:p3
+ * P3 测试（无需浏览器）：blob 引用、计数器、回收计划、清扫与去重存储
+ *   pnpm test -- p3
  *
  * 这一层最容易出的错是"删多了"而不是"删少了"：
  *   - 撤销后重做还要用同一份 blob
@@ -11,12 +11,22 @@
  * IndexedDB 本身仍然不测（Node 没有实现）。真正会错的是判定逻辑，
  * 这部分是纯函数 + 端口接口，用假 store 可以完整覆盖。
  */
+import { it } from 'vitest'
+import { createChecker } from './harness.ts'
 import type { BlobMeta, BlobStore } from '../src/ports/blobStore.ts'
 import {
-  classifyBlobKey, frameBlobKey, frameZonePrefix, legacyFrameBlobKey, parseFrameBlobKey,
+  classifyBlobKey,
+  frameBlobKey,
+  frameZonePrefix,
+  legacyFrameBlobKey,
+  parseFrameBlobKey,
 } from '../src/adapters/blobKeys.ts'
 import {
-  BlobRefCounter, collectRefsDeep, commandBlobRefs, documentBlobRefs, isPayloadRef,
+  BlobRefCounter,
+  collectRefsDeep,
+  commandBlobRefs,
+  documentBlobRefs,
+  isPayloadRef,
 } from '../src/domain/store/blobRefs.ts'
 import { makeCommand, type Command } from '../src/domain/model/command.ts'
 import { CommandHistory } from '../src/domain/store/commandHistory.ts'
@@ -26,27 +36,38 @@ import { planBlobGc, BlobReclaimer, sweepBlobs } from '../src/adapters/blobGc.ts
 import { gcBlobStore } from '../src/adapters/studioGc.ts'
 import { fnv1a64, payloadRefOf, putPayload, getPayload } from '../src/adapters/blobPayload.ts'
 import {
-  LEASE_TTL_MS, judgeLease, mergePeerProtection, pushCapped, type PeerState,
+  LEASE_TTL_MS,
+  judgeLease,
+  mergePeerProtection,
+  pushCapped,
+  type PeerState,
 } from '../src/domain/store/tabLease.ts'
 import { TabBus, type StorageLike } from '../src/adapters/tabBus.ts'
 import {
-  GC_AUDIT_KEY, GC_AUDIT_LIMIT, clearGcAudit, listGcAudit, recordGcAudit, summarizeGcAudit,
+  GC_AUDIT_KEY,
+  GC_AUDIT_LIMIT,
+  clearGcAudit,
+  listGcAudit,
+  recordGcAudit,
+  summarizeGcAudit,
   type GcAuditEntry,
 } from '../src/adapters/gcAudit.ts'
 
-let passed = 0
-let failed = 0
-function check(name: string, cond: boolean, detail = '') {
-  if (cond) { passed++; console.log(`  ✓ ${name}`) }
-  else { failed++; console.log(`  ✗ ${name}  ${detail}`) }
-}
+const { check, finish } = createChecker()
 
 /* ---------------- 假 BlobStore ---------------- */
 
 class FakeBlobs implements BlobStore {
-  map = new Map<string, {
-    bytes: number; savedAt: number; lastUsedAt: number; hits: number; data: ArrayBuffer
-  }>()
+  map = new Map<
+    string,
+    {
+      bytes: number
+      savedAt: number
+      lastUsedAt: number
+      hits: number
+      data: ArrayBuffer
+    }
+  >()
   putCalls = 0
   deleteCalls = 0
 
@@ -63,12 +84,19 @@ class FakeBlobs implements BlobStore {
     if (!rec) throw new Error(`missing ${key}`)
     return rec.data
   }
-  async has(key: string): Promise<boolean> { return this.map.has(key) }
-  async delete(key: string): Promise<void> { this.map.delete(key) }
+  async has(key: string): Promise<boolean> {
+    return this.map.has(key)
+  }
+  async delete(key: string): Promise<void> {
+    this.map.delete(key)
+  }
   async deletePrefix(prefix: string): Promise<number> {
     let n = 0
     for (const key of [...this.map.keys()]) {
-      if (key.startsWith(prefix)) { this.map.delete(key); n++ }
+      if (key.startsWith(prefix)) {
+        this.map.delete(key)
+        n++
+      }
     }
     return n
   }
@@ -76,7 +104,11 @@ class FakeBlobs implements BlobStore {
     return [...this.map.entries()]
       .filter(([key]) => key.startsWith(prefix))
       .map(([key, v]) => ({
-        key, bytes: v.bytes, savedAt: v.savedAt, lastUsedAt: v.lastUsedAt, hits: v.hits,
+        key,
+        bytes: v.bytes,
+        savedAt: v.savedAt,
+        lastUsedAt: v.lastUsedAt,
+        hits: v.hits,
       }))
   }
   async deleteMany(keys: string[]): Promise<number> {
@@ -95,18 +127,23 @@ class FakeBlobs implements BlobStore {
     }
     return n
   }
-  async usage(): Promise<{ used: number; quota: number }> { return { used: 0, quota: 0 } }
+  async usage(): Promise<{ used: number; quota: number }> {
+    return { used: 0, quota: 0 }
+  }
 }
 
 function payloadCmd(ref: string | null): Command {
-  return makeCommand({
-    type: 'setTaskPayload',
-    task: 'flow',
-    before: null,
-    after: ref ? { pointFlowRef: ref } : null,
-    beforeRef: null,
-    afterRef: ref,
-  }, { label: '写载荷' })
+  return makeCommand(
+    {
+      type: 'setTaskPayload',
+      task: 'flow',
+      before: null,
+      after: ref ? { pointFlowRef: ref } : null,
+      beforeRef: null,
+      afterRef: ref,
+    },
+    { label: '写载荷' },
+  )
 }
 
 function classCmd(id: string, after = 'Car'): Command {
@@ -146,11 +183,17 @@ async function main() {
   check('几何命令不持有 blob', commandBlobRefs(classCmd('1')).length === 0)
   const pc = payloadCmd('payload/aaa')
   check('载荷命令持有 afterRef', commandBlobRefs(pc).includes('payload/aaa'))
-  const both = makeCommand({
-    type: 'setTaskPayload', task: 'flow',
-    before: { pointFlowRef: 'payload/old' }, after: { pointFlowRef: 'payload/new' },
-    beforeRef: 'payload/old', afterRef: 'payload/new',
-  }, { label: '替换' })
+  const both = makeCommand(
+    {
+      type: 'setTaskPayload',
+      task: 'flow',
+      before: { pointFlowRef: 'payload/old' },
+      after: { pointFlowRef: 'payload/new' },
+      beforeRef: 'payload/old',
+      afterRef: 'payload/new',
+    },
+    { label: '替换' },
+  )
   const bothRefs = commandBlobRefs(both)
   check('替换命令同时持有 before 与 after', bothRefs.length === 2 && bothRefs.includes('payload/new'))
   const batched = makeCommand({ type: 'batch', commands: [pc, both, classCmd('1')] }, { label: '批' })
@@ -162,7 +205,17 @@ async function main() {
   const docRefs = documentBlobRefs(doc)
   check('文档直引两个载荷', docRefs.size === 2 && docRefs.has('payload/bbb'))
   doc.tasks.boxes.tracks.push({
-    id: '1', classId: 'Car', attributes: {}, keyframes: [{ frame: 0, geometry: { position: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, yaw: 0 }, source: { kind: 'manual' } }], states: new Map(),
+    id: '1',
+    classId: 'Car',
+    attributes: {},
+    keyframes: [
+      {
+        frame: 0,
+        geometry: { position: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, yaw: 0 },
+        source: { kind: 'manual' },
+      },
+    ],
+    states: new Map(),
     lifecycle: { first: 0, last: 0, state: 'active' },
   } as never)
   check('boxes 不参与扫描（轨迹里没有 blob）', documentBlobRefs(doc).size === 2)
@@ -177,7 +230,10 @@ async function main() {
   check('多余 release 不会变负', counter.release(['payload/a']).length === 0 && counter.count('payload/a') === 0)
   const guard = new BlobRefCounter()
   for (const c of [payloadCmd('payload/x'), payloadCmd('payload/x'), classCmd('1')]) guard.retain(commandBlobRefs(c))
-  check('计数器与重算一致', guard.verify([payloadCmd('payload/x'), payloadCmd('payload/x'), classCmd('1')]).length === 0)
+  check(
+    '计数器与重算一致',
+    guard.verify([payloadCmd('payload/x'), payloadCmd('payload/x'), classCmd('1')]).length === 0,
+  )
   check('漂移能被发现', guard.verify([payloadCmd('payload/x')]).length > 0)
 
   console.log('\n[4] 历史丢弃信号')
@@ -189,7 +245,10 @@ async function main() {
   check('超过上限淘汰最旧一条', dropped.includes('payload/h1') && history.undoCount === 2)
   check('超限后只剩 2 条', history.commands().length === 2)
   history.undo()
-  check('撤销只是搬到 redo，不丢引用', dropped.filter((r) => r === 'payload/h3').length === 0 && history.commands().length === 2)
+  check(
+    '撤销只是搬到 redo，不丢引用',
+    dropped.filter((r) => r === 'payload/h3').length === 0 && history.commands().length === 2,
+  )
   history.commit(payloadCmd('payload/h4'))
   check('新分支清空 redo 并发出释放', dropped.includes('payload/h3'))
   dropped.length = 0
@@ -204,7 +263,7 @@ async function main() {
   store.onCommandDropped((refs) => droppedByStore.push(...refs))
 
   store.exec(payloadCmd('payload/cmdref'))
-  let live = store.liveBlobRefs()
+  const live = store.liveBlobRefs()
   check('文档引用与命令引用都在', live.has('payload/docref') && live.has('payload/cmdref'))
   check('文档里能读到载荷描述', storeDoc.tasks.flow?.pointFlowRef === 'payload/cmdref')
   store.undo()
@@ -215,9 +274,17 @@ async function main() {
   check('释放后不再存活', !store.liveBlobRefs().has('payload/cmdref'))
   check('文档引用始终不受历史影响', store.liveBlobRefs().has('payload/docref'))
 
-  const boxesGuard = makeCommand({
-    type: 'setTaskPayload', task: 'boxes', before: null, after: { tracks: [] }, beforeRef: null, afterRef: 'payload/x',
-  }, { label: '非法写 boxes' })
+  const boxesGuard = makeCommand(
+    {
+      type: 'setTaskPayload',
+      task: 'boxes',
+      before: null,
+      after: { tracks: [] },
+      beforeRef: null,
+      afterRef: 'payload/x',
+    },
+    { label: '非法写 boxes' },
+  )
   store.exec(boxesGuard)
   check('setTaskPayload 不会劫持 boxes 任务', Array.isArray(storeDoc.tasks.boxes.tracks))
   store.undo()
@@ -250,7 +317,10 @@ async function main() {
   check('待删合计正确', plan.remove.length === 3 && plan.removeBytes === 2000 + 4000 + 700)
   check('保留合计正确', plan.keepBytes === 1000 + 3000 + 500 + 600 + 800)
   const aggressive = planBlobGc({
-    entries, livePayloadRefs: [], liveDatasetKeys: [], dropUnknown: true,
+    entries,
+    livePayloadRefs: [],
+    liveDatasetKeys: [],
+    dropUnknown: true,
   })
   check('可显式清未知命名空间', aggressive.remove.length === 8)
 
@@ -258,7 +328,10 @@ async function main() {
   const blobs = new FakeBlobs()
   for (const e of entries) blobs.seed(e.key, e.bytes)
   const dry = await sweepBlobs({
-    blobs, livePayloadRefs: ['payload/live'], liveDatasetKeys: ['dsA'], dryRun: true,
+    blobs,
+    livePayloadRefs: ['payload/live'],
+    liveDatasetKeys: ['dsA'],
+    dryRun: true,
   })
   check('dryRun 不写库', blobs.map.size === 8 && dry.released === 0)
   check('dryRun 仍然给出报告', dry.remove.length === 3 && dry.scanned === 8)
@@ -271,7 +344,10 @@ async function main() {
   const many = new FakeBlobs()
   for (let i = 0; i < 7; i++) many.seed(`payload/p${i}`, 10)
   const batched2 = await sweepBlobs({
-    blobs: many, livePayloadRefs: [], liveDatasetKeys: [], batchSize: 3,
+    blobs: many,
+    livePayloadRefs: [],
+    liveDatasetKeys: [],
+    batchSize: 3,
   })
   check('按 batch 分多次事务', batched2.released === 7 && many.deleteCalls === 3)
 
@@ -292,7 +368,10 @@ async function main() {
   reclaimer.noteDropped(['payload/kept', 'frames/x/1', 'payload/lost'])
   check('只接受 payload 引用', reclaimer.pendingCount === 2)
   const flushed = await reclaimer.flush()
-  check('活引用不删、死引用删掉', flushed.released === 1 && rBlobs.map.has('payload/kept') && !rBlobs.map.has('payload/lost'))
+  check(
+    '活引用不删、死引用删掉',
+    flushed.released === 1 && rBlobs.map.has('payload/kept') && !rBlobs.map.has('payload/lost'),
+  )
   check('回调带统计', events.length === 1 && events[0].kept === 1)
 
   liveSet.add('payload/lost')
@@ -321,11 +400,19 @@ async function main() {
   check('引用带 payload 前缀', ref1.startsWith('payload/'))
   const other = await putPayload(pBlobs, new Uint8Array([1, 2, 3, 4, 6]).buffer, { mode: 'fnv1a' })
   check('不同内容得到不同引用', other !== ref1)
-  check('fnv1a 稳定且 16 位十六进制', fnv1a64(new Uint8Array([9])) === fnv1a64(new Uint8Array([9])) && /^[0-9a-f]{16}$/.test(fnv1a64(new Uint8Array([9]))))
+  check(
+    'fnv1a 稳定且 16 位十六进制',
+    fnv1a64(new Uint8Array([9])) === fnv1a64(new Uint8Array([9])) &&
+      /^[0-9a-f]{16}$/.test(fnv1a64(new Uint8Array([9]))),
+  )
   const readBack = new Uint8Array(await getPayload(pBlobs, ref1))
   check('读回字节一致', readBack.length === 5 && readBack[4] === 5)
   let threw = false
-  try { await getPayload(pBlobs, 'frames/ds/1') } catch { threw = true }
+  try {
+    await getPayload(pBlobs, 'frames/ds/1')
+  } catch {
+    threw = true
+  }
   check('非载荷引用直接报错', threw)
   const subtleRef = await payloadRefOf(buf, 'auto')
   check('auto 模式产出统一前缀', subtleRef.startsWith('payload/'))
@@ -333,17 +420,15 @@ async function main() {
   console.log('\n[10] 跨标签页：租约判定')
   const T0 = 1_000_000
   check('无记录 = free', judgeLease(null, 'A', T0).state === 'free')
-  check('自己的记录 = mine（时间戳旧也算自己）',
-    judgeLease({ tabId: 'A', at: T0 - 99_999 }, 'A', T0).state === 'mine')
+  check('自己的记录 = mine（时间戳旧也算自己）', judgeLease({ tabId: 'A', at: T0 - 99_999 }, 'A', T0).state === 'mine')
   const heldV = judgeLease({ tabId: 'B', at: T0 - 1000 }, 'A', T0)
-  check('别人的新鲜记录 = held',
-    heldV.state === 'held' && heldV.tabId === 'B' && heldV.ageMs === 1000)
-  check('别人的过期记录 = free',
-    judgeLease({ tabId: 'B', at: T0 - LEASE_TTL_MS - 1 }, 'A', T0).state === 'free')
-  check('恰好到 TTL 仍算持有（严格大于才过期）',
-    judgeLease({ tabId: 'B', at: T0 - LEASE_TTL_MS }, 'A', T0).state === 'held')
-  check('时间戳在未来不当作过期',
-    judgeLease({ tabId: 'B', at: T0 + 5000 }, 'A', T0).state === 'held')
+  check('别人的新鲜记录 = held', heldV.state === 'held' && heldV.tabId === 'B' && heldV.ageMs === 1000)
+  check('别人的过期记录 = free', judgeLease({ tabId: 'B', at: T0 - LEASE_TTL_MS - 1 }, 'A', T0).state === 'free')
+  check(
+    '恰好到 TTL 仍算持有（严格大于才过期）',
+    judgeLease({ tabId: 'B', at: T0 - LEASE_TTL_MS }, 'A', T0).state === 'held',
+  )
+  check('时间戳在未来不当作过期', judgeLease({ tabId: 'B', at: T0 + 5000 }, 'A', T0).state === 'held')
   check('空 tabId 记录 = free', judgeLease({ tabId: '', at: T0 }, 'A', T0).state === 'free')
 
   console.log('\n[11] 对端引用合并')
@@ -385,18 +470,27 @@ async function main() {
   soloBlobs.seed('payload/peer-only', 100)
   soloBlobs.seed(`frames/${encodeURIComponent(peerDs)}/0`, 100)
   const soloReport = await gcBlobStore(soloBlobs, { livePayloadRefs: [], liveDatasetKeys: [] })
-  check('无对端时同样的键会被回收',
-    !soloBlobs.map.has('payload/peer-only') && soloReport.peerProtected === 0)
+  check('无对端时同样的键会被回收', !soloBlobs.map.has('payload/peer-only') && soloReport.peerProtected === 0)
 
   console.log('\n[12] TabBus 协议（localStorage + BroadcastChannel）')
 
   class FakeStorage implements StorageLike {
     map = new Map<string, string>()
-    get length(): number { return this.map.size }
-    key(i: number): string | null { return [...this.map.keys()][i] ?? null }
-    getItem(k: string): string | null { return this.map.get(k) ?? null }
-    setItem(k: string, v: string): void { this.map.set(k, v) }
-    removeItem(k: string): void { this.map.delete(k) }
+    get length(): number {
+      return this.map.size
+    }
+    key(i: number): string | null {
+      return [...this.map.keys()][i] ?? null
+    }
+    getItem(k: string): string | null {
+      return this.map.get(k) ?? null
+    }
+    setItem(k: string, v: string): void {
+      this.map.set(k, v)
+    }
+    removeItem(k: string): void {
+      this.map.delete(k)
+    }
   }
 
   const shared = new FakeStorage()
@@ -415,7 +509,9 @@ async function main() {
   check('第三个标签页同样被拒', !claimC.ok && claimC.holder === 'A')
 
   let lostReason: string | null = null
-  busA.onLeaseLost((r) => { lostReason = r })
+  busA.onLeaseLost((r) => {
+    lostReason = r
+  })
   busB.takeover('s1')
   await new Promise((r) => setTimeout(r, 60))
   check('接管广播让原持有者收到通知', lostReason === 'takeover', String(lostReason))
@@ -427,7 +523,10 @@ async function main() {
   check('释放后别的标签页可以接手', (await busC.claim('s1')).ok)
   busC.release()
 
-  check('peers 能列出另一个标签页', busA.peers().some((p) => p.tabId === 'B'))
+  check(
+    'peers 能列出另一个标签页',
+    busA.peers().some((p) => p.tabId === 'B'),
+  )
   check('peers 不包含自己', !busA.peers().some((p) => p.tabId === 'A'))
 
   const peerRefs = await busA.collectPeerRefs(150)
@@ -499,14 +598,20 @@ async function main() {
       protectKeys: [lruKey(3)],
     },
   })
-  check('淘汰最久未用的三帧', !lruBlobs.map.has(lruKey(0)) && !lruBlobs.map.has(lruKey(1)) && !lruBlobs.map.has(lruKey(2)))
+  check(
+    '淘汰最久未用的三帧',
+    !lruBlobs.map.has(lruKey(0)) && !lruBlobs.map.has(lruKey(1)) && !lruBlobs.map.has(lruKey(2)),
+  )
   check('受保护的当前帧一帧都不动', lruBlobs.map.has(lruKey(3)) && lruBlobs.map.has(lruKey(3, ':colors')))
   check('颜色记录跟着一起走（不留孤儿）', !lruBlobs.map.has(lruKey(0, ':colors')))
   check('死数据集照旧整段删，不占 LRU 预算', !lruBlobs.map.has(`frames/${encodeURIComponent('dead#2')}/0`))
   check('LRU 只统计活数据集里的帧', lruReport.lru?.groups.length === 3, String(lruReport.lru?.groups.length))
   check('LRU 计划字节数 = 3 帧 × 150', lruReport.lru?.bytes === 450, String(lruReport.lru?.bytes))
-  check('byReason 记下 lru-evicted 的 6 条', lruReport.byReason['lru-evicted']?.count === 6,
-    JSON.stringify(lruReport.byReason['lru-evicted']))
+  check(
+    'byReason 记下 lru-evicted 的 6 条',
+    lruReport.byReason['lru-evicted']?.count === 6,
+    JSON.stringify(lruReport.byReason['lru-evicted']),
+  )
   check('keepBytes 只剩受保护的那一帧', lruReport.keepBytes === 150, String(lruReport.keepBytes))
   check('removeBytes 含淘汰字节', lruReport.removeBytes === 450 + 100, String(lruReport.removeBytes))
 
@@ -547,7 +652,11 @@ async function main() {
     liveDatasetKeys: [lruDs],
     budget: { reclaimBytes: 200, evictableDatasetKeys: [lruDs] },
   })
-  check('刚读过的帧不再被优先淘汰', touched.map.has(lruKey(0)), JSON.stringify(touchedReport.lru?.groups.map((g) => g.frame)))
+  check(
+    '刚读过的帧不再被优先淘汰',
+    touched.map.has(lruKey(0)),
+    JSON.stringify(touchedReport.lru?.groups.map((g) => g.frame)),
+  )
   check('转而淘汰次旧的帧', !touched.map.has(lruKey(1)) && !touched.map.has(lruKey(2)))
   check('touch 不存在的键不报错', (await touched.touchMany(['frames/nope/0'])) === 0)
   check('touch 会累加命中次数', touched.map.get(lruKey(0))?.hits === 1, String(touched.map.get(lruKey(0))?.hits))
@@ -576,14 +685,22 @@ async function main() {
     peerDatasetKeys: [peer],
     budget: { reclaimBytes: 300, evictableDatasetKeys: [peer] },
   })
-  check('只动对端数据集：本端帧一条不少',
-    onlyPeer.map.has(ownKey(0)) && onlyPeer.map.has(ownKey(1)) && onlyPeer.map.has(ownKey(0, ':colors')))
+  check(
+    '只动对端数据集：本端帧一条不少',
+    onlyPeer.map.has(ownKey(0)) && onlyPeer.map.has(ownKey(1)) && onlyPeer.map.has(ownKey(0, ':colors')),
+  )
   check('对端最久未用的两帧被淘汰', !onlyPeer.map.has(peerKey(0)) && !onlyPeer.map.has(peerKey(1)))
   check('对端的颜色记录一起走', !onlyPeer.map.has(peerKey(0, ':colors')))
-  check('计划只涉及对端数据集', onlyPeerReport.lru?.datasets.join('|') === peer,
-    JSON.stringify(onlyPeerReport.lru?.datasets))
-  check('理由记 lru-evicted（含颜色共 4 条）', onlyPeerReport.byReason['lru-evicted']?.count === 4,
-    JSON.stringify(onlyPeerReport.byReason['lru-evicted']))
+  check(
+    '计划只涉及对端数据集',
+    onlyPeerReport.lru?.datasets.join('|') === peer,
+    JSON.stringify(onlyPeerReport.lru?.datasets),
+  )
+  check(
+    '理由记 lru-evicted（含颜色共 4 条）',
+    onlyPeerReport.byReason['lru-evicted']?.count === 4,
+    JSON.stringify(onlyPeerReport.byReason['lru-evicted']),
+  )
 
   // 2) 两个数据集都可淘汰：跨数据集统一按时间排序，而不是"先删自己的"
   const bothDs = new FakeBlobs()
@@ -593,13 +710,16 @@ async function main() {
     peerDatasetKeys: [peer],
     budget: { reclaimBytes: 450, evictableDatasetKeys: [own, peer] },
   })
-  check('跨数据集统一排序：own/0 → peer/0 → own/1',
+  check(
+    '跨数据集统一排序：own/0 → peer/0 → own/1',
     bothReport.lru?.groups.map((g) => `${g.datasetKey}/${g.frame}`).join(',') === `${own}/0,${peer}/0,${own}/1`,
-    JSON.stringify(bothReport.lru?.groups.map((g) => `${g.datasetKey}/${g.frame}`)))
-  check('datasets 记下两个数据集', bothReport.lru?.datasets.length === 2,
-    JSON.stringify(bothReport.lru?.datasets))
-  check('被淘汰的键真的删了（跨数据集）',
-    !bothDs.map.has(ownKey(0)) && !bothDs.map.has(peerKey(0)) && bothDs.map.has(peerKey(1)))
+    JSON.stringify(bothReport.lru?.groups.map((g) => `${g.datasetKey}/${g.frame}`)),
+  )
+  check('datasets 记下两个数据集', bothReport.lru?.datasets.length === 2, JSON.stringify(bothReport.lru?.datasets))
+  check(
+    '被淘汰的键真的删了（跨数据集）',
+    !bothDs.map.has(ownKey(0)) && !bothDs.map.has(peerKey(0)) && bothDs.map.has(peerKey(1)),
+  )
 
   // 3) 对端的保护键：本端淘汰对端数据集时要避开对端的当前帧邻域
   const guarded = new FakeBlobs()
@@ -614,8 +734,11 @@ async function main() {
     },
   })
   check('对端保护键命中的帧整组跳过', guarded.map.has(peerKey(0)) && guarded.map.has(peerKey(0, ':colors')))
-  check('于是淘汰顺延到下一帧', !guarded.map.has(ownKey(0)) && !guarded.map.has(ownKey(1)) && !guarded.map.has(peerKey(1)),
-    JSON.stringify(guardedReport.lru?.groups.map((g) => `${g.datasetKey}/${g.frame}`)))
+  check(
+    '于是淘汰顺延到下一帧',
+    !guarded.map.has(ownKey(0)) && !guarded.map.has(ownKey(1)) && !guarded.map.has(peerKey(1)),
+    JSON.stringify(guardedReport.lru?.groups.map((g) => `${g.datasetKey}/${g.frame}`)),
+  )
 
   // 4) 策略透传到判定：同样的数据，lfu 与 lru 删的不是同一帧
   const freqDs = 'freq#1'
@@ -632,24 +755,33 @@ async function main() {
     liveDatasetKeys: [freqDs],
     budget: { reclaimBytes: 1, evictableDatasetKeys: [freqDs], policy: 'lfu' },
   })
-  check('lfu 先淘汰读得最少的帧', !lfuStore.map.has(freqKey(0)) && lfuStore.map.has(freqKey(1)),
-    JSON.stringify(lfuReport.lru?.groups.map((g) => g.frame)))
+  check(
+    'lfu 先淘汰读得最少的帧',
+    !lfuStore.map.has(freqKey(0)) && lfuStore.map.has(freqKey(1)),
+    JSON.stringify(lfuReport.lru?.groups.map((g) => g.frame)),
+  )
   check('计划回填 policy=lfu', lfuReport.lru?.policy === 'lfu', String(lfuReport.lru?.policy))
   const lruOnly = mkFreq()
   const lruReport2 = await gcBlobStore(lruOnly, {
     liveDatasetKeys: [freqDs],
     budget: { reclaimBytes: 1, evictableDatasetKeys: [freqDs], policy: 'lru' },
   })
-  check('lru 在同样数据上先淘汰最旧的', !lruOnly.map.has(freqKey(1)),
-    JSON.stringify(lruReport2.lru?.groups.map((g) => g.frame)))
+  check(
+    'lru 在同样数据上先淘汰最旧的',
+    !lruOnly.map.has(freqKey(1)),
+    JSON.stringify(lruReport2.lru?.groups.map((g) => g.frame)),
+  )
   const plainBlobs = new FakeBlobs()
   for (let f = 0; f < 3; f++) plainBlobs.seed(frameBlobKey('plain#1', f), 100, 10, 1000 + f)
   const plainReport = await gcBlobStore(plainBlobs, {
     liveDatasetKeys: ['plain#1'],
     budget: { reclaimBytes: 1, evictableDatasetKeys: ['plain#1'] },
   })
-  check('默认策略为 hybrid 且淘汰最旧的帧', plainReport.lru?.policy === 'hybrid' && !plainBlobs.map.has(frameBlobKey('plain#1', 0)),
-    String(plainReport.lru?.policy))
+  check(
+    '默认策略为 hybrid 且淘汰最旧的帧',
+    plainReport.lru?.policy === 'hybrid' && !plainBlobs.map.has(frameBlobKey('plain#1', 0)),
+    String(plainReport.lru?.policy),
+  )
 
   // 5) 腾不够时报告缺口（以前是静默返回，调用方以为清干净了）
   const tooSmall = new FakeBlobs()
@@ -659,11 +791,12 @@ async function main() {
     peerDatasetKeys: [peer],
     budget: { reclaimBytes: 99_999, evictableDatasetKeys: [peer] },
   })
-  check('可淘汰的只有 4 帧时报告缺口', (shortReport.lru?.shortfall ?? 0) > 0,
-    String(shortReport.lru?.shortfall))
-  check('缺口 = 需求 − 已腾字节',
+  check('可淘汰的只有 4 帧时报告缺口', (shortReport.lru?.shortfall ?? 0) > 0, String(shortReport.lru?.shortfall))
+  check(
+    '缺口 = 需求 − 已腾字节',
     shortReport.lru?.shortfall === 99_999 - (shortReport.lru?.bytes ?? 0),
-    `${shortReport.lru?.shortfall} vs ${shortReport.lru?.bytes}`)
+    `${shortReport.lru?.shortfall} vs ${shortReport.lru?.bytes}`,
+  )
 
   // 6) 对端状态合并：可淘汰声明与保护键都来自对端自报
   const merged = mergePeerProtection([
@@ -671,17 +804,20 @@ async function main() {
     { tabId: 't2', datasetKey: 'peer#3', evictable: false, protectKeys: ['k2', 'k3'] } as PeerState,
     { tabId: 't3', datasetKey: '', evictable: true } as PeerState,
   ])
-  check('只收集声明可淘汰的数据集', merged.evictableDatasetKeys.join('|') === 'peer#2',
-    JSON.stringify(merged.evictableDatasetKeys))
+  check(
+    '只收集声明可淘汰的数据集',
+    merged.evictableDatasetKeys.join('|') === 'peer#2',
+    JSON.stringify(merged.evictableDatasetKeys),
+  )
   check('没有 datasetKey 的 evictable 被忽略', merged.evictableDatasetKeys.length === 1)
   check('对端保护键去重合并', merged.protectKeys.join('|') === 'k1|k2|k3', JSON.stringify(merged.protectKeys))
   const spam = mergePeerProtection([
     { tabId: 't9', datasetKey: 'x', protectKeys: Array.from({ length: 400 }, (_, i) => `key#${i}`) },
   ])
   check('保护键数量有上限（防协议出错刷爆内存）', spam.protectKeys.length === 256, String(spam.protectKeys.length))
-
-  console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
-  if (failed > 0) process.exit(1)
 }
 
-void main()
+it('p3：引用计数/GC/租约/审计/配额 全部断言通过', async () => {
+  await main()
+  finish()
+})

@@ -1,6 +1,6 @@
 /**
- * P4 自检 —— VLA 语言—动作对齐（不需要浏览器）
- *   pnpm test:vla
+ * P4 测试 —— VLA 语言—动作对齐（不需要浏览器）
+ *   pnpm test -- vla
  *
  * 覆盖五块纯逻辑：
  *   1. 重采样与统计：线性重采样、分位数、二阶差分、归一
@@ -13,37 +13,51 @@
  *   校验是"载荷 + 文档"的纯函数，编辑是纯函数，JSONL 是字符串进出。
  *   曲线绘制与时间线联动属于 UI，由 `scripts/browser/vla.mjs` 走查。
  */
+import { it } from 'vitest'
+import { createChecker } from './harness.ts'
 import { createEmptyDocument } from '../src/domain/model/document.ts'
 import type { SampleDocument } from '../src/domain/model/document.ts'
 import { createDefaultRegistry } from '../src/domain/model/task.ts'
 import {
-  DEFAULT_VLA_SIGN_MAP, actionRangeOf, channelAt, channelLastFrame, createEmptyVla, ensureAlignment,
+  actionRangeOf,
+  channelAt,
+  channelLastFrame,
+  createEmptyVla,
+  ensureAlignment,
   type VlaTaskData,
 } from '../src/domain/model/vla.ts'
 import { generateVlaDemo, type VlaDemoError } from '../src/domain/vla/demo.ts'
 import { validateVla } from '../src/domain/vla/rules.ts'
 import {
-  firstDeviation, mean, normalize01, percentile, resampleLinear, secondDifference, smoothExponential,
+  firstDeviation,
+  mean,
+  normalize01,
+  percentile,
+  resampleLinear,
+  secondDifference,
+  smoothExponential,
 } from '../src/domain/vla/resample.ts'
 import {
-  acceptAllInstructions, addInstruction, alignmentOffset, buildClearVlaCommand, buildCreateVlaCommand,
-  buildVlaEditCommand, instructionAt, nextInstructionId, removeInstruction, resetAlignment,
-  setInstructionReview, withAlignment, withInstructionRange, withInstructionText, withSignRule,
+  acceptAllInstructions,
+  addInstruction,
+  alignmentOffset,
+  buildClearVlaCommand,
+  buildCreateVlaCommand,
+  buildVlaEditCommand,
+  instructionAt,
+  nextInstructionId,
+  removeInstruction,
+  resetAlignment,
+  setInstructionReview,
+  withAlignment,
+  withInstructionRange,
+  withInstructionText,
+  withSignRule,
 } from '../src/domain/ops/vlaEdit.ts'
 import { parseVlaJsonl, recordToTask, vlaToJsonLine } from '../src/domain/io/vlaJsonl.ts'
 import { commandBlobRefs } from '../src/domain/store/blobRefs.ts'
 
-let passed = 0
-let failed = 0
-function check(name: string, ok: boolean, detail = ''): void {
-  if (ok) {
-    passed++
-    console.log(`  ✓ ${name}`)
-  } else {
-    failed++
-    console.log(`  ✗ ${name}${detail ? `  → ${detail}` : ''}`)
-  }
-}
+const { check, finish } = createChecker()
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps
 const codes = (issues: Array<{ code: string }>) => issues.map((i) => i.code)
@@ -66,7 +80,14 @@ function validate(payload: VlaTaskData, doc = mkDoc(), opts = {}) {
 console.log('\n[1] 重采样与统计')
 
 check('同频重采样原样返回', resampleLinear([1, 2, 3], 10, 10).join() === '1,2,3')
-check('20Hz → 10Hz 长度减半', resampleLinear(new Array(20).fill(0).map((_, i) => i), 20, 10).length === 10)
+check(
+  '20Hz → 10Hz 长度减半',
+  resampleLinear(
+    new Array(20).fill(0).map((_, i) => i),
+    20,
+    10,
+  ).length === 10,
+)
 {
   // 重采样按"时长"对齐：1Hz 的 2 个采样等价于 2 秒，换到 3Hz 应该是 6 个采样
   const up = resampleLinear([0, 10], 1, 3)
@@ -82,18 +103,27 @@ check('percentile 空数组为 0', percentile([], 0.5) === 0)
 check('mean 正常', near(mean([1, 2, 3]), 2))
 check('mean 空数组为 0（调用方不该用 0 当哨兵）', mean([]) === 0)
 
-check('二阶差分：线性序列全 0', secondDifference([1, 2, 3, 4, 5]).every((v) => v === 0))
+check(
+  '二阶差分：线性序列全 0',
+  secondDifference([1, 2, 3, 4, 5]).every((v) => v === 0),
+)
 check('二阶差分：锯齿被放大', secondDifference([0, 1, 0, 1, 0])[0] > 1)
 check('二阶差分：少于 3 点返回空', secondDifference([1, 2]).length === 0)
 
-check('normalize01 常量通道返回 0.5 而不是 0', normalize01([3, 3, 3]).every((v) => v === 0.5))
+check(
+  'normalize01 常量通道返回 0.5 而不是 0',
+  normalize01([3, 3, 3]).every((v) => v === 0.5),
+)
 check('normalize01 端点 0/1', normalize01([2, 4])[0] === 0 && normalize01([2, 4])[1] === 1)
 check('firstDeviation 找到第一次越过阈值的位置', firstDeviation([0, 0, 0.2, 0.4], 0, 0.05) === 2)
 check('firstDeviation 全程不动返回 -1', firstDeviation([0, 0, 0.01], 0, 0.05) === -1)
-check('指数平滑保留长度且首值不变', (() => {
-  const s = smoothExponential([1, 5, 5, 5], 0.5)
-  return s.length === 4 && s[0] === 1 && s[3] > 1 && s[3] < 5
-})())
+check(
+  '指数平滑保留长度且首值不变',
+  (() => {
+    const s = smoothExponential([1, 5, 5, 5], 0.5)
+    return s.length === 4 && s[0] === 1 && s[3] > 1 && s[3] < 5
+  })(),
+)
 
 /* ==================================================================
  * 2. 合成数据
@@ -103,25 +133,40 @@ console.log('\n[2] 合成数据')
 {
   const d = demo()
   check('默认生成 5 条指令 / 4 通道', d.instructions.length === 5 && d.channels.length === 4)
-  check('指令恰好铺满全段（首尾对齐）',
+  check(
+    '指令恰好铺满全段（首尾对齐）',
     d.instructions[0].startFrame === RANGE[0] && d.instructions[d.instructions.length - 1].endFrame === RANGE[1],
-    `${d.instructions[0].startFrame}..${d.instructions[4].endFrame}`)
-  check('相邻指令首尾相接（无缝无叠）', d.instructions.every((s, i) =>
-    i === 0 || s.startFrame === d.instructions[i - 1].endFrame + 1))
-  check('通道长度 = 帧数', d.channels.every((c) => c.values.length === 300))
-  check('通道同起点', d.channels.every((c) => c.startFrame === RANGE[0]))
+    `${d.instructions[0].startFrame}..${d.instructions[4].endFrame}`,
+  )
+  check(
+    '相邻指令首尾相接（无缝无叠）',
+    d.instructions.every((s, i) => i === 0 || s.startFrame === d.instructions[i - 1].endFrame + 1),
+  )
+  check(
+    '通道长度 = 帧数',
+    d.channels.every((c) => c.values.length === 300),
+  )
+  check(
+    '通道同起点',
+    d.channels.every((c) => c.startFrame === RANGE[0]),
+  )
   check('hz 写进载荷', d.hz === 10)
-  check('对齐默认等于指令区间', d.alignment.length === 5
-    && d.alignment.every((a) => {
-      const seg = d.instructions.find((s) => s.id === a.instructionId)!
-      return a.actionRange[0] === seg.startFrame && a.actionRange[1] === seg.endFrame
-    }))
+  check(
+    '对齐默认等于指令区间',
+    d.alignment.length === 5 &&
+      d.alignment.every((a) => {
+        const seg = d.instructions.find((s) => s.id === a.instructionId)!
+        return a.actionRange[0] === seg.startFrame && a.actionRange[1] === seg.endFrame
+      }),
+  )
   check('确定性：同 seed 同结果', JSON.stringify(demo([], 7)) === JSON.stringify(demo([], 7)))
-  check('换 seed 仍满足"铺满"这条硬约束', (() => {
-    const other = demo([], 99)
-    return other.instructions[0].startFrame === RANGE[0]
-      && other.instructions[4].endFrame === RANGE[1]
-  })())
+  check(
+    '换 seed 仍满足"铺满"这条硬约束',
+    (() => {
+      const other = demo([], 99)
+      return other.instructions[0].startFrame === RANGE[0] && other.instructions[4].endFrame === RANGE[1]
+    })(),
+  )
 }
 
 {
@@ -132,10 +177,11 @@ console.log('\n[2] 合成数据')
 {
   // 边界：极短样本也要能铺满，不能因为段数多于帧数就产生负数区间
   const short = generateVlaDemo({ range: [0, 4], hz: 10 })
-  check('5 帧样本仍能铺满且区间非负',
-    short.instructions.every((s) => s.endFrame >= s.startFrame)
-    && short.instructions[4].endFrame === 4,
-    short.instructions.map((s) => `${s.startFrame}-${s.endFrame}`).join(' '))
+  check(
+    '5 帧样本仍能铺满且区间非负',
+    short.instructions.every((s) => s.endFrame >= s.startFrame) && short.instructions[4].endFrame === 4,
+    short.instructions.map((s) => `${s.startFrame}-${s.endFrame}`).join(' '),
+  )
 }
 
 /* ==================================================================
@@ -157,14 +203,15 @@ for (const { key, code } of injections) {
   check(`干净数据不报 ${code}`, !has(validate(demo()), code))
 }
 
-check('注入 gap 只报 GAP，不误报重叠',
-  !has(validate(demo(['gap'])), 'VLA_INSTRUCTION_OVERLAP'))
-check('注入 overlap 不误报空档',
-  !has(validate(demo(['overlap'])), 'VLA_INSTRUCTION_GAP'))
-check('多条同时注入全部报出', (() => {
-  const issues = validate(demo(['gap', 'sign', 'textEmpty']))
-  return has(issues, 'VLA_INSTRUCTION_GAP') && has(issues, 'VLA_ACTION_SIGN') && has(issues, 'VLA_TEXT_EMPTY')
-})())
+check('注入 gap 只报 GAP，不误报重叠', !has(validate(demo(['gap'])), 'VLA_INSTRUCTION_OVERLAP'))
+check('注入 overlap 不误报空档', !has(validate(demo(['overlap'])), 'VLA_INSTRUCTION_GAP'))
+check(
+  '多条同时注入全部报出',
+  (() => {
+    const issues = validate(demo(['gap', 'sign', 'textEmpty']))
+    return has(issues, 'VLA_INSTRUCTION_GAP') && has(issues, 'VLA_ACTION_SIGN') && has(issues, 'VLA_TEXT_EMPTY')
+  })(),
+)
 
 console.log('\n[4] 规则：边界')
 
@@ -182,7 +229,11 @@ console.log('\n[4] 规则：边界')
   low.hz = 2
   const issues = validate(low)
   const smooth = issues.filter((i) => i.code === 'VLA_ACTION_SMOOTH')
-  check('hz=2 时抖动检查出一条 info', smooth.length === 1 && smooth[0].severity === 'info', JSON.stringify(codes(issues)))
+  check(
+    'hz=2 时抖动检查出一条 info',
+    smooth.length === 1 && smooth[0].severity === 'info',
+    JSON.stringify(codes(issues)),
+  )
   check('info 说明了原因（不是静默跳过）', /跳过/.test(smooth[0]?.message ?? ''), smooth[0]?.message)
   check('hz=10 干净数据不报抖动', !has(validate(demo()), 'VLA_ACTION_SMOOTH'))
 }
@@ -206,8 +257,7 @@ console.log('\n[4] 规则：边界')
   // 符号约定是项目配置：把左转改成"应为正"，干净数据也必须报出来
   const d = demo()
   const flipped = withSignRule(d, 'turn-left', 'positive')
-  check('改符号约定后同一份数据报 SIGN（证明表真的生效）',
-    has(validate(flipped), 'VLA_ACTION_SIGN'))
+  check('改符号约定后同一份数据报 SIGN（证明表真的生效）', has(validate(flipped), 'VLA_ACTION_SIGN'))
 }
 {
   const d = demo()
@@ -227,7 +277,10 @@ console.log('\n[4] 规则：边界')
 {
   // 规则必须给出可执行的 fixHint，而不是"检查失败"
   const all = [...validate(demo(['gap'])), ...validate(demo(['sign']))]
-  check('每条问题都带 fixHint', all.every((i) => !!i.fixHint))
+  check(
+    '每条问题都带 fixHint',
+    all.every((i) => !!i.fixHint),
+  )
 }
 
 /* ==================================================================
@@ -241,8 +294,15 @@ console.log('\n[5] 编辑操作')
   const next = withInstructionRange(d, id, 200, 150, RANGE)
   const seg = next.instructions.find((s) => s.id === id)!
   check('区间交叉时自动交换', seg.startFrame === 150 && seg.endFrame === 200, `${seg.startFrame}-${seg.endFrame}`)
-  check('改区间后仍然按起点排序', next.instructions.every((s, i) => i === 0 || s.startFrame >= next.instructions[i - 1].startFrame))
-  check('改区间不搬动已有对齐', next.alignment.find((a) => a.instructionId === id)?.actionRange.join() === d.alignment.find((a) => a.instructionId === id)?.actionRange.join())
+  check(
+    '改区间后仍然按起点排序',
+    next.instructions.every((s, i) => i === 0 || s.startFrame >= next.instructions[i - 1].startFrame),
+  )
+  check(
+    '改区间不搬动已有对齐',
+    next.alignment.find((a) => a.instructionId === id)?.actionRange.join() ===
+      d.alignment.find((a) => a.instructionId === id)?.actionRange.join(),
+  )
 }
 {
   const d = demo()
@@ -256,7 +316,10 @@ console.log('\n[5] 编辑操作')
   const id = d.instructions[0].id
   const next = withInstructionText(d, id, '沿最左侧车道行驶')
   check('改文本写回', next.instructions.find((s) => s.id === id)?.text === '沿最左侧车道行驶')
-  check('改文本不改 source（这句话是谁提的没变）', next.instructions.find((s) => s.id === id)?.source.kind === 'derived')
+  check(
+    '改文本不改 source（这句话是谁提的没变）',
+    next.instructions.find((s) => s.id === id)?.source.kind === 'derived',
+  )
 }
 {
   const d = demo()
@@ -277,7 +340,10 @@ console.log('\n[5] 编辑操作')
   const d = demo()
   const { vla: next, id } = addInstruction(d, { startFrame: 10, endFrame: 20, text: '测试' })
   check('新增指令 id 不与已有冲突', !d.instructions.some((s) => s.id === id), id)
-  check('新增指令带默认对齐', next.alignment.some((a) => a.instructionId === id))
+  check(
+    '新增指令带默认对齐',
+    next.alignment.some((a) => a.instructionId === id),
+  )
   check('新增指令默认待确认', next.instructions.find((s) => s.id === id)?.review === 'pending')
   // 这条新指令落在已有区间里 → 必然产生重叠，这是正确行为不是 bug
   check('新增到已有区间内会报重叠', has(validate(next), 'VLA_INSTRUCTION_OVERLAP'))
@@ -290,24 +356,45 @@ console.log('\n[5] 编辑操作')
   const d = demo()
   const id = d.instructions[3].id
   const shifted = withAlignment(d, id, [d.instructions[3].startFrame + 5, d.instructions[3].endFrame + 5])
-  check('显式改对齐生效', alignmentOffset(shifted, shifted.instructions.find((s) => s.id === id)!) === 5)
+  check(
+    '显式改对齐生效',
+    alignmentOffset(
+      shifted,
+      shifted.instructions.find((s) => s.id === id)!,
+    ) === 5,
+  )
   const reset = resetAlignment(shifted, id)
-  check('对齐重置回指令区间', alignmentOffset(reset, reset.instructions.find((s) => s.id === id)!) === 0)
+  check(
+    '对齐重置回指令区间',
+    alignmentOffset(
+      reset,
+      reset.instructions.find((s) => s.id === id)!,
+    ) === 0,
+  )
 }
 {
   const d = demo()
   const pending = setInstructionReview(d, d.instructions[0].id, 'pending')
   const all = acceptAllInstructions(pending)
-  check('全部确认后没有 pending', all.instructions.every((s) => s.review !== 'pending'))
+  check(
+    '全部确认后没有 pending',
+    all.instructions.every((s) => s.review !== 'pending'),
+  )
 }
 {
   const d = demo()
   check('instructionAt 命中区间内', instructionAt(d, 10)?.id === d.instructions[0].id)
   check('instructionAt 区间外返回 undefined', instructionAt(d, 9999) === undefined)
-  check('actionRangeOf 无对齐时退回指令区间', (() => {
-    const noAlign = { ...d, alignment: [] }
-    return actionRangeOf(noAlign, d.instructions[0]).join() === [d.instructions[0].startFrame, d.instructions[0].endFrame].join()
-  })())
+  check(
+    'actionRangeOf 无对齐时退回指令区间',
+    (() => {
+      const noAlign = { ...d, alignment: [] }
+      return (
+        actionRangeOf(noAlign, d.instructions[0]).join() ===
+        [d.instructions[0].startFrame, d.instructions[0].endFrame].join()
+      )
+    })(),
+  )
   check('ensureAlignment 只在缺失时补', ensureAlignment({ ...d, alignment: [] }).alignment.length === 5)
 }
 {
@@ -327,22 +414,38 @@ console.log('\n[6] JSONL 与命令')
   const d = demo()
   const doc = mkDoc()
   const line = vlaToJsonLine(d, doc)
-  check('导出是单行合法 JSON', line.split('\n').length === 1 && (() => {
-    try { JSON.parse(line); return true } catch { return false }
-  })())
+  check(
+    '导出是单行合法 JSON',
+    line.split('\n').length === 1 &&
+      (() => {
+        try {
+          JSON.parse(line)
+          return true
+        } catch {
+          return false
+        }
+      })(),
+  )
   const back = parseVlaJsonl(line)
   check('回读得到 1 条记录', back.records.length === 1)
   check('回读无警告', back.warnings.length === 0, back.warnings.join())
   const rec = back.records[0]
   check('指令数量一致', rec.instructions.length === d.instructions.length)
   check('通道数量一致', rec.channels.length === d.channels.length)
-  check('区间逐条一致', rec.instructions.every((s, i) =>
-    s.startFrame === d.instructions[i].startFrame && s.endFrame === d.instructions[i].endFrame))
-  check('steer 逐值一致（用 number[] 存才保得住）', (() => {
-    const a = d.channels.find((c) => c.name === 'steer')!.values
-    const b = rec.channels.find((c) => c.name === 'steer')!.values
-    return a.length === b.length && a.every((v, i) => near(v, b[i], 1e-9))
-  })())
+  check(
+    '区间逐条一致',
+    rec.instructions.every(
+      (s, i) => s.startFrame === d.instructions[i].startFrame && s.endFrame === d.instructions[i].endFrame,
+    ),
+  )
+  check(
+    'steer 逐值一致（用 number[] 存才保得住）',
+    (() => {
+      const a = d.channels.find((c) => c.name === 'steer')!.values
+      const b = rec.channels.find((c) => c.name === 'steer')!.values
+      return a.length === b.length && a.every((v, i) => near(v, b[i], 1e-9))
+    })(),
+  )
   check('hz 回读', rec.hz === 10)
 }
 {
@@ -351,17 +454,29 @@ console.log('\n[6] JSONL 与命令')
   const id = d.instructions[1].id
   const withModel = {
     ...d,
-    instructions: d.instructions.map((s) => s.id === id
-      ? { ...s, source: { kind: 'model' as const, model: { id: 'm', version: '1' } }, review: 'pending' as const }
-      : s),
+    instructions: d.instructions.map((s) =>
+      s.id === id
+        ? { ...s, source: { kind: 'model' as const, model: { id: 'm', version: '1' } }, review: 'pending' as const }
+        : s,
+    ),
   }
-  const parsed = JSON.parse(vlaToJsonLine(withModel, mkDoc())) as { instructions: Array<{ id: string }>; dropped?: number }
-  check('未确认的模型指令不导出', !parsed.instructions.some((s) => s.id === id), JSON.stringify(parsed.instructions.map((s) => s.id)))
+  const parsed = JSON.parse(vlaToJsonLine(withModel, mkDoc())) as {
+    instructions: Array<{ id: string }>
+    dropped?: number
+  }
+  check(
+    '未确认的模型指令不导出',
+    !parsed.instructions.some((s) => s.id === id),
+    JSON.stringify(parsed.instructions.map((s) => s.id)),
+  )
   check('导出里记录了被丢掉几条', parsed.dropped === 1, String(parsed.dropped))
-  check('其对齐关系也一起被丢掉', (() => {
-    const doc = JSON.parse(vlaToJsonLine(withModel, mkDoc())) as { alignment: Array<{ instruction_id: string }> }
-    return !doc.alignment.some((a) => a.instruction_id === id)
-  })())
+  check(
+    '其对齐关系也一起被丢掉',
+    (() => {
+      const doc = JSON.parse(vlaToJsonLine(withModel, mkDoc())) as { alignment: Array<{ instruction_id: string }> }
+      return !doc.alignment.some((a) => a.instruction_id === id)
+    })(),
+  )
 }
 {
   const d = demo()
@@ -378,16 +493,24 @@ console.log('\n[6] JSONL 与命令')
   ].join('\n')
   const res = parseVlaJsonl(text)
   check('坏行被跳过而不中断整个文件', res.records.length === 2, String(res.records.length))
-  check('坏行给出行号', res.warnings.some((w) => /第 2 行/.test(w)), res.warnings.join(' | '))
+  check(
+    '坏行给出行号',
+    res.warnings.some((w) => /第 2 行/.test(w)),
+    res.warnings.join(' | '),
+  )
   check('缺 hz 用默认值并提示', res.records[1].hz === 10 && res.warnings.some((w) => /hz/.test(w)))
   check('null 变成 NaN 而不是 0（交给规则报）', Number.isNaN(res.records[1].channels[0].values[0]))
-  check('NaN 会被 VLA_CHANNEL_FINITE 抓到', (() => {
-    const doc = mkDoc([0, 19])
-    return has(validateVla(recordToTask(res.records[1], doc), doc), 'VLA_CHANNEL_FINITE')
-  })())
+  check(
+    'NaN 会被 VLA_CHANNEL_FINITE 抓到',
+    (() => {
+      const doc = mkDoc([0, 19])
+      return has(validateVla(recordToTask(res.records[1], doc), doc), 'VLA_CHANNEL_FINITE')
+    })(),
+  )
 }
 {
-  const text = '{"sample_id":"c","hz":20,"instructions":[{"text":"直行","start_frame":5,"end_frame":15}],"actions":[{"name":"steer","unit":"norm","values":[1,2,3]}]}'
+  const text =
+    '{"sample_id":"c","hz":20,"instructions":[{"text":"直行","start_frame":5,"end_frame":15}],"actions":[{"name":"steer","unit":"norm","values":[1,2,3]}]}'
   const rec = parseVlaJsonl(text).records[0]
   check('actions 用数组形式也能解析', rec.channels.length === 1 && rec.channels[0].name === 'steer')
   check('通道单位按声明保留', rec.channels[0].unit === 'norm')
@@ -413,7 +536,11 @@ console.log('\n[7] 注册表与命令')
   check('体积估算 > 0', (reg.get('vla')?.estimateBytes(doc.tasks.vla) ?? 0) > 0)
   const errored = { ...doc, tasks: { ...doc.tasks, vla: setInstructionReview(doc.tasks.vla, 'ins-1', 'pending') } }
   const row2 = reg.progress(errored).find((r) => r.key === 'vla')!
-  check('有待确认时进度降下来并说明', row2.progress?.done === 4 && /待确认/.test(row2.progress?.note ?? ''), JSON.stringify(row2.progress))
+  check(
+    '有待确认时进度降下来并说明',
+    row2.progress?.done === 4 && /待确认/.test(row2.progress?.note ?? ''),
+    JSON.stringify(row2.progress),
+  )
 }
 {
   const d = demo()
@@ -428,10 +555,13 @@ console.log('\n[7] 注册表与命令')
   const cmd = buildVlaEditCommand(before, after, { label: '改文本' })
   const payload = cmd as Extract<typeof cmd, { type: 'setTaskPayload' }>
   check('编辑命令记录了 before/after', JSON.stringify(payload.before) !== JSON.stringify(payload.after))
-  check('before 是深拷贝：改 after 不影响撤销快照', (() => {
-    after.instructions[0].text = '再改一次'
-    return (payload.before as VlaTaskData).instructions[0].text !== '再改一次'
-  })())
+  check(
+    'before 是深拷贝：改 after 不影响撤销快照',
+    (() => {
+      after.instructions[0].text = '再改一次'
+      return (payload.before as VlaTaskData).instructions[0].text !== '再改一次'
+    })(),
+  )
 }
 {
   const d = demo()
@@ -442,8 +572,6 @@ console.log('\n[7] 注册表与命令')
 /* ==================================================================
  * 汇总
  * ================================================================== */
-console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====`)
-if (failed) {
-  console.log('\n符号约定默认值：', JSON.stringify(DEFAULT_VLA_SIGN_MAP))
-  process.exit(1)
-}
+it('vla：重采样/合成数据/规则/编辑/JSONL 全部断言通过', () => {
+  finish()
+})

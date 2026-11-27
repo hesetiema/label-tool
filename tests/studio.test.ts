@@ -1,6 +1,6 @@
 /**
- * 状态层集成自检 —— 不需要浏览器：
- *   pnpm test:studio
+ * 状态层集成测试 —— 不需要浏览器：
+ *   pnpm test -- studio
  *
  * domain 测试验证的是"内核自己对不对"；这里验证"内核接进现有 UI 状态后还对不对"：
  *   - 装载 5 帧演示序列 → 迁移成文档 → boxes 是物化视图
@@ -10,18 +10,15 @@
  *
  * 这层测试的价值：双写期最容易出错的不是算法，是"哪条路径忘了同步 frames 镜像"。
  */
+import { it } from 'vitest'
+import { createChecker } from './harness.ts'
 import { createStudioCore } from '../src/state/studioCore.ts'
 import { useSequence } from '../src/state/useSequence.ts'
 import { useAnnotation } from '../src/state/useAnnotation.ts'
 import { generateDemoSequence } from '../src/core/sequence/sequence.ts'
 import { cloneBoxes } from '../src/core/history.ts'
 
-let passed = 0
-let failed = 0
-function check(name: string, cond: boolean, detail = '') {
-  if (cond) { passed++; console.log(`  ✓ ${name}`) }
-  else { failed++; console.log(`  ✗ ${name}  ${detail}`) }
-}
+const { check, finish } = createChecker()
 
 function loadSequence(frameCount = 5) {
   const core = createStudioCore()
@@ -97,7 +94,10 @@ check('稀疏轨迹初始 2 个关键帧', sparseBefore === 2)
 seq3.doInterpolate()
 check('插值后补满 5 帧', c3.store.value!.getTrack('4')!.keyframes.length === 5)
 seq3.gotoFrame(2)
-check('第 2 帧能看到补出的框', c3.boxes.value.some((b) => b.id === '4'))
+check(
+  '第 2 帧能看到补出的框',
+  c3.boxes.value.some((b) => b.id === '4'),
+)
 seq3.gotoFrame(0)
 c3.store.value!.undo()
 check('一次撤销回退全部插值', c3.store.value!.getTrack('4')!.keyframes.length === 2)
@@ -134,7 +134,10 @@ seq5.doPropagate()
 check('传播后第 3 帧同目标也偏移', c5.store.value!.getTrack('1')!.keyframes[2].geometry.position.x !== 12)
 check('传播命令可撤销', c5.canUndo.value)
 c5.store.value!.undo()
-check('撤销传播后第 3 帧还原', Math.abs((c5.store.value!.getTrack('1')!.keyframes[2].geometry.position.x) - thirdBefore) < 1e-6)
+check(
+  '撤销传播后第 3 帧还原',
+  Math.abs(c5.store.value!.getTrack('1')!.keyframes[2].geometry.position.x - thirdBefore) < 1e-6,
+)
 
 console.log('\n[8] 懒加载切帧（点云按需解码）')
 const c6 = createStudioCore()
@@ -152,11 +155,18 @@ c6.rebuildDocument()
 
 let fetchCount = 0
 c6.setFrameLoader({
-  get: async (f) => { fetchCount++; return seq6[f].cloud },
-  prefetch: () => { /* noop */ },
+  get: async (f) => {
+    fetchCount++
+    return seq6[f].cloud
+  },
+  prefetch: () => {
+    /* noop */
+  },
   cached: () => undefined,
   stats: () => ({ hits: 0, misses: 0, evictions: 0, rejected: 0, inflight: 0, cachedBytes: 0, budgetBytes: 0 }),
-  dispose: () => { /* noop */ },
+  dispose: () => {
+    /* noop */
+  },
 })
 const seq6Api = useSequence(c6)
 
@@ -179,9 +189,9 @@ async function runLazyChecks() {
   await new Promise((r) => setTimeout(r, 15))
   check('迟到结果不覆盖当前帧点云', c6.cloud.value === c6.frames.value[1].cloud)
   check('切到有缓存的帧不触发解码', fetchCount === 2)
-
-  console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
-  if (failed > 0) process.exit(1)
 }
 
-void runLazyChecks()
+it('studio：装载/切帧/历史/懒加载竞态 全部断言通过', async () => {
+  await runLazyChecks()
+  finish()
+})

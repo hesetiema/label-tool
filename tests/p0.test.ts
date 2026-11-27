@@ -1,6 +1,6 @@
 /**
- * P0 适配层自检 —— 不需要浏览器：
- *   pnpm test:p0
+ * P0 适配层测试 —— 不需要浏览器：
+ *   pnpm test -- p0
  *
  * 覆盖四块：
  *   1. 文件名排序与 (点云, 标注) 配对
@@ -13,10 +13,16 @@
  *   也就是 encode/decode，这部分是纯函数，可以完整覆盖。
  *   事务与游标只能靠浏览器手测，文档 17.4 给了手测清单。
  */
+import { it } from 'vitest'
+import { createChecker } from './harness.ts'
 import type { Box3D, PointCloud } from '../src/core/types.ts'
 import type { SampleHandle } from '../src/ports/dataSource.ts'
 import {
-  createLocalFileSource, isPlaceholder, pairLocalFiles, placeholderCloud, sortCloudFiles,
+  createLocalFileSource,
+  isPlaceholder,
+  pairLocalFiles,
+  placeholderCloud,
+  sortCloudFiles,
 } from '../src/adapters/localFileSource.ts'
 import { createFrameLoader } from '../src/adapters/frameLoader.ts'
 import { PriorityQueue } from '../src/adapters/jobQueue.ts'
@@ -25,7 +31,13 @@ import { TrackStore } from '../src/domain/store/trackStore.ts'
 import { planDocumentRestore } from '../src/domain/store/restorePlan.ts'
 import { parsePcdAsync } from '../src/adapters/pcdParser.ts'
 import {
-  decodeDocument, decodeTrack, encodeDocument, encodeTrack, mergeDocHead, migrateLegacySnapshot, taskKey,
+  decodeDocument,
+  decodeTrack,
+  encodeDocument,
+  encodeTrack,
+  mergeDocHead,
+  migrateLegacySnapshot,
+  taskKey,
 } from '../src/adapters/indexedDbStore.ts'
 import type { StoredDocHead } from '../src/adapters/indexedDbStore.ts'
 import type { TaskKey } from '../src/domain/model/document.ts'
@@ -34,13 +46,10 @@ import { frameBlobKey, legacyFrameBlobKey } from '../src/adapters/blobKeys.ts'
 import { buildDocumentFromFrames } from '../src/domain/io/legacyDocument.ts'
 import type { SessionSnapshot } from '../src/core/io/session.ts'
 
-let passed = 0
-let failed = 0
-function check(name: string, cond: boolean, detail = '') {
-  if (cond) { passed++; console.log(`  ✓ ${name}`) }
-  else { failed++; console.log(`  ✗ ${name}  ${detail}`) }
+const { check, finish } = createChecker()
+function close(a: number, b: number, tol = 1e-6) {
+  return Math.abs(a - b) < tol
 }
-function close(a: number, b: number, tol = 1e-6) { return Math.abs(a - b) < tol }
 
 function mkBox(id: string, x: number, label = 'Car'): Box3D {
   return { id, label, position: { x, y: 0, z: 1 }, scale: { x: 4, y: 2, z: 2 }, yaw: 0 }
@@ -75,14 +84,13 @@ function cloudOf(n: number): PointCloud {
   return { positions, count: n }
 }
 
-function fakeHandle(opts: {
-  frames: number
-  onFrame?: (i: number, priority: string) => void
-}): SampleHandle {
+function fakeHandle(opts: { frames: number; onFrame?: (i: number, priority: string) => void }): SampleHandle {
   const meta = {
-    id: 'fake', name: 'fake',
+    id: 'fake',
+    name: 'fake',
     sensors: [{ id: 'lidar_top', kind: 'lidar' as const }],
-    nominalHz: 10, calibrationVersion: 'none',
+    nominalHz: 10,
+    calibrationVersion: 'none',
   }
   return {
     meta: () => meta,
@@ -93,8 +101,12 @@ function fakeHandle(opts: {
       const cloud = cloudOf(4)
       return { ref: { index: i, ts: i / 10, data: { lidar_top: { kind: 'inline', cloud } } }, cloud }
     },
-    async calibrations() { return {} },
-    close() { /* noop */ },
+    async calibrations() {
+      return {}
+    },
+    close() {
+      /* noop */
+    },
   }
 }
 
@@ -139,11 +151,24 @@ async function main() {
   check('没有标注时返回空数组', (await handle.labels(0)).length === 0)
   handle.primeLabels([[], [mkBox('1', 1)]])
   check('primeLabels 后能取到框', (await handle.labels(1)).length === 1)
-  check('越界帧抛错', await handle.frame(9).then(() => false).catch(() => true))
+  check(
+    '越界帧抛错',
+    await handle
+      .frame(9)
+      .then(() => false)
+      .catch(() => true),
+  )
 
   console.log('\n[5] FrameLoader')
   let calls = 0
-  const loader = createFrameLoader(fakeHandle({ frames: 30, onFrame: () => { calls++ } }))
+  const loader = createFrameLoader(
+    fakeHandle({
+      frames: 30,
+      onFrame: () => {
+        calls++
+      },
+    }),
+  )
   const [a, b] = await Promise.all([loader.get(3), loader.get(3)])
   check('同一帧并发请求只解码一次', calls === 1)
   check('两个调用拿到同一引用', a === b)
@@ -165,7 +190,13 @@ async function main() {
   check('超预算仍能返回数据', firstAgain.count === 4)
 
   loader.dispose()
-  check('释放后拒绝新请求', await loader.get(1).then(() => false).catch(() => true))
+  check(
+    '释放后拒绝新请求',
+    await loader
+      .get(1)
+      .then(() => false)
+      .catch(() => true),
+  )
 
   console.log('\n[6] 文档编解码')
   const doc = buildDocumentFromFrames([
@@ -174,25 +205,27 @@ async function main() {
     { index: 2, boxes: [mkBox('1', 6)] },
   ])
   doc.tasks.boxes.tracks[0].states.set(1, {
-    visibility: 'occluded', source: { kind: 'manual' }, review: 'pending',
+    visibility: 'occluded',
+    source: { kind: 'manual' },
+    review: 'pending',
   })
 
   const encoded = encodeDocument(doc)
   check('编码后任务清单包含 boxes', encoded.head.tasks.includes('boxes'))
-  const boxesPayload = encoded.tasks.find((t) => t.task === 'boxes')!.payload as
-    { tracks: Array<Record<string, unknown>> }
+  const boxesPayload = encoded.tasks.find((t) => t.task === 'boxes')!.payload as {
+    tracks: Array<Record<string, unknown>>
+  }
   check('编码把 states 变成数组', Array.isArray(boxesPayload.tracks[0].states))
 
-  const decoded = decodeDocument(encoded.head, Object.fromEntries(
-    encoded.tasks.map((t) => [t.task, t.payload]),
-  ))
+  const decoded = decodeDocument(encoded.head, Object.fromEntries(encoded.tasks.map((t) => [t.task, t.payload])))
   check('解码后轨迹数一致', decoded.tasks.boxes.tracks.length === doc.tasks.boxes.tracks.length)
   const track0 = decoded.tasks.boxes.tracks.find((t) => t.id === '1')!
   check('states 还原成 Map', track0.states instanceof Map)
-  check('遮挡状态与复核态保留', track0.states.get(1)?.visibility === 'occluded'
-    && track0.states.get(1)?.review === 'pending')
-  check('关键帧数量与几何保留', track0.keyframes.length === 3
-    && close(track0.keyframes[2].geometry.position.x, 6))
+  check(
+    '遮挡状态与复核态保留',
+    track0.states.get(1)?.visibility === 'occluded' && track0.states.get(1)?.review === 'pending',
+  )
+  check('关键帧数量与几何保留', track0.keyframes.length === 3 && close(track0.keyframes[2].geometry.position.x, 6))
   check('类别改动保留', decoded.tasks.boxes.tracks.find((t) => t.id === '1')!.classId === 'Car')
 
   const single = encodeTrack(doc.tasks.boxes.tracks[0])
@@ -222,11 +255,13 @@ async function main() {
   check('范围取自首末帧', migrated.range[0] === 0 && migrated.range[1] === 1)
 
   const singleLegacy: SessionSnapshot = {
-    ...legacy, frames: [], cloud: stored, boxes: [mkBox('9', 1)],
+    ...legacy,
+    frames: [],
+    cloud: stored,
+    boxes: [mkBox('9', 1)],
   }
   const singleDoc = migrateLegacySnapshot(singleLegacy)
-  check('单帧数据集也能迁移', singleDoc.tasks.boxes.tracks.length === 1
-    && singleDoc.tasks.boxes.tracks[0].id === '9')
+  check('单帧数据集也能迁移', singleDoc.tasks.boxes.tracks.length === 1 && singleDoc.tasks.boxes.tracks[0].id === '9')
 
   console.log('\n[8] 合并保存（head.tasks 并集）')
   const mkHead = (tasks: TaskKey[], range: [number, number] = [0, 0]): StoredDocHead => ({
@@ -254,8 +289,7 @@ async function main() {
 
   // 头合并只解决"登记"，任务段本身的覆盖仍由调用方决定
   const encodedAgain = encodeDocument({ ...singleDoc })
-  check('合并后 encode 仍只产出本次段', encodedAgain.tasks.length === 1
-    && encodedAgain.tasks[0].task === 'boxes')
+  check('合并后 encode 仍只产出本次段', encodedAgain.tasks.length === 1 && encodedAgain.tasks[0].task === 'boxes')
 
   console.log('\n[9] 解析优先级')
   const q = new PriorityQueue<string>()
@@ -274,10 +308,12 @@ async function main() {
   // FrameLoader 必须把优先级传下去：get=high，prefetch=low。
   // 传错的话预取会挤掉用户正在等的帧，这是本轮改动的核心契约。
   const seenPrio: string[] = []
-  const prioLoader = createFrameLoader(fakeHandle({
-    frames: 30,
-    onFrame: (i, p) => seenPrio.push(`${i}:${p}`),
-  }))
+  const prioLoader = createFrameLoader(
+    fakeHandle({
+      frames: 30,
+      onFrame: (i, p) => seenPrio.push(`${i}:${p}`),
+    }),
+  )
   await prioLoader.get(10)
   prioLoader.prefetch(10, 1)
   await new Promise((r) => setTimeout(r, 30))
@@ -296,26 +332,38 @@ async function main() {
   const chunks = [...serializeSequenceChunks(seqStore, { framesPerChunk: 2 })]
   const text = chunks.join('')
   const exported = JSON.parse(text) as {
-    format: string; version: number; frameCount: number
+    format: string
+    version: number
+    frameCount: number
     frames: { index: number; objects: unknown[] }[]
   }
-  check('拼起来是合法 JSON 且格式头正确',
-    exported.format === 'pcl-label-studio/sequence' && exported.version === 1 && exported.frameCount === 3)
+  check(
+    '拼起来是合法 JSON 且格式头正确',
+    exported.format === 'pcl-label-studio/sequence' && exported.version === 1 && exported.frameCount === 3,
+  )
   check('帧数与文档范围一致', exported.frames.length === 3, String(exported.frames.length))
   check('按 framesPerChunk 分块（头 + 2 块 + 尾）', chunks.length === 4, `实际 ${chunks.length} 块`)
   check('单块远小于整体，避免整段字符串常驻', Math.max(...chunks.map((c) => c.length)) < text.length * 0.75)
   check('exact 模式不给中间帧造框', exported.frames[1].objects.length === 0)
 
-  const linear = JSON.parse([...serializeSequenceChunks(seqStore, {
-    materialize: { mode: 'linear' }, framesPerChunk: 2,
-  })].join('')) as { frames: { index: number; objects: { psr: { position: { x: number } } }[] }[] }
+  const linear = JSON.parse(
+    [
+      ...serializeSequenceChunks(seqStore, {
+        materialize: { mode: 'linear' },
+        framesPerChunk: 2,
+      }),
+    ].join(''),
+  ) as { frames: { index: number; objects: { psr: { position: { x: number } } }[] }[] }
   check('linear 模式给中间帧补出框', linear.frames[1].objects.length === 1)
   const midX = linear.frames[1].objects[0].psr.position.x
   check('补帧位置落在两端之间', midX > 0 && midX < 4, String(midX))
 
   const blob = sequenceBlob(seqStore, { framesPerChunk: 2 })
-  check('sequenceBlob 与拼接结果等长', blob.size === new TextEncoder().encode(text).length,
-    `${blob.size} vs ${new TextEncoder().encode(text).length}`)
+  check(
+    'sequenceBlob 与拼接结果等长',
+    blob.size === new TextEncoder().encode(text).length,
+    `${blob.size} vs ${new TextEncoder().encode(text).length}`,
+  )
 
   console.log('\n[11] doc-first 恢复计划')
   const restoreDoc = buildDocumentFromFrames(
@@ -349,39 +397,58 @@ async function main() {
 
   // 快照丢了但文档还在：range 就是帧布局，不能当单帧处理
   const orphanPlan = planDocumentRestore(restoreDoc, { frames: [], currentFrame: 0, hasSingleCloud: false })
-  check('快照无帧但文档跨 5 帧 → 按 range 展开', orphanPlan.ok && !orphanPlan.singleFrame
-    && orphanPlan.layout.join(',') === '0,1,2,3,4', orphanPlan.layout.join(','))
-  check('无快照时全部标懒加载', orphanPlan.lazyFrames.length === 5 && orphanPlan.cloudFrames.length === 0,
-    `${orphanPlan.lazyFrames.length}/${orphanPlan.cloudFrames.length}`)
+  check(
+    '快照无帧但文档跨 5 帧 → 按 range 展开',
+    orphanPlan.ok && !orphanPlan.singleFrame && orphanPlan.layout.join(',') === '0,1,2,3,4',
+    orphanPlan.layout.join(','),
+  )
+  check(
+    '无快照时全部标懒加载',
+    orphanPlan.lazyFrames.length === 5 && orphanPlan.cloudFrames.length === 0,
+    `${orphanPlan.lazyFrames.length}/${orphanPlan.cloudFrames.length}`,
+  )
   check('无快照时框数按全范围统计', orphanPlan.totalBoxes === 3, String(orphanPlan.totalBoxes))
 
   const oneFrameDoc = buildDocumentFromFrames([{ index: 0, boxes: [mkBox('1', 0)] }])
   const singlePlan = planDocumentRestore(oneFrameDoc, {
-    frames: [], currentFrame: 0, hasSingleCloud: true,
+    frames: [],
+    currentFrame: 0,
+    hasSingleCloud: true,
   })
   check('单帧文档 → 单帧模式', singlePlan.ok && singlePlan.singleFrame && singlePlan.layout.length === 0)
   check('单帧模式统计首帧框数', singlePlan.totalBoxes === 1, String(singlePlan.totalBoxes))
 
   const mismatch = planDocumentRestore(restoreDoc, {
-    frames: [{ index: 0, hasCloud: true }, { index: 9, hasCloud: true }],
+    frames: [
+      { index: 0, hasCloud: true },
+      { index: 9, hasCloud: true },
+    ],
     currentFrame: 0,
     hasSingleCloud: false,
   })
-  check('帧落在文档区间外 → 拒绝（防撞号串样本）', !mismatch.ok && mismatch.reason === 'range-mismatch', mismatch.reason)
+  check(
+    '帧落在文档区间外 → 拒绝（防撞号串样本）',
+    !mismatch.ok && mismatch.reason === 'range-mismatch',
+    mismatch.reason,
+  )
 
   const widerDoc = buildDocumentFromFrames([
-    { index: 0, boxes: [mkBox('1', 0)] }, { index: 9, boxes: [mkBox('1', 9)] },
+    { index: 0, boxes: [mkBox('1', 0)] },
+    { index: 9, boxes: [mkBox('1', 9)] },
   ])
   const partial = planDocumentRestore(widerDoc, {
-    frames: [{ index: 0, hasCloud: true }, { index: 5, hasCloud: false }],
+    frames: [
+      { index: 0, hasCloud: true },
+      { index: 5, hasCloud: false },
+    ],
     currentFrame: 1,
     hasSingleCloud: false,
   })
   check('文档区间是快照的超集 → 可用', partial.ok, partial.reason)
   check('超集时框数只算布局内帧', partial.totalBoxes === 1, String(partial.totalBoxes))
-
-  console.log(`\n===== 结果: ${passed} 通过, ${failed} 失败 =====\n`)
-  if (failed > 0) process.exit(1)
 }
 
-void main()
+it('p0：文件配对/FrameLoader/文档编解码/恢复计划 全部断言通过', async () => {
+  await main()
+  finish()
+})
