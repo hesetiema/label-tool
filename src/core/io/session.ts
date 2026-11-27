@@ -228,8 +228,11 @@ export function estimateSnapshotBytes(snapshot: Pick<SessionSnapshot, 'cloud' | 
   let bytes = 0
   const add = (c: StoredCloud | null) => {
     if (!c) return
-    bytes += c.positions.byteLength + (c.colors?.byteLength ?? 0)
-      + (c.labels?.byteLength ?? 0) + (c.instances?.byteLength ?? 0)
+    bytes +=
+      c.positions.byteLength +
+      (c.colors?.byteLength ?? 0) +
+      (c.labels?.byteLength ?? 0) +
+      (c.instances?.byteLength ?? 0)
   }
   add(snapshot.cloud)
   for (const f of snapshot.frames) add(f.cloud)

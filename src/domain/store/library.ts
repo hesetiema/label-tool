@@ -81,8 +81,10 @@ export function describeAge(now: number, at: number): string {
 export function formatStamp(at: number): string {
   if (!Number.isFinite(at) || at <= 0) return '—'
   const d = new Date(at)
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} `
-    + `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  )
 }
 
 export function taskLabel(task: string): string {
@@ -146,9 +148,10 @@ export function decorateLibrary(
     .filter((e) => !!e.sampleId)
     .map((e) => {
       const range = e.range
-      const frameCount = range && Number.isFinite(range[0]) && Number.isFinite(range[1])
-        ? Math.max(1, Math.round(range[1] - range[0]) + 1)
-        : 1
+      const frameCount =
+        range && Number.isFinite(range[0]) && Number.isFinite(range[1])
+          ? Math.max(1, Math.round(range[1] - range[0]) + 1)
+          : 1
       return {
         ...e,
         ageText: describeAge(opts.now, e.updatedAt),

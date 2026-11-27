@@ -133,7 +133,11 @@ export function generateVlaDemo(opts: VlaDemoOptions): VlaTaskData {
   const errors = new Set(opts.errors ?? [])
   const rng = mulberry32(opts.seed ?? 20261125)
 
-  const spans = tile(a, b, SEGS.map((s) => s.weight))
+  const spans = tile(
+    a,
+    b,
+    SEGS.map((s) => s.weight),
+  )
 
   const instructions: InstructionSegment[] = SEGS.map((spec, i) => ({
     id: `ins-${i + 1}`,
@@ -223,7 +227,10 @@ export function generateVlaDemo(opts: VlaDemoOptions): VlaTaskData {
   return {
     instructions,
     channels,
-    alignment: instructions.map((s) => ({ instructionId: s.id, actionRange: [s.startFrame, s.endFrame] as [number, number] })),
+    alignment: instructions.map((s) => ({
+      instructionId: s.id,
+      actionRange: [s.startFrame, s.endFrame] as [number, number],
+    })),
     hz,
     signMap: { ...DEFAULT_VLA_SIGN_MAP },
     source: { kind: 'derived' },

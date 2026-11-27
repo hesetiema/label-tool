@@ -66,10 +66,7 @@ const EMPTY: DocumentRestorePlan = {
  * @param doc 已从 DocumentStore 读出的文档
  * @param hint 快照的帧布局提示；没有快照（纯 doc-first）时传 null
  */
-export function planDocumentRestore(
-  doc: SampleDocument,
-  hint: SnapshotLayoutHint | null,
-): DocumentRestorePlan {
+export function planDocumentRestore(doc: SampleDocument, hint: SnapshotLayoutHint | null): DocumentRestorePlan {
   const [docFrom, docTo] = doc.range
   const hintFrames = hint?.frames ?? []
 

@@ -19,7 +19,9 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 
 const errorsOf = (page) => {
   const list = []
-  page.on('console', (m) => { if (m.type() === 'error') list.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') list.push(m.text())
+  })
   page.on('pageerror', (e) => list.push('pageerror: ' + e.message))
   return list
 }
@@ -37,7 +39,10 @@ await pageA.evaluate(async () => {
   })
   const tx = db.transaction(['blobs', 'session', 'documents', 'docTasks', 'blobUsage'], 'readwrite')
   for (const n of ['blobs', 'session', 'documents', 'docTasks', 'blobUsage']) tx.objectStore(n).clear()
-  await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+  await new Promise((res, rej) => {
+    tx.oncomplete = res
+    tx.onerror = () => rej(tx.error)
+  })
   db.close()
 })
 
@@ -56,8 +61,7 @@ const stateA = await pageA.evaluate(() => ({
   supported: window.studio.tabBus.supported,
 }))
 check('A 有文档与 sampleId', !!stateA.sampleId, JSON.stringify(stateA))
-check('A 拿到写权（租约持有者是自己）',
-  stateA.lease?.tabId === stateA.tabId, JSON.stringify(stateA.lease))
+check('A 拿到写权（租约持有者是自己）', stateA.lease?.tabId === stateA.tabId, JSON.stringify(stateA.lease))
 check('A 不是只读', stateA.readOnly === false && stateA.saveState !== 'readonly', stateA.saveState)
 
 // ---- 第二个标签页：同一样本，应转只读 ----
@@ -85,7 +89,9 @@ check('B 状态栏有只读 chip', (await pageB.locator('.status-chip.readonly')
 // 只读必须真的挡住编辑：走 mutate 这条唯一入口
 const editBlocked = await pageB.evaluate(() => {
   const before = window.studio.boxes.value.length
-  window.studio.mutate('跨标签页探针', () => { window.studio.boxes.value = [] })
+  window.studio.mutate('跨标签页探针', () => {
+    window.studio.boxes.value = []
+  })
   const after = window.studio.boxes.value.length
   // 撤销入口也要挡：否则"看一眼再撤销"就能改坏文档
   const undo = window.studio.doUndo()
@@ -148,7 +154,11 @@ const ran = await runGc({ manual: true, trigger: 'manual' })
 const audit = ran ?? { released: -1, peers: -1, top: null, summary: { byTab: [] } }
 check('清扫报告带对端数', audit.peers >= 1, `peers=${audit.peers}`)
 check('审计记下这次清扫', !!audit.top && audit.top.trigger === 'manual' && audit.top.at > 0, JSON.stringify(audit.top))
-check('审计按标签页归集', audit.summary.byTab.some((t) => t.tabId === stateB.tabId), JSON.stringify(audit.summary.byTab))
+check(
+  '审计按标签页归集',
+  audit.summary.byTab.some((t) => t.tabId === stateB.tabId),
+  JSON.stringify(audit.summary.byTab),
+)
 check('dryRun 也进审计', (await runGc({ manual: true, dryRun: true }))?.top?.dryRun === true)
 
 // ---- 刷新不自杀：写者 F5 之后必须还能写 ----
@@ -162,8 +172,11 @@ const afterReload = await pageB.evaluate(() => ({
   sampleId: window.studio.doc.value?.sampleId ?? '',
 }))
 check('刷新后仍是同一份样本', afterReload.sampleId === stateA.sampleId, afterReload.sampleId)
-check('刷新后仍可写（tabId 会随 sessionStorage 延续）',
-  afterReload.readOnly === false && afterReload.saveState !== 'readonly', JSON.stringify(afterReload))
+check(
+  '刷新后仍可写（tabId 会随 sessionStorage 延续）',
+  afterReload.readOnly === false && afterReload.saveState !== 'readonly',
+  JSON.stringify(afterReload),
+)
 
 check('A 无 console 报错', errorsA.length === 0, errorsA.slice(0, 5).join(' || '))
 check('B 无 console 报错', errorsB.length === 0, errorsB.slice(0, 5).join(' || '))

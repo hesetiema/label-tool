@@ -11,9 +11,15 @@
  */
 import { ref, computed } from 'vue'
 import {
-  createDefaultTrajectory, appendKeyframe, sampleTrajectoryInfo, trajectoryDuration,
-  serializeTrajectory, parseTrajectory, clamp,
-  type CameraTrajectory, type CameraPose,
+  createDefaultTrajectory,
+  appendKeyframe,
+  sampleTrajectoryInfo,
+  trajectoryDuration,
+  serializeTrajectory,
+  parseTrajectory,
+  clamp,
+  type CameraTrajectory,
+  type CameraPose,
 } from '../core/camera/cameraTrajectory'
 import { downloadJson, downloadBlob } from '../core/io/label'
 import type { StudioCore } from './studioCore'
@@ -40,8 +46,9 @@ export function useCameraDirector(core: StudioCore) {
   let recordedStream: MediaStream | null = null
 
   const cameraDuration = computed(() => trajectoryDuration(cameraTrajectory.value))
-  const activePose = computed<CameraPose | null>(() =>
-    cameraTrajectory.value.frames[activeKeyframe.value]?.pose ?? null)
+  const activePose = computed<CameraPose | null>(
+    () => cameraTrajectory.value.frames[activeKeyframe.value]?.pose ?? null,
+  )
   const recordingEstimate = computed(() => {
     const d = cameraDuration.value
     const count = Math.max(1, Math.round(d * recordFps.value))
@@ -118,7 +125,8 @@ export function useCameraDirector(core: StudioCore) {
   function setKeyframeTime(field: 'transition' | 'hold', e: Event) {
     const value = clamp(Number((e.target as HTMLInputElement).value) || 0, 0, 60)
     const frames = cameraTrajectory.value.frames.map((f, i) =>
-      i === activeKeyframe.value ? { ...f, [field]: value } : f)
+      i === activeKeyframe.value ? { ...f, [field]: value } : f,
+    )
     cameraTrajectory.value = { ...cameraTrajectory.value, frames }
     syncCameraVisual()
     statusText.value = `关键帧 #${activeKeyframe.value + 1} ${field === 'transition' ? '转场' : '停留'}时间 ${value}s`
@@ -156,7 +164,10 @@ export function useCameraDirector(core: StudioCore) {
       target: CameraPose['target'],
       transition: number,
     ): CameraTrajectory['frames'][number] => ({
-      id, pose: { position, target, roll: 0 }, transition, hold: 1,
+      id,
+      pose: { position, target, roll: 0 },
+      transition,
+      hold: 1,
     })
     pauseTrajectory()
     cameraTrajectory.value = {
@@ -210,9 +221,10 @@ export function useCameraDirector(core: StudioCore) {
       let next = cameraElapsed.value + dt
       if (total > 0 && next >= total) {
         // loop 录制只跑一圈：在结束前 1 帧停下，避免末帧直接跳回首帧
-        const endT = opts.oneShot && cameraTrajectory.value.options.loop
-          ? Math.max(0, total - 1 / Math.max(1, recordFps.value))
-          : total
+        const endT =
+          opts.oneShot && cameraTrajectory.value.options.loop
+            ? Math.max(0, total - 1 / Math.max(1, recordFps.value))
+            : total
         applyCameraAtTime(endT)
         cameraElapsed.value = total
         isCameraPlaying.value = false
@@ -269,7 +281,10 @@ export function useCameraDirector(core: StudioCore) {
 
   /** canvas.captureStream + MediaRecorder：渲染方与录制方解耦，结束时用 onDone 回执 */
   function toggleRecording() {
-    if (recordState.value === 'recording') { finishRecording(); return }
+    if (recordState.value === 'recording') {
+      finishRecording()
+      return
+    }
     if (recordState.value === 'finishing') return
     const viewer = getViewer()
     if (!viewer || cameraTrajectory.value.frames.length < 2) {
@@ -277,15 +292,18 @@ export function useCameraDirector(core: StudioCore) {
       return
     }
     const canvas = viewer.renderLoopElement()
-    const captureStream = (canvas as HTMLCanvasElement & {
-      captureStream?: (fps?: number) => MediaStream
-    }).captureStream
+    const captureStream = (
+      canvas as HTMLCanvasElement & {
+        captureStream?: (fps?: number) => MediaStream
+      }
+    ).captureStream
     if (typeof captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
       statusText.value = '当前浏览器不支持 canvas.captureStream / MediaRecorder，请使用 Chrome 或 Edge'
       return
     }
-    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
-      .find((m) => MediaRecorder.isTypeSupported(m))
+    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((m) =>
+      MediaRecorder.isTypeSupported(m),
+    )
     if (!mime) {
       statusText.value = '当前浏览器没有可用的 WebM 编码器'
       return
@@ -301,7 +319,9 @@ export function useCameraDirector(core: StudioCore) {
       return
     }
     recordedChunks = []
-    mediaRecorder.ondataavailable = (ev) => { if (ev.data.size) recordedChunks.push(ev.data) }
+    mediaRecorder.ondataavailable = (ev) => {
+      if (ev.data.size) recordedChunks.push(ev.data)
+    }
     mediaRecorder.onstop = () => {
       const blob = new Blob(recordedChunks, { type: mime })
       downloadBlob(`cinematic-${Date.now()}.webm`, blob)
@@ -334,13 +354,35 @@ export function useCameraDirector(core: StudioCore) {
   }
 
   return {
-    trajectoryInput, cameraTrajectory, activeKeyframe, cameraElapsed, isCameraPlaying,
-    recordState, recordFps, recordCodec, addWatermark, cameraDuration,
-    recordingEstimate, syncCameraVisual, captureCurrentPose, selectKeyframe,
-    stepKeyframe, applyActivePose, deleteActiveKeyframe, clearCameraTrajectory,
-    setKeyframeTime, saveTrajectory, openTrajectory, loadCinematicDemo,
-    playTrajectory, pauseTrajectory, toggleCameraPlay, stopTrajectory,
-    onCameraScrub, toggleRecording, cleanup,
+    trajectoryInput,
+    cameraTrajectory,
+    activeKeyframe,
+    cameraElapsed,
+    isCameraPlaying,
+    recordState,
+    recordFps,
+    recordCodec,
+    addWatermark,
+    cameraDuration,
+    recordingEstimate,
+    syncCameraVisual,
+    captureCurrentPose,
+    selectKeyframe,
+    stepKeyframe,
+    applyActivePose,
+    deleteActiveKeyframe,
+    clearCameraTrajectory,
+    setKeyframeTime,
+    saveTrajectory,
+    openTrajectory,
+    loadCinematicDemo,
+    playTrajectory,
+    pauseTrajectory,
+    toggleCameraPlay,
+    stopTrajectory,
+    onCameraScrub,
+    toggleRecording,
+    cleanup,
   }
 }
 

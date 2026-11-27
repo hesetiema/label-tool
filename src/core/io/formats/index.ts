@@ -37,7 +37,11 @@ function normalize(raw: string): unknown {
   const s = raw.trim()
   if (!s) return raw
   if (s.startsWith('[') || s.startsWith('{')) {
-    try { return JSON.parse(s) } catch { /* 保持字符串 */ }
+    try {
+      return JSON.parse(s)
+    } catch {
+      /* 保持字符串 */
+    }
   }
   return raw
 }
@@ -54,11 +58,7 @@ export function detectLabelFormat(text: string, filename?: string): LabelFormat 
 }
 
 /** 自动识别并解析标注。识别不出来时抛错，让上层显示明确提示 */
-export function parseLabelsAuto(
-  text: string,
-  filename?: string,
-  options?: ParseOptions,
-): AutoParseResult {
+export function parseLabelsAuto(text: string, filename?: string, options?: ParseOptions): AutoParseResult {
   const raw = normalize(text)
   let best: { adapter: FormatAdapter; score: number } | null = null
   for (const adapter of FORMAT_ADAPTERS) {
@@ -76,6 +76,4 @@ export function parseLabelsAuto(
   }
 }
 
-export type {
-  AutoParseResult, FormatAdapter, FormatParseResult, LabelFormat, ParseOptions,
-} from './types'
+export type { AutoParseResult, FormatAdapter, FormatParseResult, LabelFormat, ParseOptions } from './types'

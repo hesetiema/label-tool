@@ -36,7 +36,10 @@
 import type { BlobMeta, BlobStore } from '../ports/blobStore'
 import { isPayloadRef } from '../domain/store/blobRefs'
 import {
-  planFrameEviction, type EvictionPolicy, type FrameBlobRef, type FrameEvictionPlan,
+  planFrameEviction,
+  type EvictionPolicy,
+  type FrameBlobRef,
+  type FrameEvictionPlan,
 } from '../domain/store/frameBudget'
 import { classifyBlobKey, legacyFramePrefix, parseFrameBlobKey } from './blobKeys'
 

@@ -146,12 +146,7 @@ export function easeInOut(t: number): number {
 function catmull(p0: number, p1: number, p2: number, p3: number, t: number): number {
   const t2 = t * t
   const t3 = t2 * t
-  return 0.5 * (
-    2 * p1 +
-    (-p0 + p2) * t +
-    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-  )
+  return 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
 }
 
 function catmullVec(v0: Vec3, v1: Vec3, v2: Vec3, v3: Vec3, t: number): Vec3 {
@@ -163,7 +158,14 @@ function catmullVec(v0: Vec3, v1: Vec3, v2: Vec3, v3: Vec3, t: number): Vec3 {
 }
 
 /** 在两帧之间采样位姿。prev/next 只在样条模式下使用 */
-function mixPose(a: CameraPose, b: CameraPose, prev: CameraPose, next: CameraPose, t: number, traj: CameraTrajectory): CameraPose {
+function mixPose(
+  a: CameraPose,
+  b: CameraPose,
+  prev: CameraPose,
+  next: CameraPose,
+  t: number,
+  traj: CameraTrajectory,
+): CameraPose {
   const u = traj.options.smoothVelocity ? easeInOut(t) : t
   const allowRoll = traj.options.allowRoll
   if (traj.options.spline) {
@@ -209,9 +211,7 @@ export function sampleTrajectoryInfo(traj: CameraTrajectory, time: number): Traj
     return { pose: clonePose(IDENTITY_POSE), keyframeIndex: -1, segment: -1, localT: 0 }
   }
   const total = trajectoryDuration(traj)
-  let t = traj.options.loop && total > 0
-    ? ((time % total) + total) % total
-    : clamp(time, 0, total)
+  const t = traj.options.loop && total > 0 ? ((time % total) + total) % total : clamp(time, 0, total)
 
   let cursor = 0
   for (let i = 0; i < f.length; i++) {
@@ -221,7 +221,7 @@ export function sampleTrajectoryInfo(traj: CameraTrajectory, time: number): Traj
     }
     cursor += hold
 
-    const nextIdx = i + 1 < f.length ? i + 1 : (traj.options.loop && f.length > 1 ? 0 : -1)
+    const nextIdx = i + 1 < f.length ? i + 1 : traj.options.loop && f.length > 1 ? 0 : -1
     if (nextIdx < 0) break
     const trans = Math.max(0, f[nextIdx].transition)
     if (trans > 0 && t < cursor + trans) {

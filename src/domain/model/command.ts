@@ -36,7 +36,13 @@ export type CommandData =
   | { type: 'createTrack'; track: Track }
   | { type: 'deleteTracks'; tracks: Track[] }
   | { type: 'setKeyframe'; trackId: TrackId; frame: number; before: BoxGeometry | null; after: BoxGeometry | null }
-  | { type: 'setObservation'; trackId: TrackId; frame: number; before: ObservationState | null; after: ObservationState | null }
+  | {
+      type: 'setObservation'
+      trackId: TrackId
+      frame: number
+      before: ObservationState | null
+      after: ObservationState | null
+    }
   | { type: 'setClass'; trackId: TrackId; before: ClassId; after: ClassId }
   /**
    * 改生命周期（时间线上拖两端）。
@@ -56,13 +62,13 @@ export type CommandData =
    * 便于审计与"提前释放"判断，不重复存字节。
    */
   | {
-    type: 'setTaskPayload'
-    task: TaskKey
-    before: unknown | null
-    after: unknown | null
-    beforeRef: string | null
-    afterRef: string | null
-  }
+      type: 'setTaskPayload'
+      task: TaskKey
+      before: unknown | null
+      after: unknown | null
+      beforeRef: string | null
+      afterRef: string | null
+    }
   | { type: 'batch'; commands: CommandData[] }
 
 export interface CommandAffects {
@@ -139,8 +145,9 @@ export function affectsOf(data: CommandData): CommandAffects {
       }
     case 'splitTrack':
       return {
-        frames: uniq([...data.before.keyframes, ...data.after[0].keyframes, ...data.after[1].keyframes]
-          .map((k) => k.frame)).sort((a, b) => a - b),
+        frames: uniq(
+          [...data.before.keyframes, ...data.after[0].keyframes, ...data.after[1].keyframes].map((k) => k.frame),
+        ).sort((a, b) => a - b),
         tracks: [data.source, data.newId],
         tasks: ['boxes'],
       }

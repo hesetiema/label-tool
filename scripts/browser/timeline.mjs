@@ -15,7 +15,9 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 950 }, acceptDownloads: true })
 const page = await ctx.newPage()
 const errors = []
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') errors.push(m.text())
+})
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
 
 await page.goto(APP + '?data=sequence', { waitUntil: 'load' })
@@ -38,7 +40,8 @@ const merge = await page.evaluate(async () => {
   await store.documents.save(doc)
   // 第二个任务段：模拟占据任务写入
   await store.documents.saveTask('merge#test', 'occupancy', {
-    voxelSize: 0.2, frames: { 0: 'payload/deadbeef0001' },
+    voxelSize: 0.2,
+    frames: { 0: 'payload/deadbeef0001' },
   })
   // 工作台再次自动保存（只带 boxes）
   await store.documents.save(doc)
@@ -51,7 +54,9 @@ const merge = await page.evaluate(async () => {
   let orphanErr = ''
   try {
     await store.documents.saveTask('never-saved#x', 'occupancy', { frames: {} })
-  } catch (e) { orphanErr = e.message }
+  } catch (e) {
+    orphanErr = e.message
+  }
   await store.documents.remove('merge#test')
   return {
     mergedTasks: Object.keys(afterMerge?.tasks ?? {}),
@@ -85,10 +90,18 @@ if (box && barBox) {
 await page.waitForTimeout(300)
 const afterDrag = await page.evaluate(() => {
   const t = window.studio.store.value.tracks[0]
-  return { first: t.lifecycle.first, last: t.lifecycle.last, kfs: t.keyframes.length, status: window.studio.statusText.value }
+  return {
+    first: t.lifecycle.first,
+    last: t.lifecycle.last,
+    kfs: t.keyframes.length,
+    status: window.studio.statusText.value,
+  }
 })
-check('拖右端能改结束帧', afterDrag.last < before.last && afterDrag.first === before.first,
-  `${before.first}-${before.last} → ${afterDrag.first}-${afterDrag.last}`)
+check(
+  '拖右端能改结束帧',
+  afterDrag.last < before.last && afterDrag.first === before.first,
+  `${before.first}-${before.last} → ${afterDrag.first}-${afterDrag.last}`,
+)
 check('拖拽不删关键帧', afterDrag.kfs === 3 || afterDrag.kfs > 0, String(afterDrag.kfs))
 check('拖拽有状态栏反馈', /生命周期已改为/.test(afterDrag.status), afterDrag.status)
 
@@ -97,19 +110,26 @@ const undone = await page.evaluate(() => {
   const t = window.studio.store.value.tracks[0]
   return { first: t.lifecycle.first, last: t.lifecycle.last }
 })
-check('一次拖拽只产生一条撤销', undone.last === before.last && undone.first === before.first,
-  JSON.stringify(undone))
+check('一次拖拽只产生一条撤销', undone.last === before.last && undone.first === before.first, JSON.stringify(undone))
 
 /* ---------------- 3. 右键菜单 ---------------- */
-await page.locator('.tl-row').first().locator('.tl-bar').click({ button: 'right', position: { x: 560, y: 6 } })
+await page
+  .locator('.tl-row')
+  .first()
+  .locator('.tl-bar')
+  .click({ button: 'right', position: { x: 560, y: 6 } })
 await page.waitForTimeout(200)
 const menuVisible = await page.locator('.tl-menu').count()
 check('右键弹出轨迹菜单', menuVisible === 1)
 const menuItems = await page.locator('.tl-menu button').allTextContents()
-check('菜单含关键帧/拆分/生命周期/删除', menuItems.length >= 6
-  && menuItems.some((t) => t.includes('补关键帧'))
-  && menuItems.some((t) => t.includes('拆分'))
-  && menuItems.some((t) => t.includes('起点设为')), menuItems.join(' | '))
+check(
+  '菜单含关键帧/拆分/生命周期/删除',
+  menuItems.length >= 6 &&
+    menuItems.some((t) => t.includes('补关键帧')) &&
+    menuItems.some((t) => t.includes('拆分')) &&
+    menuItems.some((t) => t.includes('起点设为')),
+  menuItems.join(' | '),
+)
 
 // 点"起点设为第 N 帧"应真的生效
 await page.locator('.tl-menu button', { hasText: '起点设为' }).first().click()
@@ -125,11 +145,19 @@ await page.evaluate(() => window.studio.doUndo())
 const outDir = 'C:/Users/wuyuxi/AppData/Local/Temp/edge-dl'
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 for (const label of ['整段序列 JSON（插值补帧）', '整段序列 JSON（RTS 平滑）']) {
-  await page.locator('.topbar button, header button').first().click().catch(() => {})
+  await page
+    .locator('.topbar button, header button')
+    .first()
+    .click()
+    .catch(() => {})
   const opened = await page.locator('text=' + label).count()
   if (!opened) {
     // 菜单可能没开：点顶栏菜单按钮
-    await page.locator('[title*="菜单"]').first().click().catch(() => {})
+    await page
+      .locator('[title*="菜单"]')
+      .first()
+      .click()
+      .catch(() => {})
   }
   const btn = page.locator('button', { hasText: label }).first()
   const visible = await btn.isVisible().catch(() => false)
@@ -140,13 +168,19 @@ for (const label of ['整段序列 JSON（插值补帧）', '整段序列 JSON�
   const dl = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
   await btn.click()
   const download = await dl
-  if (!download) { check(`导出入口可用：${label}`, false, '未触发下载'); continue }
+  if (!download) {
+    check(`导出入口可用：${label}`, false, '未触发下载')
+    continue
+  }
   const file = `${outDir}/${download.suggestedFilename()}`
   await download.saveAs(file)
   const text = readFileSync(file, 'utf8')
   const parsed = JSON.parse(text)
-  check(`导出可用且 JSON 合法：${label}`, parsed.format === 'pcl-label-studio/sequence' && parsed.frames.length > 0,
-    `${parsed.frameCount} 帧 / ${parsed.frames.length} 条`)
+  check(
+    `导出可用且 JSON 合法：${label}`,
+    parsed.format === 'pcl-label-studio/sequence' && parsed.frames.length > 0,
+    `${parsed.frameCount} 帧 / ${parsed.frames.length} 条`,
+  )
   await page.keyboard.press('Escape')
 }
 

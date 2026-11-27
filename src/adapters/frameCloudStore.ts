@@ -62,7 +62,9 @@ export function noteFrameUsed(datasetKey: string, frame: number): void {
   if (prev !== undefined && now - prev < TOUCH_MIN_GAP_MS) return
   pendingUse.set(key, now)
   if (touchTimer !== null) return
-  touchTimer = setTimeout(() => { void flushFrameUse() }, TOUCH_DEBOUNCE_MS)
+  touchTimer = setTimeout(() => {
+    void flushFrameUse()
+  }, TOUCH_DEBOUNCE_MS)
 }
 
 /**
@@ -95,8 +97,6 @@ export async function flushFrameUse(): Promise<number> {
   }
 }
 
-
-
 function toArrayBuffer(view: ArrayBufferView): ArrayBuffer {
   // 解析产出的 TypedArray 通常是独占 buffer，直接返回可省一次 1.8MB 拷贝；
   // 只有子视图（byteOffset>0 或长度不等）才必须切片
@@ -110,11 +110,7 @@ function toArrayBuffer(view: ArrayBufferView): ArrayBuffer {
  * 把一帧点云写进 IndexedDB。
  * 失败静默：缓存是尽力而为，不能因为"存不下"打断标注。
  */
-export async function saveFrameCloud(
-  datasetKey: string,
-  frame: number,
-  cloud: PointCloud,
-): Promise<void> {
+export async function saveFrameCloud(datasetKey: string, frame: number, cloud: PointCloud): Promise<void> {
   const store = studioStore()
   if (!store || !datasetKey || cloud.count === 0) return
   const key = frameBlobKey(datasetKey, frame)
@@ -124,7 +120,10 @@ export async function saveFrameCloud(
 }
 
 /** 按给定键读一帧；缺 positions 返回 null（部分帧可能只有颜色，视作损坏） */
-async function readCloudAt(store: NonNullable<ReturnType<typeof studioStore>>, key: string): Promise<PointCloud | null> {
+async function readCloudAt(
+  store: NonNullable<ReturnType<typeof studioStore>>,
+  key: string,
+): Promise<PointCloud | null> {
   if (!(await store.blobs.has(key))) return null
   const positions = new Float32Array(await store.blobs.get(key))
   if (!positions.length) return null
@@ -144,10 +143,7 @@ async function readCloudAt(store: NonNullable<ReturnType<typeof studioStore>>, k
  * 先试新键，再试 P0 的旧键：用户升级前缓存的帧仍然要能读出来，
  * 而旧键没有重写的必要 —— 写一次就永远不会再变，读时多一次 `has` 而已。
  */
-export async function loadFrameCloud(
-  datasetKey: string,
-  frame: number,
-): Promise<PointCloud | null> {
+export async function loadFrameCloud(datasetKey: string, frame: number): Promise<PointCloud | null> {
   const store = studioStore()
   if (!store || !datasetKey) return null
   try {
@@ -181,10 +177,7 @@ export async function clearDatasetClouds(datasetKey: string): Promise<number> {
  *   命中 → 显示；未命中 → 抛错 → 状态栏提示"请重新导入"。
  * 不需要在 restore 里写第二套懒加载逻辑。
  */
-export function createCachedCloudHandle(
-  datasetKey: string,
-  frameIndexes: number[],
-): SampleHandle {
+export function createCachedCloudHandle(datasetKey: string, frameIndexes: number[]): SampleHandle {
   const meta: SceneMeta = {
     id: datasetKey || 'restored',
     name: '草稿恢复 · 点云缓存',
@@ -212,7 +205,11 @@ export function createCachedCloudHandle(
         cloud,
       }
     },
-    async calibrations() { return {} },
-    close() { /* 无外部资源 */ },
+    async calibrations() {
+      return {}
+    },
+    close() {
+      /* 无外部资源 */
+    },
   }
 }

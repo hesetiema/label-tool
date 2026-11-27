@@ -38,16 +38,11 @@ export interface BuildDocumentOptions {
 /**
  * @param frames 按 index 升序的帧；单帧数据集传 `[{ index: 0, boxes }]`
  */
-export function buildDocumentFromFrames(
-  frames: LegacyFrame[],
-  opts: BuildDocumentOptions = {},
-): SampleDocument {
+export function buildDocumentFromFrames(frames: LegacyFrame[], opts: BuildDocumentOptions = {}): SampleDocument {
   const sceneId = opts.sceneId ?? 'imported'
   const sorted = [...frames].sort((a, b) => a.index - b.index)
   const indices = sorted.map((f) => f.index)
-  const range: [number, number] = indices.length
-    ? [indices[0], indices[indices.length - 1]]
-    : [0, 0]
+  const range: [number, number] = indices.length ? [indices[0], indices[indices.length - 1]] : [0, 0]
 
   const doc = createEmptyDocument({
     sampleId: opts.sampleId ?? sampleIdOf(sceneId, range),

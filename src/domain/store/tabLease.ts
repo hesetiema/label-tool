@@ -40,10 +40,7 @@ export interface LeaseRecord {
   at: number
 }
 
-export type LeaseVerdict =
-  | { state: 'free' }
-  | { state: 'mine' }
-  | { state: 'held'; tabId: string; ageMs: number }
+export type LeaseVerdict = { state: 'free' } | { state: 'mine' } | { state: 'held'; tabId: string; ageMs: number }
 
 /**
  * 一条租约记录现在归谁。

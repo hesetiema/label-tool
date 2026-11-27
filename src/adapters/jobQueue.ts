@@ -26,7 +26,7 @@ export class PriorityQueue<T> {
   private readonly low: T[] = []
 
   push(item: T, priority: JobPriority = 'high'): void {
-    (priority === 'high' ? this.high : this.low).push(item)
+    ;(priority === 'high' ? this.high : this.low).push(item)
   }
 
   /** 高优先级取空后才轮到低优先级；同级按入队顺序 */

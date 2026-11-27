@@ -9,9 +9,7 @@ import { StudioKey } from '../../state/studioContext'
 import type { ObjectCategory } from '../../core/types'
 
 const studio = inject(StudioKey)!
-const {
-  categories, boxes, currentCategory, statusText, upsertCategory, removeCategory,
-} = studio
+const { categories, boxes, currentCategory, statusText, upsertCategory, removeCategory } = studio
 
 const newName = ref('')
 const palette = [0x4fc3f7, 0xff7043, 0x66bb6a, 0xab47bc, 0xffca28, 0x26c6da, 0xff4081, 0x8bc34a]
@@ -60,7 +58,9 @@ function remove(cat: ObjectCategory) {
 <template>
   <section class="panel-sec">
     <div class="panel-head">
-      <span class="panel-title">标签 <b>{{ categories.length }}</b></span>
+      <span class="panel-title"
+        >标签 <b>{{ categories.length }}</b></span
+      >
       <span class="panel-sub">点一行设为当前类别</span>
     </div>
 

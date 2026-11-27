@@ -16,7 +16,11 @@
  *   （见 `parse.ts`），比写一份转换文档更可靠。
  */
 import type {
-  PreAnnotationProvider, PreAnnotateChunk, PreAnnotateRequest, PreObject, ProviderCapabilities,
+  PreAnnotationProvider,
+  PreAnnotateChunk,
+  PreAnnotateRequest,
+  PreObject,
+  ProviderCapabilities,
 } from '../../ports/preAnnotation'
 import { abortError, isAborted } from '../../ports/preAnnotation'
 import { parsePreObject } from './parse'
@@ -50,9 +54,10 @@ function modelOf(payload: unknown): { id: string; version: string } | undefined 
 }
 
 /** 解析结果：帧号升序、每帧对象数组（脏对象已剔除） */
-export function parsePreAnnotationFile(
-  payload: unknown,
-): { frames: Array<{ frame: number; objects: PreObject[] }>; model?: { id: string; version: string } } {
+export function parsePreAnnotationFile(payload: unknown): {
+  frames: Array<{ frame: number; objects: PreObject[] }>
+  model?: { id: string; version: string }
+} {
   const raw = framesOf(payload)
   const out: Array<{ frame: number; objects: PreObject[] }> = []
   for (const item of raw) {

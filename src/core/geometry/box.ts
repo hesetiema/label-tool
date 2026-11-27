@@ -35,18 +35,19 @@ export function boxToVertices(box: Box3D): number[] {
   const hz = box.scale.z / 2
   // 局部坐标：[x, y, z]，顺序见上方注释
   const local: [number, number, number][] = [
-    [hx, -hy, -hz], [hx, hy, -hz], [hx, hy, hz], [hx, -hy, hz],
-    [-hx, -hy, -hz], [-hx, hy, -hz], [-hx, hy, hz], [-hx, -hy, hz],
+    [hx, -hy, -hz],
+    [hx, hy, -hz],
+    [hx, hy, hz],
+    [hx, -hy, hz],
+    [-hx, -hy, -hz],
+    [-hx, hy, -hz],
+    [-hx, hy, hz],
+    [-hx, -hy, hz],
   ]
   const out: number[] = []
   for (const [lx, ly, lz] of local) {
     const [rx, ry] = rotateYaw(lx, ly, box.yaw)
-    out.push(
-      box.position.x + rx,
-      box.position.y + ry,
-      box.position.z + lz,
-      1,
-    )
+    out.push(box.position.x + rx, box.position.y + ry, box.position.z + lz, 1)
   }
   return out
 }
@@ -87,9 +88,12 @@ export function fitBoxToPoints(
   // 逆旋转到局部系，统计 min/max
   const c = Math.cos(-initialYaw)
   const s = Math.sin(-initialYaw)
-  let lxMin = Infinity, lxMax = -Infinity
-  let lyMin = Infinity, lyMax = -Infinity
-  let lzMin = Infinity, lzMax = -Infinity
+  let lxMin = Infinity,
+    lxMax = -Infinity
+  let lyMin = Infinity,
+    lyMax = -Infinity
+  let lzMin = Infinity,
+    lzMax = -Infinity
   let used = 0
 
   for (const i of indices) {
@@ -135,7 +139,8 @@ export function fitBoxToPoints(
  */
 export function estimateYawByPCA(positions: Float32Array, indices: number[]): number {
   if (indices.length < 3) return 0
-  let mx = 0, my = 0
+  let mx = 0,
+    my = 0
   for (const i of indices) {
     mx += positions[i * 3]
     my += positions[i * 3 + 1]
@@ -144,7 +149,9 @@ export function estimateYawByPCA(positions: Float32Array, indices: number[]): nu
   my /= indices.length
 
   // 2D 协方差矩阵 [[sxx, sxy],[sxy, syy]]
-  let sxx = 0, syy = 0, sxy = 0
+  let sxx = 0,
+    syy = 0,
+    sxy = 0
   for (const i of indices) {
     const dx = positions[i * 3] - mx
     const dy = positions[i * 3 + 1] - my

@@ -21,45 +21,55 @@ const results = []
 
 /** 等应用把 v3 库建出来：store 是惰性创建的，早于它 open 会自己建出一个 v1 空库 */
 async function ensureDb(p) {
-  await p.waitForFunction(async (name) => {
-    const list = await indexedDB.databases?.().catch(() => null)
-    if (list) {
-      const hit = list.find((d) => d.name === name)
-      return !!hit && (hit.version ?? 0) >= 3
-    }
-    return await new Promise((res) => {
-      const r = indexedDB.open(name)
-      r.onsuccess = () => {
-        const ok = r.result.objectStoreNames.contains('blobUsage')
-        r.result.close()
-        res(ok)
+  await p.waitForFunction(
+    async (name) => {
+      const list = await indexedDB.databases?.().catch(() => null)
+      if (list) {
+        const hit = list.find((d) => d.name === name)
+        return !!hit && (hit.version ?? 0) >= 3
       }
-      r.onerror = () => res(false)
-    })
-  }, DB, { timeout: 20000 })
+      return await new Promise((res) => {
+        const r = indexedDB.open(name)
+        r.onsuccess = () => {
+          const ok = r.result.objectStoreNames.contains('blobUsage')
+          r.result.close()
+          res(ok)
+        }
+        r.onerror = () => res(false)
+      })
+    },
+    DB,
+    { timeout: 20000 },
+  )
 }
 
 /** 造 count 帧缓存（位置 + 颜色），i 越大使用时间越新 */
 async function seedFrames(p, enc, count) {
-  await p.evaluate(async ({ enc, count, posBytes, colBytes }) => {
-    const db = await new Promise((res) => {
-      const r = indexedDB.open('point-cloud-label-studio')
-      r.onsuccess = () => res(r.result)
-    })
-    const tx = db.transaction(['blobs', 'blobUsage'], 'readwrite')
-    const blobs = tx.objectStore('blobs')
-    const usage = tx.objectStore('blobUsage')
-    const base = Date.now() - count * 10_000
-    for (let i = 0; i < count; i++) {
-      const posKey = `frames/${enc}/${i}`
-      blobs.put({ data: new ArrayBuffer(posBytes), bytes: posBytes, savedAt: base }, posKey)
-      blobs.put({ data: new ArrayBuffer(colBytes), bytes: colBytes, savedAt: base }, `${posKey}:colors`)
-      usage.put({ at: base + i * 1000 }, posKey)
-      usage.put({ at: base + i * 1000 }, `${posKey}:colors`)
-    }
-    await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = () => j(tx.error) })
-    db.close()
-  }, { enc, count, posBytes: POS_BYTES, colBytes: COL_BYTES })
+  await p.evaluate(
+    async ({ enc, count, posBytes, colBytes }) => {
+      const db = await new Promise((res) => {
+        const r = indexedDB.open('point-cloud-label-studio')
+        r.onsuccess = () => res(r.result)
+      })
+      const tx = db.transaction(['blobs', 'blobUsage'], 'readwrite')
+      const blobs = tx.objectStore('blobs')
+      const usage = tx.objectStore('blobUsage')
+      const base = Date.now() - count * 10_000
+      for (let i = 0; i < count; i++) {
+        const posKey = `frames/${enc}/${i}`
+        blobs.put({ data: new ArrayBuffer(posBytes), bytes: posBytes, savedAt: base }, posKey)
+        blobs.put({ data: new ArrayBuffer(colBytes), bytes: colBytes, savedAt: base }, `${posKey}:colors`)
+        usage.put({ at: base + i * 1000 }, posKey)
+        usage.put({ at: base + i * 1000 }, `${posKey}:colors`)
+      }
+      await new Promise((r, j) => {
+        tx.oncomplete = r
+        tx.onerror = () => j(tx.error)
+      })
+      db.close()
+    },
+    { enc, count, posBytes: POS_BYTES, colBytes: COL_BYTES },
+  )
 }
 
 /** 读某数据集的 0..4 帧是否还在库里。库名硬编码，避免参数传递带来的歧义 */
@@ -84,7 +94,9 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage()
 const consoleErrors = []
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message))
 
 await page.goto(APP + '?data=sequence', { waitUntil: 'load' })
@@ -103,7 +115,10 @@ await page.evaluate(async (name) => {
   })
   const tx = db.transaction(['blobs', 'session', 'documents', 'docTasks', 'blobUsage'], 'readwrite')
   for (const n of ['blobs', 'session', 'documents', 'docTasks', 'blobUsage']) tx.objectStore(n).clear()
-  await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+  await new Promise((res, rej) => {
+    tx.oncomplete = res
+    tx.onerror = () => rej(tx.error)
+  })
   db.close()
 }, DB)
 
@@ -149,13 +164,16 @@ check('使用时间也一并写入', seeded.usage.length === FRAMES * 2, String(
 
 // 把当前数据集指向造出来的这一份，并把当前帧放在 0 号
 // （保护邻域 = 0/1/2，于是 3 号是可淘汰里最旧的）
-await page.evaluate(({ dataset, frame }) => {
-  window.studio.datasetKey.value = dataset
-  window.studio.currentFrame.value = frame
-  // 强制入口（reclaimBytes）也走同一条判定链，所以要显式声明可重解码 ——
-  // 否则测的是一条生产里不存在的旁路
-  window.studio.framesReloadable.value = true
-}, { dataset: DATASET, frame: 0 })
+await page.evaluate(
+  ({ dataset, frame }) => {
+    window.studio.datasetKey.value = dataset
+    window.studio.currentFrame.value = frame
+    // 强制入口（reclaimBytes）也走同一条判定链，所以要显式声明可重解码 ——
+    // 否则测的是一条生产里不存在的旁路
+    window.studio.framesReloadable.value = true
+  },
+  { dataset: DATASET, frame: 0 },
+)
 
 // ---- 1. 预演：给出计划但不删 ----
 const dryRun = await page.evaluate(async (bytes) => {
@@ -169,8 +187,11 @@ const dryRun = await page.evaluate(async (bytes) => {
   }
 }, FRAME_BYTES * 2)
 check('预演淘汰两帧', dryRun.lruGroups?.length === 2, JSON.stringify(dryRun.lruGroups))
-check('预演淘汰的是 3、4 号（最久未用且不在保护邻域）',
-  dryRun.lruGroups?.join(',') === '3,4', JSON.stringify(dryRun.lruGroups))
+check(
+  '预演淘汰的是 3、4 号（最久未用且不在保护邻域）',
+  dryRun.lruGroups?.join(',') === '3,4',
+  JSON.stringify(dryRun.lruGroups),
+)
 check('预演统计被保护跳过的帧数', dryRun.protectSkipped === 3, String(dryRun.protectSkipped))
 check('预演淘汰字节 = 2 × 400KB', dryRun.lruBytes === FRAME_BYTES * 2, String(dryRun.lruBytes))
 check('预演不提交删除', dryRun.released === 0, String(dryRun.released))
@@ -201,12 +222,14 @@ const after = await keysNow()
 const has = (f, part = '') => after.blobs.includes(`frames/${enc}/${f}${part}`)
 check('3、4 号的位置记录被删', !has(3) && !has(4))
 check('3、4 号的颜色记录一起删（不留孤儿）', !has(3, ':colors') && !has(4, ':colors'))
-check('当前帧邻域 0/1/2 完整保留',
-  has(0) && has(0, ':colors') && has(1) && has(2) && has(2, ':colors'))
+check('当前帧邻域 0/1/2 完整保留', has(0) && has(0, ':colors') && has(1) && has(2) && has(2, ':colors'))
 check('比保护邻域新的 5/6/7 也保留', has(5) && has(6) && has(7))
 check('删除后只剩 12 条', after.blobs.length === 12, String(after.blobs.length))
-check('使用时间跟着删掉（不留元数据孤儿）',
-  !after.usage.includes(`frames/${enc}/3`) && after.usage.length === 12, String(after.usage.length))
+check(
+  '使用时间跟着删掉（不留元数据孤儿）',
+  !after.usage.includes(`frames/${enc}/3`) && after.usage.length === 12,
+  String(after.usage.length),
+)
 
 // ---- 3. 保护键优先于 LRU：把当前帧移到 5，最旧的 0 号就该被淘汰 ----
 const movedProtect = await page.evaluate(async (bytes) => {
@@ -214,8 +237,7 @@ const movedProtect = await page.evaluate(async (bytes) => {
   const rep = await window.studio.runBlobGc({ manual: true, dryRun: true, reclaimBytes: bytes })
   return { lruGroups: rep?.lru?.groups.map((g) => g.frame) ?? null, skipped: rep?.lru?.protectedFrames ?? -1 }
 }, FRAME_BYTES)
-check('当前帧移到 5 后，0 号变成可淘汰', movedProtect.lruGroups?.[0] === 0,
-  JSON.stringify(movedProtect.lruGroups))
+check('当前帧移到 5 后，0 号变成可淘汰', movedProtect.lruGroups?.[0] === 0, JSON.stringify(movedProtect.lruGroups))
 // 3、4 已被删，剩下的 5/6/7 落在 3..7 的邻域里，所以被跳过的是 3 帧
 check('保护范围随之挪到 3..7（跳过 5/6/7）', movedProtect.skipped === 3, String(movedProtect.skipped))
 
@@ -259,7 +281,9 @@ await page2.addInitScript(() => {
   }
   try {
     Object.defineProperty(navigator, 'storage', { configurable: true, get: () => fake })
-  } catch { /* 覆盖失败时下面的断言会直接暴露 */ }
+  } catch {
+    /* 覆盖失败时下面的断言会直接暴露 */
+  }
 })
 
 await page2.goto(APP + '?data=demo', { waitUntil: 'load' })
@@ -267,10 +291,13 @@ await page2.waitForFunction(() => !!window.studio, null, { timeout: 30000 })
 // 等启动清扫（mount + 1500ms）先跑完：它按"当前数据集"判定，
 // 早于我们把 datasetKey 改到 quota#1 的话，会把刚种下的帧当垃圾删掉
 await page2.waitForTimeout(2400)
-check('配额替身生效（95%）', await page2.evaluate(async () => {
-  const est = await navigator.storage.estimate()
-  return est.usage / est.quota > 0.9
-}))
+check(
+  '配额替身生效（95%）',
+  await page2.evaluate(async () => {
+    const est = await navigator.storage.estimate()
+    return est.usage / est.quota > 0.9
+  }),
+)
 
 await page2.evaluate(() => window.studio.persistNow(true))
 await ensureDb(page2)
@@ -281,18 +308,24 @@ await page2.evaluate(async () => {
   })
   const tx = db.transaction(['blobs', 'session', 'documents', 'docTasks', 'blobUsage'], 'readwrite')
   for (const n of ['blobs', 'session', 'documents', 'docTasks', 'blobUsage']) tx.objectStore(n).clear()
-  await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+  await new Promise((res, rej) => {
+    tx.oncomplete = res
+    tx.onerror = () => rej(tx.error)
+  })
   db.close()
 })
 
 const QUOTA_DS = 'quota#1'
 const quotaEnc = encodeURIComponent(QUOTA_DS)
 // 先把当前数据集指向它，再种帧：反过来的话，任何一次并发清扫都会把新帧当孤儿删掉
-await page2.evaluate(({ ds }) => {
-  window.studio.datasetKey.value = ds
-  window.studio.currentFrame.value = 0
-  window.studio.framesReloadable.value = true
-}, { ds: QUOTA_DS })
+await page2.evaluate(
+  ({ ds }) => {
+    window.studio.datasetKey.value = ds
+    window.studio.currentFrame.value = 0
+    window.studio.framesReloadable.value = true
+  },
+  { ds: QUOTA_DS },
+)
 await seedFrames(page2, quotaEnc, FRAMES)
 check('可重解码标志已生效', await page2.evaluate(() => window.studio.canEvictFrames() === true))
 
@@ -321,14 +354,19 @@ check('保护帧仍在', afterQuota[0] && afterQuota[1] && afterQuota[2], JSON.s
 
 // 反向：把"可重解码"关掉（等价于恢复草稿的缓存句柄），同样 95% 配额也不该动一帧
 await seedFrames(page2, quotaEnc, FRAMES)
-await page2.evaluate(() => { window.studio.framesReloadable.value = false })
+await page2.evaluate(() => {
+  window.studio.framesReloadable.value = false
+})
 check('关闭可重解码后标志为 false', await page2.evaluate(() => window.studio.canEvictFrames() === false))
 const frozen = await page2.evaluate(async () => {
   const rep = await window.studio.runBlobGc({ manual: true })
   return { lru: rep?.lru ?? null }
 })
-check('不可重解码的数据集一帧不删（即使超配额）',
-  frozen.lru === null || frozen.lru.keys.length === 0, JSON.stringify(frozen.lru))
+check(
+  '不可重解码的数据集一帧不删（即使超配额）',
+  frozen.lru === null || frozen.lru.keys.length === 0,
+  JSON.stringify(frozen.lru),
+)
 const survivor = await frameFlags(page2, quotaEnc)
 check('恢复型会话的缓存完好', survivor.every(Boolean), JSON.stringify(survivor))
 

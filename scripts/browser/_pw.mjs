@@ -44,20 +44,24 @@ function candidates() {
 export async function loadPlaywright() {
   try {
     return await import('playwright')
-  } catch { /* 往下找 */ }
+  } catch {
+    /* 往下找 */
+  }
 
   for (const path of candidates()) {
     if (!existsSync(path)) continue
     try {
       return await import(pathToFileURL(path).href)
-    } catch { /* 这个候选坏了，继续 */ }
+    } catch {
+      /* 这个候选坏了，继续 */
+    }
   }
 
   throw new Error(
-    '找不到 playwright。任选一种：\n'
-    + '  1. pnpm add -D playwright\n'
-    + '  2. npx playwright --version（把包拉到 npx 缓存即可）\n'
-    + '  3. 设置 PLAYWRIGHT_PATH 指向其它位置的 playwright/index.mjs',
+    '找不到 playwright。任选一种：\n' +
+      '  1. pnpm add -D playwright\n' +
+      '  2. npx playwright --version（把包拉到 npx 缓存即可）\n' +
+      '  3. 设置 PLAYWRIGHT_PATH 指向其它位置的 playwright/index.mjs',
   )
 }
 

@@ -86,7 +86,10 @@ export function boxBevCorners(box: Box3D): Pt[] {
   const hx = box.scale.x / 2
   const hy = box.scale.y / 2
   const local: [number, number][] = [
-    [hx, -hy], [hx, hy], [-hx, hy], [-hx, -hy],
+    [hx, -hy],
+    [hx, hy],
+    [-hx, hy],
+    [-hx, -hy],
   ]
   const c = Math.cos(box.yaw)
   const s = Math.sin(box.yaw)
@@ -244,7 +247,8 @@ export function cohenKappa(matrix: number[][]): number {
 
   let expected = 0
   for (let i = 0; i < matrix.length; i++) {
-    let rowSum = 0, colSum = 0
+    let rowSum = 0,
+      colSum = 0
     for (let j = 0; j < matrix.length; j++) {
       rowSum += matrix[i][j] ?? 0
       colSum += matrix[j][i] ?? 0
@@ -256,10 +260,7 @@ export function cohenKappa(matrix: number[][]): number {
 }
 
 /** 由匹配对构建类别混淆矩阵（行=GT类别，列=待评估类别） */
-export function categoryConfusion(
-  matched: MatchPair[],
-  labels: string[],
-): number[][] {
+export function categoryConfusion(matched: MatchPair[], labels: string[]): number[][] {
   const index = new Map(labels.map((l, i) => [l, i]))
   const matrix = labels.map(() => labels.map(() => 0))
   for (const m of matched) {
@@ -279,15 +280,10 @@ function angleDiff(a: number, b: number): number {
 }
 
 /** 生成完整质检报告 —— 上面所有算法在这里组装 */
-export function evaluateQuality(
-  gt: Box3D[],
-  pred: Box3D[],
-  threshold = 0.5,
-): QualityReport {
+export function evaluateQuality(gt: Box3D[], pred: Box3D[], threshold = 0.5): QualityReport {
   const { matched, missed, spurious } = matchBoxes(gt, pred, threshold)
   const n = matched.length
-  const avg = (fn: (m: MatchPair) => number) =>
-    n === 0 ? 0 : matched.reduce((s, m) => s + fn(m), 0) / n
+  const avg = (fn: (m: MatchPair) => number) => (n === 0 ? 0 : matched.reduce((s, m) => s + fn(m), 0) / n)
 
   const recall = gt.length === 0 ? 1 : n / gt.length
   const precision = pred.length === 0 ? 1 : n / pred.length
@@ -312,11 +308,13 @@ export function evaluateQuality(
       falsePositiveRate: 1 - precision,
       f1,
       kappa,
-      centerError: avg((m) => Math.hypot(
-        m.gt.position.x - m.pred.position.x,
-        m.gt.position.y - m.pred.position.y,
-        m.gt.position.z - m.pred.position.z,
-      )),
+      centerError: avg((m) =>
+        Math.hypot(
+          m.gt.position.x - m.pred.position.x,
+          m.gt.position.y - m.pred.position.y,
+          m.gt.position.z - m.pred.position.z,
+        ),
+      ),
       yawError: avg((m) => angleDiff(m.gt.yaw, m.pred.yaw)),
     },
   }

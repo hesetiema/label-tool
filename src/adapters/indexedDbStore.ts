@@ -46,8 +46,14 @@ import { decodeStates, encodeStates } from '../domain/model/track'
 import type { SampleId } from '../domain/model/ids'
 import { collectRefsDeep } from '../domain/store/blobRefs'
 import {
-  STORE_BLOBS, STORE_DOCS, STORE_SESSION, STORE_TASKS, STORE_USAGE,
-  idbRequest, openStudioDb, txDone,
+  STORE_BLOBS,
+  STORE_DOCS,
+  STORE_SESSION,
+  STORE_TASKS,
+  STORE_USAGE,
+  idbRequest,
+  openStudioDb,
+  txDone,
 } from '../core/io/idb'
 import type { SessionSnapshot } from '../core/io/session'
 import { buildDocumentFromFrames } from '../domain/io/legacyDocument'
@@ -129,10 +135,7 @@ export function encodeDocument(doc: SampleDocument): {
   }
 }
 
-export function decodeDocument(
-  head: StoredDocHead,
-  tasks: Partial<Record<TaskKey, unknown>>,
-): SampleDocument {
+export function decodeDocument(head: StoredDocHead, tasks: Partial<Record<TaskKey, unknown>>): SampleDocument {
   const boxes = decodeTask('boxes', tasks.boxes ?? { tracks: [] }) as SampleDocument['tasks']['boxes']
   const doc: SampleDocument = {
     schema: 2,
@@ -223,7 +226,7 @@ export function createIndexedDbStore(): StudioStore {
     async load(sampleId) {
       const conn = await db()
       const tx = conn.transaction([STORE_DOCS, STORE_TASKS], 'readonly')
-      const head = await idbRequest(tx.objectStore(STORE_DOCS).get(sampleId)) as StoredDocHead | undefined
+      const head = (await idbRequest(tx.objectStore(STORE_DOCS).get(sampleId))) as StoredDocHead | undefined
       if (!head) return null
       const tasks: Partial<Record<TaskKey, unknown>> = {}
       const store = tx.objectStore(STORE_TASKS)
@@ -246,7 +249,7 @@ export function createIndexedDbStore(): StudioStore {
       const conn = await db()
       const tx = conn.transaction([STORE_DOCS, STORE_TASKS], 'readwrite')
       const docStore = tx.objectStore(STORE_DOCS)
-      const existing = await idbRequest(docStore.get(doc.sampleId)) as StoredDocHead | undefined
+      const existing = (await idbRequest(docStore.get(doc.sampleId))) as StoredDocHead | undefined
       docStore.put(mergeDocHead(existing, head), doc.sampleId)
       const store = tx.objectStore(STORE_TASKS)
       for (const item of tasks) store.put(item.payload, taskKey(doc.sampleId, item.task))
@@ -257,7 +260,7 @@ export function createIndexedDbStore(): StudioStore {
       const conn = await db()
       const tx = conn.transaction([STORE_DOCS, STORE_TASKS], 'readwrite')
       const docStore = tx.objectStore(STORE_DOCS)
-      const head = await idbRequest(docStore.get(sampleId)) as StoredDocHead | undefined
+      const head = (await idbRequest(docStore.get(sampleId))) as StoredDocHead | undefined
       // 没有头就没有文档：此时写进去的段永远读不出来，只会变成孤儿占用空间。
       // 与其静默吞掉（下一层还会 catch 掉），不如让调用顺序错误当场暴露。
       if (!head) {
@@ -283,7 +286,7 @@ export function createIndexedDbStore(): StudioStore {
       const conn = await db()
       const tx = conn.transaction([STORE_DOCS, STORE_TASKS], 'readwrite')
       const docStore = tx.objectStore(STORE_DOCS)
-      const head = await idbRequest(docStore.get(sampleId)) as StoredDocHead | undefined
+      const head = (await idbRequest(docStore.get(sampleId))) as StoredDocHead | undefined
       if (head && head.tasks.includes(task)) {
         head.tasks = head.tasks.filter((t) => t !== task)
         head.savedAt = Date.now()
@@ -302,7 +305,10 @@ export function createIndexedDbStore(): StudioStore {
       await new Promise<void>((resolve, reject) => {
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result
-          if (!cursor) { resolve(); return }
+          if (!cursor) {
+            resolve()
+            return
+          }
           const key = String(cursor.primaryKey)
           // boxes 段是轨迹数组，没有 blob；扫它纯属浪费（可能有上千关键帧）
           if (!key.endsWith('::boxes')) collectRefsDeep(cursor.value, out)
@@ -317,7 +323,7 @@ export function createIndexedDbStore(): StudioStore {
     async listSamples(): Promise<StoredDocumentSummary[]> {
       const conn = await db()
       const tx = conn.transaction(STORE_DOCS, 'readonly')
-      const heads = await idbRequest(tx.objectStore(STORE_DOCS).getAll()) as StoredDocHead[]
+      const heads = (await idbRequest(tx.objectStore(STORE_DOCS).getAll())) as StoredDocHead[]
       await txDone(tx)
       // 草稿列表按最近保存排序，和用户预期一致
       return heads
@@ -347,7 +353,10 @@ export function createIndexedDbStore(): StudioStore {
       await new Promise<void>((resolve, reject) => {
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result
-          if (!cursor) { resolve(); return }
+          if (!cursor) {
+            resolve()
+            return
+          }
           taskStore.delete(cursor.primaryKey)
           cursor.continue()
         }
@@ -369,9 +378,7 @@ export function createIndexedDbStore(): StudioStore {
     async get(key) {
       const conn = await db()
       const tx = conn.transaction(STORE_BLOBS, 'readonly')
-      const rec = await idbRequest(tx.objectStore(STORE_BLOBS).get(key)) as
-        | { data: ArrayBuffer }
-        | undefined
+      const rec = (await idbRequest(tx.objectStore(STORE_BLOBS).get(key))) as { data: ArrayBuffer } | undefined
       await txDone(tx)
       if (!rec) throw new Error(`点云缓存不存在：${key}`)
       return rec.data
@@ -403,7 +410,10 @@ export function createIndexedDbStore(): StudioStore {
       await new Promise<void>((resolve, reject) => {
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result
-          if (!cursor) { resolve(); return }
+          if (!cursor) {
+            resolve()
+            return
+          }
           store.delete(cursor.primaryKey)
           usage.delete(cursor.primaryKey)
           removed++
@@ -427,7 +437,10 @@ export function createIndexedDbStore(): StudioStore {
       await new Promise<void>((resolve, reject) => {
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result
-          if (!cursor) { resolve(); return }
+          if (!cursor) {
+            resolve()
+            return
+          }
           const rec = cursor.value as { bytes?: number; savedAt?: number; data?: ArrayBuffer }
           out.push({
             key: String(cursor.primaryKey),
@@ -447,14 +460,17 @@ export function createIndexedDbStore(): StudioStore {
       await new Promise<void>((resolve, reject) => {
         usageReq.onsuccess = () => {
           const cursor = usageReq.result
-          if (!cursor) { resolve(); return }
+          if (!cursor) {
+            resolve()
+            return
+          }
           const rec = cursor.value as { at?: number; hits?: number } | number | undefined
           // v3 早期记录只存了数字或 `{at}`：都当作"命中 0 次"
           if (typeof rec === 'number') usageMap.set(String(cursor.primaryKey), { at: rec, hits: 0 })
           else if (rec && typeof rec.at === 'number') {
             usageMap.set(String(cursor.primaryKey), {
               at: rec.at,
-              hits: Number.isFinite(rec.hits) ? rec.hits as number : 0,
+              hits: Number.isFinite(rec.hits) ? (rec.hits as number) : 0,
             })
           }
           cursor.continue()
@@ -489,7 +505,7 @@ export function createIndexedDbStore(): StudioStore {
       for (const key of keys) {
         const exists = await idbRequest(blobs.count(key))
         if (!exists) continue
-        const prev = await idbRequest(usage.get(key)) as { hits?: number } | number | undefined
+        const prev = (await idbRequest(usage.get(key))) as { hits?: number } | number | undefined
         const hits = typeof prev === 'number' ? 0 : (prev?.hits ?? 0)
         usage.put({ at, hits: hits + 1 }, key)
         touched++
@@ -519,15 +535,17 @@ export function createIndexedDbStore(): StudioStore {
     async loadLegacyDocument() {
       const conn = await db()
       const tx = conn.transaction(STORE_SESSION, 'readonly')
-      const snapshot = await idbRequest(tx.objectStore(STORE_SESSION).get('current')) as
-        | SessionSnapshot
-        | undefined
+      const snapshot = (await idbRequest(tx.objectStore(STORE_SESSION).get('current'))) as SessionSnapshot | undefined
       await txDone(tx)
       if (!snapshot || snapshot.version !== 1) return null
       return migrateLegacySnapshot(snapshot)
     },
     close() {
-      void dbPromise?.then((conn) => conn.close()).catch(() => { /* 打不开就没得关 */ })
+      void dbPromise
+        ?.then((conn) => conn.close())
+        .catch(() => {
+          /* 打不开就没得关 */
+        })
       dbPromise = null
     },
   }

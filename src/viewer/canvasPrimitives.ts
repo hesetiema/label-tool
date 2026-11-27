@@ -32,7 +32,8 @@ export function convexHull(points: Pt[]): Pt[] {
     while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop()
     upper.push(p)
   }
-  upper.pop(); lower.pop()
+  upper.pop()
+  lower.pop()
   return lower.concat(upper)
 }
 
@@ -41,9 +42,11 @@ export function pointInPoly(x: number, y: number, poly: Pt[]): boolean {
   if (poly.length < 3) return false
   let inside = false
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].x, yi = poly[i].y
-    const xj = poly[j].x, yj = poly[j].y
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+    const xi = poly[i].x,
+      yi = poly[i].y
+    const xj = poly[j].x,
+      yj = poly[j].y
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
   }
   return inside
 }

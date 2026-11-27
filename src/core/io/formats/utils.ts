@@ -11,11 +11,7 @@ export function defaultNameMap(base: Record<string, string>): Record<string, str
  * 类别名映射。优先级：用户表 > 内置表 > 原名保留。
  * 映射值为 '__skip__' 表示该目标不导入（如 KITTI DontCare）。
  */
-export function mapName(
-  raw: string,
-  builtin: Record<string, string>,
-  user?: Record<string, string>,
-): string {
+export function mapName(raw: string, builtin: Record<string, string>, user?: Record<string, string>): string {
   if (user && Object.prototype.hasOwnProperty.call(user, raw)) return user[raw]
   if (Object.prototype.hasOwnProperty.call(builtin, raw)) return builtin[raw]
   return raw

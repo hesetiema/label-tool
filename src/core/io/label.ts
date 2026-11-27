@@ -53,7 +53,6 @@ export function parseLabels(json: string): Box3D[] {
   return (raws as RawLabelObject[]).map(fromRawLabel)
 }
 
-
 /** 序列导出格式：一帧一个 objects 数组，字段仍是 SUSTechPOINTS 的对象结构 */
 export interface SequenceExport {
   format: 'pcl-label-studio/sequence'
@@ -72,9 +71,7 @@ export interface SequenceExport {
  * 为什么不做 zip：没有压缩库时自己写 zip 容易出错，
  * 而"单文件 + 每帧 objects"已经能被脚本一行拆开，学习场景够用。
  */
-export function serializeSequence(
-  frames: { index: number; name?: string; boxes: Box3D[] }[],
-): string {
+export function serializeSequence(frames: { index: number; name?: string; boxes: Box3D[] }[]): string {
   const payload: SequenceExport = {
     format: 'pcl-label-studio/sequence',
     version: 1,

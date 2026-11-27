@@ -18,7 +18,9 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 980 } })
 const page = await ctx.newPage()
 const consoleErrors = []
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message))
 
 await page.goto(APP + '?data=sequence', { waitUntil: 'load' })
@@ -31,7 +33,9 @@ await page.waitForTimeout(1400)
  * 比直接改 store 更能代表真实状态。
  */
 const cleared = await page.evaluate(() => {
-  window.studio.frames.value.forEach((f) => { f.boxes = [] })
+  window.studio.frames.value.forEach((f) => {
+    f.boxes = []
+  })
   window.studio.boxes.value = []
   window.studio.rebuildDocument()
   return { tracks: window.studio.store.value?.tracks.length ?? -1, frames: window.studio.frames.value.length }
@@ -43,7 +47,12 @@ const run = await page.evaluate(async () => {
   await window.studio.runMock()
   return {
     stats: { ...window.studio.reviewStats.value },
-    rows: window.studio.reviewRows.value.map((r) => ({ id: r.trackId, frames: r.frames.length, conf: r.confidence, review: r.review })),
+    rows: window.studio.reviewRows.value.map((r) => ({
+      id: r.trackId,
+      frames: r.frames.length,
+      conf: r.confidence,
+      review: r.review,
+    })),
     open: window.studio.reviewOpen.value,
     status: window.studio.statusText.value,
     tracks: window.studio.store.value.tracks.length,
@@ -59,8 +68,11 @@ const run = await page.evaluate(async () => {
   }
 })
 check('演示模型产出 4 条提案', run.stats.tracks === 4, String(run.stats.tracks))
-check('每条提案 2–5 帧（有漏检但不该断成单帧）',
-  run.rows.every((r) => r.frames >= 2 && r.frames <= 5), JSON.stringify(run.rows.map((r) => r.frames)))
+check(
+  '每条提案 2–5 帧（有漏检但不该断成单帧）',
+  run.rows.every((r) => r.frames >= 2 && r.frames <= 5),
+  JSON.stringify(run.rows.map((r) => r.frames)),
+)
 check('轨迹真的进了文档', run.tracks === 4, String(run.tracks))
 check('合入后自动打开复核队列', run.open === true)
 check('画布上标了待复核', run.pendingInView > 0, String(run.pendingInView))
@@ -69,7 +81,11 @@ check('导出闸门拦住待复核帧', run.gate === 0 && run.visible > 0, `${ru
 check('合并结果记下新增条数', run.created === 4, String(run.created))
 check('提示里有"待裁决"（打开队列后的文案）', /待裁决/.test(run.status), run.status)
 check('状态栏记下模型身份', /mock-bev/.test(run.model), run.model)
-check('队列按低置信在前', run.rows[0].conf <= run.rows[run.rows.length - 1].conf, JSON.stringify(run.rows.map((r) => r.conf)))
+check(
+  '队列按低置信在前',
+  run.rows[0].conf <= run.rows[run.rows.length - 1].conf,
+  JSON.stringify(run.rows.map((r) => r.conf)),
+)
 
 // ---- 2. 快捷键：A 接受 / X 拒绝 / Tab 下一处 ----
 const firstBefore = await page.evaluate(() => {
@@ -101,7 +117,11 @@ const afterX = await page.evaluate(() => ({
   gate: window.studio.store.value.materialize(window.studio.frameNumber(), { acceptedOnly: true }).length,
 }))
 check('X 拒绝当前行', afterX.tracks === afterA.tracks - 1 && afterX.rejected >= 1, JSON.stringify(afterX))
-check('拒绝的帧不进导出（已接受的仍在）', afterX.gate >= 1 && afterX.gate <= afterA.gate, `${afterA.gate} → ${afterX.gate}`)
+check(
+  '拒绝的帧不进导出（已接受的仍在）',
+  afterX.gate >= 1 && afterX.gate <= afterA.gate,
+  `${afterA.gate} → ${afterX.gate}`,
+)
 
 const tabbed = await page.evaluate(() => ({
   id: window.studio.selectedTrackId.value,
@@ -142,7 +162,11 @@ const afterNudge = await page.evaluate(() => ({
   status: window.studio.statusText.value,
 }))
 check('面板关闭后 A 不再裁决', afterNudge.count === closed.count, `${closed.count} → ${afterNudge.count}`)
-check('A 回到平移语义', /平移|已选|移动/.test(afterNudge.status) || afterNudge.count === closed.count, afterNudge.status)
+check(
+  'A 回到平移语义',
+  /平移|已选|移动/.test(afterNudge.status) || afterNudge.count === closed.count,
+  afterNudge.status,
+)
 
 // ---- 5. 冲突：人工改过的帧不被覆盖 ----
 const conflict = await page.evaluate(async () => {
@@ -174,8 +198,24 @@ const imported = await page.evaluate(async () => {
   const payload = {
     model: { id: 'offline-test', version: '1' },
     frames: [
-      { index: 0, objects: [{ label: 'Car', position: { x: 60, y: 8, z: 0.8 }, scale: { x: 4, y: 2, z: 1.6 }, yaw: 0, confidence: 0.42 }] },
-      { index: 1, objects: [{ label: 'Car', position: { x: 60.5, y: 8, z: 0.8 }, scale: { x: 4, y: 2, z: 1.6 }, yaw: 0, confidence: 0.42 }] },
+      {
+        index: 0,
+        objects: [
+          { label: 'Car', position: { x: 60, y: 8, z: 0.8 }, scale: { x: 4, y: 2, z: 1.6 }, yaw: 0, confidence: 0.42 },
+        ],
+      },
+      {
+        index: 1,
+        objects: [
+          {
+            label: 'Car',
+            position: { x: 60.5, y: 8, z: 0.8 },
+            scale: { x: 4, y: 2, z: 1.6 },
+            yaw: 0,
+            confidence: 0.42,
+          },
+        ],
+      },
     ],
   }
   const file = new File([JSON.stringify(payload)], 'offline.json', { type: 'application/json' })

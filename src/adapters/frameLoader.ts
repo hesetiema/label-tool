@@ -73,16 +73,19 @@ export function createFrameLoader(handle: SampleHandle, opts: FrameLoaderOptions
     // 重复解码要多花 200ms，而等它跑完最多也就 200ms。
     if (running) return running
 
-    const job = handle.frame(frame, { priority }).then((payload) => {
-      pending.delete(frame)
-      // 解码期间可能已被 dispose：仍然把结果给调用方，但不写缓存
-      if (!disposed) cache.set(keyOf(frame), payload.cloud)
-      opts.onLoad?.(frame, payload.cloud)
-      return payload.cloud
-    }).catch((err) => {
-      pending.delete(frame)
-      throw err instanceof Error ? err : new Error(String(err))
-    })
+    const job = handle
+      .frame(frame, { priority })
+      .then((payload) => {
+        pending.delete(frame)
+        // 解码期间可能已被 dispose：仍然把结果给调用方，但不写缓存
+        if (!disposed) cache.set(keyOf(frame), payload.cloud)
+        opts.onLoad?.(frame, payload.cloud)
+        return payload.cloud
+      })
+      .catch((err) => {
+        pending.delete(frame)
+        throw err instanceof Error ? err : new Error(String(err))
+      })
 
     pending.set(frame, job)
     return job
@@ -93,7 +96,9 @@ export function createFrameLoader(handle: SampleHandle, opts: FrameLoaderOptions
       for (const f of [frame + d, frame - d]) {
         if (f < 0 || cache.has(keyOf(f)) || pending.has(f)) continue
         // 预取是纯预热：失败静默，且必须让位于用户正在等的帧
-        void load(f, 'low').catch(() => { /* 预取失败不影响当前帧 */ })
+        void load(f, 'low').catch(() => {
+          /* 预取失败不影响当前帧 */
+        })
       }
     }
   }

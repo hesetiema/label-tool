@@ -75,10 +75,7 @@ function angleDiffSigned(a: number, b: number): number {
  * 对帧序列做时序质检，返回所有可疑点。
  * 纯函数、输入确定输出确定，可直接单测。
  */
-export function evaluateTemporal(
-  frames: FrameData[],
-  opts: TemporalQaOptions = {},
-): TemporalReport {
+export function evaluateTemporal(frames: FrameData[], opts: TemporalQaOptions = {}): TemporalReport {
   const { dt = 0.5, maxStep = 12, maxSpeedJump = 8, maxTurn = 2.0 } = opts
   const issues: TemporalIssue[] = []
   const tracks = extractTrajectories(frames)
@@ -94,17 +91,27 @@ export function evaluateTemporal(
     let prevSpeed: number | null = null
     let prevHeading: number | null = null
     for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i]
+      const a = pts[i - 1],
+        b = pts[i]
       // 该点必须是连续帧（跨缺失帧会让速度失真，跳过）
       const frameGap = b.frame - a.frame
-      if (frameGap !== 1) { prevSpeed = null; prevHeading = null; continue }
+      if (frameGap !== 1) {
+        prevSpeed = null
+        prevHeading = null
+        continue
+      }
 
       // 遮挡续接的预测框不是真实观测：位置由运动模型外推，
       // 拿它算位移/速度/方向会产生假告警。直接跳过这类段——这正是
       // "显式标记 visibility" 带来的收益：质检能区分真跳变和预测续接。
-      if (a.visibility === 'predicted' || a.visibility === 'occluded'
-        || b.visibility === 'predicted' || b.visibility === 'occluded') {
-        prevSpeed = null; prevHeading = null
+      if (
+        a.visibility === 'predicted' ||
+        a.visibility === 'occluded' ||
+        b.visibility === 'predicted' ||
+        b.visibility === 'occluded'
+      ) {
+        prevSpeed = null
+        prevHeading = null
         continue
       }
 
@@ -114,7 +121,11 @@ export function evaluateTemporal(
       // ID 跳变：单帧位移过大
       if (d > maxStep) {
         issues.push({
-          type: 'id_switch', severity: 'error', objId: tr.id, label: tr.label, frame: b.frame,
+          type: 'id_switch',
+          severity: 'error',
+          objId: tr.id,
+          label: tr.label,
+          frame: b.frame,
           detail: `目标 ${tr.id} 在第 ${a.frame}→${b.frame} 帧跳了 ${d.toFixed(1)}m（阈值 ${maxStep}m），疑似 ID 串标`,
           value: d,
         })
@@ -123,7 +134,11 @@ export function evaluateTemporal(
       // 速度突变：相邻两段速度差过大
       if (prevSpeed !== null && Math.abs(speed - prevSpeed) > maxSpeedJump) {
         issues.push({
-          type: 'speed_jump', severity: 'warn', objId: tr.id, label: tr.label, frame: b.frame,
+          type: 'speed_jump',
+          severity: 'warn',
+          objId: tr.id,
+          label: tr.label,
+          frame: b.frame,
           detail: `目标 ${tr.id} 速度从 ${prevSpeed.toFixed(1)} 突变到 ${speed.toFixed(1)} m/s（差 ${Math.abs(speed - prevSpeed).toFixed(1)}）`,
           value: Math.abs(speed - prevSpeed),
         })
@@ -136,8 +151,12 @@ export function evaluateTemporal(
           const turn = Math.abs(angleDiffSigned(heading, prevHeading))
           if (turn > maxTurn) {
             issues.push({
-              type: 'jitter', severity: 'warn', objId: tr.id, label: tr.label, frame: b.frame,
-              detail: `目标 ${tr.id} 在第 ${b.frame} 帧运动方向反转 ${(turn * 180 / Math.PI).toFixed(0)}°，轨迹呈锯齿`,
+              type: 'jitter',
+              severity: 'warn',
+              objId: tr.id,
+              label: tr.label,
+              frame: b.frame,
+              detail: `目标 ${tr.id} 在第 ${b.frame} 帧运动方向反转 ${((turn * 180) / Math.PI).toFixed(0)}°，轨迹呈锯齿`,
               value: turn,
             })
           }
@@ -155,12 +174,15 @@ export function evaluateTemporal(
     for (let f = first + 1; f < last; f++) {
       if (pts.some((p) => p.frame === f)) continue
       const coveredByOcclusion = pts.some(
-        (p) => (p.visibility === 'predicted' || p.visibility === 'occluded')
-          && Math.abs(p.frame - f) <= 1,
+        (p) => (p.visibility === 'predicted' || p.visibility === 'occluded') && Math.abs(p.frame - f) <= 1,
       )
       if (coveredByOcclusion) continue
       issues.push({
-        type: 'track_gap', severity: 'warn', objId: tr.id, label: tr.label, frame: f,
+        type: 'track_gap',
+        severity: 'warn',
+        objId: tr.id,
+        label: tr.label,
+        frame: f,
         detail: `目标 ${tr.id} 在第 ${f} 帧缺失（首末帧都有），可能是漏标`,
         value: 1,
       })
@@ -168,7 +190,10 @@ export function evaluateTemporal(
   }
 
   const counts: Record<TemporalIssue['type'], number> = {
-    id_switch: 0, speed_jump: 0, jitter: 0, track_gap: 0,
+    id_switch: 0,
+    speed_jump: 0,
+    jitter: 0,
+    track_gap: 0,
   }
   for (const issue of issues) counts[issue.type]++
 
@@ -203,7 +228,10 @@ export function injectTemporalDefects(frames: FrameData[]): FrameData[] {
 
   const setPos = (objId: string, frame: number, dx: number, dy: number) => {
     const b = out[frame]?.boxes.find((x) => x.id === objId)
-    if (b) { b.position.x += dx; b.position.y += dy }
+    if (b) {
+      b.position.x += dx
+      b.position.y += dy
+    }
   }
 
   // 1. ID 跳变：id=2 在第 3 帧突然横移 18m

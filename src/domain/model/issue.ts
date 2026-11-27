@@ -58,12 +58,15 @@ export interface LegacyTemporalIssue {
 }
 
 /** 旧 type → 原因码 + 规则 id + 修复建议 */
-const TEMPORAL_RULE_MAP: Record<LegacyTemporalIssue['type'], {
-  code: string
-  ruleId: string
-  scope: QaIssue['scope']
-  fixHint: string
-}> = {
+const TEMPORAL_RULE_MAP: Record<
+  LegacyTemporalIssue['type'],
+  {
+    code: string
+    ruleId: string
+    scope: QaIssue['scope']
+    fixHint: string
+  }
+> = {
   id_switch: {
     code: 'TRK_ID_SWITCH',
     ruleId: 'trk.id-switch',
@@ -133,5 +136,7 @@ export function makeIssue(opts: {
 /** 按严重度排序：报告首屏永远先看 blocker/error */
 export function sortIssues(issues: QaIssue[]): QaIssue[] {
   const rank: Record<QaSeverity, number> = { blocker: 0, error: 1, warn: 2, info: 3 }
-  return [...issues].sort((a, b) => rank[a.severity] - rank[b.severity] || (a.targets[0]?.frame ?? 0) - (b.targets[0]?.frame ?? 0))
+  return [...issues].sort(
+    (a, b) => rank[a.severity] - rank[b.severity] || (a.targets[0]?.frame ?? 0) - (b.targets[0]?.frame ?? 0),
+  )
 }

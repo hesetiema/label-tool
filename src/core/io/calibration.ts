@@ -33,12 +33,15 @@ import type { Box3D } from '../types'
 import { boxToVertices } from '../geometry/box'
 
 /** 单个像素点坐标 */
-export interface PixelPoint { u: number; v: number }
+export interface PixelPoint {
+  u: number
+  v: number
+}
 
 /** 标定数据（对应 calib/front.json） */
 export interface Calibration {
-  extrinsic: number[]  // 4×4 行主序
-  intrinsic: number[]  // 3×3 行主序
+  extrinsic: number[] // 4×4 行主序
+  intrinsic: number[] // 3×3 行主序
   /** OpenCV 径向-切向畸变 [k1,k2,p1,p2,k3]，可选；无此字段视为针孔模型 */
   distortion?: number[]
 }
@@ -80,20 +83,14 @@ export function distortNormalized(x: number, y: number, d?: number[]): [number, 
   const r2 = x * x + y * y
   const r4 = r2 * r2
   const radial = 1 + k1 * r2 + k2 * r4 + k3 * r4 * r2
-  return [
-    x * radial + 2 * p1 * x * y + p2 * (r2 + 2 * x * x),
-    y * radial + p1 * (r2 + 2 * y * y) + 2 * p2 * x * y,
-  ]
+  return [x * radial + 2 * p1 * x * y + p2 * (r2 + 2 * x * x), y * radial + p1 * (r2 + 2 * y * y) + 2 * p2 * x * y]
 }
 
 /**
  * 把一个世界坐标点投影到像素坐标。
  * @returns 投影点；若点在相机后方(z<=0)返回 null
  */
-export function projectPoint(
-  world: [number, number, number],
-  calib: Calibration,
-): PixelPoint | null {
+export function projectPoint(world: [number, number, number], calib: Calibration): PixelPoint | null {
   // 世界 → 相机（外参，齐次坐标补 1）
   const cam = matVec(calib.extrinsic, [world[0], world[1], world[2], 1], 4)
   if (cam[2] <= 0) return null // 在相机后方，投影无意义
@@ -134,9 +131,18 @@ export function projectBox(box: Box3D, calib: Calibration): PixelPoint[] | null 
  * 这里返回 12 条边的端点索引对，供 canvas 画线。
  */
 export const BOX_EDGES: [number, number][] = [
-  [0, 1], [1, 2], [2, 3], [3, 0],
-  [4, 5], [5, 6], [6, 7], [7, 4],
-  [0, 4], [1, 5], [2, 6], [3, 7],
+  [0, 1],
+  [1, 2],
+  [2, 3],
+  [3, 0],
+  [4, 5],
+  [5, 6],
+  [6, 7],
+  [7, 4],
+  [0, 4],
+  [1, 5],
+  [2, 6],
+  [3, 7],
 ]
 
 /**
@@ -147,7 +153,11 @@ export const BOX_EDGES: [number, number][] = [
 function readDistortion(raw: Record<string, unknown>): number[] | undefined {
   for (const key of ['distortion', 'Distortion', 'dist_coeffs', 'dist_coeff', 'D']) {
     let value = raw[key]
-    if (typeof value === 'string') value = value.trim().split(/[\s,]+/).filter(Boolean)
+    if (typeof value === 'string')
+      value = value
+        .trim()
+        .split(/[\s,]+/)
+        .filter(Boolean)
     if (!Array.isArray(value) || value.length < 4) continue
     const nums = value.slice(0, 5).map(Number)
     if (!nums.every(Number.isFinite)) continue

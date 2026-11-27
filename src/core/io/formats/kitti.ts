@@ -10,15 +10,18 @@
  */
 import type { Box3D } from '../../types'
 import { defaultNameMap, mapName, parseNumber, skippedAdd } from './utils'
-import {
-  dairRotationToYaw, hwlToLwh, kittiCameraToLidar, kittiRyToYaw, normalizeAngle,
-} from './conventions'
+import { dairRotationToYaw, hwlToLwh, kittiCameraToLidar, kittiRyToYaw, normalizeAngle } from './conventions'
 import type { FormatAdapter, FormatParseResult, ParseOptions, SkippedInfo } from './types'
 
 /** KITTI 常见类别；DontCare 一律跳过（它是"不要评估此区域"的标记，不是目标） */
 const KITTI_NAMES: Record<string, string> = defaultNameMap({
-  Car: 'Car', Van: 'Van', Truck: 'Truck', Pedestrian: 'Pedestrian',
-  Person_sitting: 'Pedestrian', Cyclist: 'Cyclist', Tram: 'Truck',
+  Car: 'Car',
+  Van: 'Van',
+  Truck: 'Truck',
+  Pedestrian: 'Pedestrian',
+  Person_sitting: 'Pedestrian',
+  Cyclist: 'Cyclist',
+  Tram: 'Truck',
   Misc: 'Other',
   DontCare: '__skip__',
 })
@@ -56,7 +59,10 @@ export const kittiAdapter: FormatAdapter = {
       const p = t.split(/\s+/)
       if (p.length < 15) continue
       const label = mapName(p[0], KITTI_NAMES, options?.nameMap)
-      if (label === '__skip__') { skippedAdd(skipped, `类别 ${p[0]}`); continue }
+      if (label === '__skip__') {
+        skippedAdd(skipped, `类别 ${p[0]}`)
+        continue
+      }
 
       const h = parseNumber(p[8], 'h')
       const w = parseNumber(p[9], 'w')
@@ -66,12 +72,8 @@ export const kittiAdapter: FormatAdapter = {
       const cz = parseNumber(p[13], 'z')
       const ry = parseNumber(p[14], 'ry')
 
-      const pos = frame === 'lidar'
-        ? { x: cx, y: cy, z: cz }
-        : kittiCameraToLidar(cx, cy, cz)
-      const yaw = frame === 'lidar'
-        ? normalizeAngle(ry)
-        : kittiRyToYaw(ry, options?.flipYaw)
+      const pos = frame === 'lidar' ? { x: cx, y: cy, z: cz } : kittiCameraToLidar(cx, cy, cz)
+      const yaw = frame === 'lidar' ? normalizeAngle(ry) : kittiRyToYaw(ry, options?.flipYaw)
 
       boxes.push({
         id: String(++id),
@@ -90,26 +92,40 @@ export const kittiAdapter: FormatAdapter = {
     return {
       boxes,
       skipped,
-      convention: frame === 'camera'
-        ? 'KITTI 相机系 → LiDAR 自车系；ry → yaw = -ry-π/2（可 flipYaw 翻转）'
-        : 'KITTI 文本但 location 已在 LiDAR 系（frame=lidar）',
+      convention:
+        frame === 'camera'
+          ? 'KITTI 相机系 → LiDAR 自车系；ry → yaw = -ry-π/2（可 flipYaw 翻转）'
+          : 'KITTI 文本但 location 已在 LiDAR 系（frame=lidar）',
     }
   },
 
   serialize(boxes: Box3D[]) {
-    return boxes.map((b) => {
-      // 内部 → 相机系的逆变换：x_cam=-y, y_cam=-z, z_cam=x
-      const xCam = -b.position.y
-      const yCam = -b.position.z
-      const zCam = b.position.x
-      const ry = normalizeAngle(-b.yaw - Math.PI / 2)
-      return [
-        b.label, '0.00', '0', '-1.00',
-        '0', '0', '0', '0',
-        b.scale.z.toFixed(2), b.scale.y.toFixed(2), b.scale.x.toFixed(2),
-        xCam.toFixed(2), yCam.toFixed(2), zCam.toFixed(2), ry.toFixed(2),
-      ].join(' ')
-    }).join('\n')
+    return boxes
+      .map((b) => {
+        // 内部 → 相机系的逆变换：x_cam=-y, y_cam=-z, z_cam=x
+        const xCam = -b.position.y
+        const yCam = -b.position.z
+        const zCam = b.position.x
+        const ry = normalizeAngle(-b.yaw - Math.PI / 2)
+        return [
+          b.label,
+          '0.00',
+          '0',
+          '-1.00',
+          '0',
+          '0',
+          '0',
+          '0',
+          b.scale.z.toFixed(2),
+          b.scale.y.toFixed(2),
+          b.scale.x.toFixed(2),
+          xCam.toFixed(2),
+          yCam.toFixed(2),
+          zCam.toFixed(2),
+          ry.toFixed(2),
+        ].join(' ')
+      })
+      .join('\n')
   },
 }
 
@@ -129,9 +145,17 @@ interface DairObject {
 }
 
 const DAIR_NAMES = defaultNameMap({
-  Car: 'Car', Trunk: 'Truck', Truck: 'Truck', Van: 'Van', Bus: 'Bus',
-  Pedestrian: 'Pedestrian', Cyclist: 'Cyclist', Tricyclist: 'Cyclist',
-  Motorcyclist: 'Rider', Barrowlist: 'Other', TrafficCone: 'TrafficCone',
+  Car: 'Car',
+  Trunk: 'Truck',
+  Truck: 'Truck',
+  Van: 'Van',
+  Bus: 'Bus',
+  Pedestrian: 'Pedestrian',
+  Cyclist: 'Cyclist',
+  Tricyclist: 'Cyclist',
+  Motorcyclist: 'Rider',
+  Barrowlist: 'Other',
+  TrafficCone: 'TrafficCone',
 })
 
 function dairFields(o: DairObject) {
@@ -160,7 +184,11 @@ export const dairAdapter: FormatAdapter = {
     let arr: unknown = raw
     if (typeof raw === 'string') {
       if (!raw.trim().startsWith('[')) return 0
-      try { arr = JSON.parse(raw) } catch { return 0 }
+      try {
+        arr = JSON.parse(raw)
+      } catch {
+        return 0
+      }
     }
     if (!Array.isArray(arr) || !arr.length) return 0
     const first = arr[0] as DairObject
@@ -175,7 +203,11 @@ export const dairAdapter: FormatAdapter = {
   parse(raw: unknown, options?: ParseOptions): FormatParseResult {
     let arr: unknown = raw
     if (typeof raw === 'string') {
-      try { arr = JSON.parse(raw) } catch { throw new Error('DAIR-V2X 标注不是合法 JSON') }
+      try {
+        arr = JSON.parse(raw)
+      } catch {
+        throw new Error('DAIR-V2X 标注不是合法 JSON')
+      }
     }
     if (!Array.isArray(arr)) throw new Error('DAIR-V2X 标注应为对象数组')
     const boxes: Box3D[] = []
@@ -185,9 +217,18 @@ export const dairAdapter: FormatAdapter = {
     for (const item of arr as DairObject[]) {
       const f = dairFields(item)
       const label = mapName(item.type ?? '', DAIR_NAMES, options?.nameMap)
-      if (!label || label === '__skip__') { skippedAdd(skipped, `类别 ${item.type ?? '?'}`); continue }
-      if (f.h === undefined || f.w === undefined || f.l === undefined
-        || f.x === undefined || f.y === undefined || f.z === undefined) {
+      if (!label || label === '__skip__') {
+        skippedAdd(skipped, `类别 ${item.type ?? '?'}`)
+        continue
+      }
+      if (
+        f.h === undefined ||
+        f.w === undefined ||
+        f.l === undefined ||
+        f.x === undefined ||
+        f.y === undefined ||
+        f.z === undefined
+      ) {
         skippedAdd(skipped, '缺少 3D 框字段')
         continue
       }
@@ -215,15 +256,19 @@ export const dairAdapter: FormatAdapter = {
   },
 
   serialize(boxes: Box3D[]) {
-    return JSON.stringify(boxes.map((b, i) => ({
-      type: b.label,
-      truncated_state: 0,
-      occluded_state: b.visibility === 'occluded' ? 1 : 0,
-      alpha: 0,
-      '3d_dimensions': { h: b.scale.z, w: b.scale.y, l: b.scale.x },
-      '3d_location': { x: b.position.x, y: b.position.y, z: b.position.z },
-      rotation: normalizeAngle(b.yaw + Math.PI / 2),
-      obj_id: i + 1,
-    })), null, 2)
+    return JSON.stringify(
+      boxes.map((b, i) => ({
+        type: b.label,
+        truncated_state: 0,
+        occluded_state: b.visibility === 'occluded' ? 1 : 0,
+        alpha: 0,
+        '3d_dimensions': { h: b.scale.z, w: b.scale.y, l: b.scale.x },
+        '3d_location': { x: b.position.x, y: b.position.y, z: b.position.z },
+        rotation: normalizeAngle(b.yaw + Math.PI / 2),
+        obj_id: i + 1,
+      })),
+      null,
+      2,
+    )
   },
 }

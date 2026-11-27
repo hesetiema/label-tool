@@ -76,7 +76,9 @@ export function recordGcAudit(entry: GcAuditEntry, custom?: StorageLike | null):
   try {
     const prev = listGcAudit(ls)
     ls.setItem(GC_AUDIT_KEY, JSON.stringify(pushCapped(prev, entry, GC_AUDIT_LIMIT)))
-  } catch { /* 配额满/禁用：放弃这条审计 */ }
+  } catch {
+    /* 配额满/禁用：放弃这条审计 */
+  }
 }
 
 /** 最近的审计（新→旧） */
@@ -97,7 +99,11 @@ export function listGcAudit(custom?: StorageLike | null): GcAuditEntry[] {
 
 export function clearGcAudit(custom?: StorageLike | null): void {
   const ls = store(custom)
-  try { ls?.removeItem(GC_AUDIT_KEY) } catch { /* 忽略 */ }
+  try {
+    ls?.removeItem(GC_AUDIT_KEY)
+  } catch {
+    /* 忽略 */
+  }
 }
 
 export interface GcAuditSummary {

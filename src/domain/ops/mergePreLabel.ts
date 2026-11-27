@@ -291,11 +291,7 @@ function buildTrack(proposal: Proposal, id: TrackId, objects: ModelObject[]): Tr
  * 在已有轨迹里找与提案最匹配的一条。
  * 命中帧数优先，其次平均 IoU —— 只看单帧最高 IoU 会把"擦身而过的另一辆车"当成本目标。
  */
-function findCandidate(
-  proposal: Proposal,
-  index: Map<number, FrameEntry[]>,
-  policy: MergePolicy,
-): Candidate | null {
+function findCandidate(proposal: Proposal, index: Map<number, FrameEntry[]>, policy: MergePolicy): Candidate | null {
   const byTrack = new Map<TrackId, Candidate>()
   for (const obj of proposal.objects) {
     for (const entry of index.get(obj.frame) ?? []) {
@@ -434,7 +430,7 @@ export function buildMergeCommand(
     }
 
     if (policy.strategy === 'fill-gaps') {
-      const free = objects.filter((o) => !(index.get(o.frame)?.length))
+      const free = objects.filter((o) => !index.get(o.frame)?.length)
       result.skipped += objects.length - free.length
       createNew(effective, free)
       continue
@@ -483,7 +479,11 @@ function mergeByClassVote(
   result: MergeResult,
   nextId: () => TrackId,
 ): MergePlan {
-  interface Ballot { track: Track; votes: Map<ClassId, number>; manual: boolean }
+  interface Ballot {
+    track: Track
+    votes: Map<ClassId, number>
+    manual: boolean
+  }
   const ballots = new Map<TrackId, Ballot>()
 
   for (const proposal of proposals) {
@@ -546,9 +546,10 @@ function finish(children: CommandData[], result: MergeResult): MergePlan {
   result.frames = [...new Set(result.frames)].sort((a, b) => a - b)
   if (!children.length) return { command: null, result }
   const label = summarizeMerge(result)
-  const command = children.length === 1
-    ? makeCommand(children[0], { label })
-    : makeCommand({ type: 'batch', commands: children }, { label })
+  const command =
+    children.length === 1
+      ? makeCommand(children[0], { label })
+      : makeCommand({ type: 'batch', commands: children }, { label })
   return { command, result }
 }
 

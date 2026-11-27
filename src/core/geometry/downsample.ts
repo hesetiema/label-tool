@@ -39,14 +39,22 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
   const hasLabel = !!cloud.labels
   const hasInstance = !!cloud.instances
   // key 用整数三元组拼成字符串；值是格内所有点的累加，最后求平均作为代表点
-  const buckets = new Map<string, {
-    sx: number; sy: number; sz: number; sr: number; sg: number; sb: number
-    /** 格内各类别计数，代表点取多数票，避免平均出一个不存在的类别 */
-    labelVotes: Map<number, number>
-    /** 实例 id → 对应语义 id 的票数，用于选出与胜出语义一致的实例 */
-    instanceVotes: Map<number, Map<number, number>>
-    n: number
-  }>()
+  const buckets = new Map<
+    string,
+    {
+      sx: number
+      sy: number
+      sz: number
+      sr: number
+      sg: number
+      sb: number
+      /** 格内各类别计数，代表点取多数票，避免平均出一个不存在的类别 */
+      labelVotes: Map<number, number>
+      /** 实例 id → 对应语义 id 的票数，用于选出与胜出语义一致的实例 */
+      instanceVotes: Map<number, Map<number, number>>
+      n: number
+    }
+  >()
 
   for (let i = 0; i < cloud.count; i++) {
     const x = cloud.positions[i * 3]
@@ -58,7 +66,10 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
       b = { sx: 0, sy: 0, sz: 0, sr: 0, sg: 0, sb: 0, labelVotes: new Map(), instanceVotes: new Map(), n: 0 }
       buckets.set(key, b)
     }
-    b.sx += x; b.sy += y; b.sz += z; b.n++
+    b.sx += x
+    b.sy += y
+    b.sz += z
+    b.n++
     if (hasColor && cloud.colors) {
       b.sr += cloud.colors[i * 3]
       b.sg += cloud.colors[i * 3 + 1]
@@ -72,7 +83,10 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
       const inst = cloud.instances[i]
       const sem = cloud.labels[i]
       let bySem = b.instanceVotes.get(inst)
-      if (!bySem) { bySem = new Map(); b.instanceVotes.set(inst, bySem) }
+      if (!bySem) {
+        bySem = new Map()
+        b.instanceVotes.set(inst, bySem)
+      }
       bySem.set(sem, (bySem.get(sem) ?? 0) + 1)
     }
   }
@@ -93,18 +107,26 @@ export function voxelDownsample(cloud: PointCloud, voxelSize = 0.3): DownsampleR
       colors[j * 3 + 2] = b.sb / b.n
     }
     if (labels) {
-      let bestId = 0, bestVotes = -1
+      let bestId = 0,
+        bestVotes = -1
       for (const [id, votes] of b.labelVotes) {
-        if (votes > bestVotes) { bestVotes = votes; bestId = id }
+        if (votes > bestVotes) {
+          bestVotes = votes
+          bestId = id
+        }
       }
       labels[j] = bestId
       // 实例取票数最多的那个，但排除与胜出语义不一致的实例——
       // 否则一辆车的点可能挂上行人的实例 id，跨帧轨迹就串了。
       if (instances && b.instanceVotes.size) {
-        let bestInst = 0, bestInstVotes = -1
+        let bestInst = 0,
+          bestInstVotes = -1
         for (const [inst, bySem] of b.instanceVotes) {
           const votes = bySem.get(bestId) ?? 0
-          if (votes > bestInstVotes) { bestInstVotes = votes; bestInst = inst }
+          if (votes > bestInstVotes) {
+            bestInstVotes = votes
+            bestInst = inst
+          }
         }
         instances[j] = bestInstVotes > 0 ? bestInst : 0
       }

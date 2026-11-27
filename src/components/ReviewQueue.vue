@@ -15,10 +15,30 @@ import type { MergeStrategy } from '../domain/ops/mergePreLabel'
 
 const studio = inject(StudioKey)!
 const {
-  reviewOpen, reviewRows, reviewStats, selectedTrackId, policy, running, progress, lastModel, lastError,
-  closeReview, refresh, selectRow, nextPending, firstPending,
-  acceptSelected, rejectSelected, acceptAll, rejectAll, decideRow, acceptInFrame,
-  runMock, setStrategy, setMinConfidence, strategyLabel,
+  reviewOpen,
+  reviewRows,
+  reviewStats,
+  selectedTrackId,
+  policy,
+  running,
+  progress,
+  lastModel,
+  lastError,
+  closeReview,
+  refresh,
+  selectRow,
+  nextPending,
+  firstPending,
+  acceptSelected,
+  rejectSelected,
+  acceptAll,
+  rejectAll,
+  decideRow,
+  acceptInFrame,
+  runMock,
+  setStrategy,
+  setMinConfidence,
+  strategyLabel,
 } = studio
 
 const strategies: MergeStrategy[] = ['append', 'fill-gaps', 'replace-track', 'class-vote']
@@ -64,14 +84,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <div class="rv-policy">
           <label>
             合并策略
-            <select :value="policy.strategy" @change="setStrategy(($event.target as HTMLSelectElement).value as MergeStrategy)">
+            <select
+              :value="policy.strategy"
+              @change="setStrategy(($event.target as HTMLSelectElement).value as MergeStrategy)"
+            >
               <option v-for="s in strategies" :key="s" :value="s">{{ strategyLabel(s) }}</option>
             </select>
           </label>
           <label>
             置信度下限
             <input
-              type="number" min="0" max="0.99" step="0.05"
+              type="number"
+              min="0"
+              max="0.99"
+              step="0.05"
               :value="policy.minConfidence"
               @change="setMinConfidence(Number(($event.target as HTMLInputElement).value))"
             />
@@ -80,8 +106,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         </div>
 
         <p v-if="!reviewRows.length" class="lib-empty">
-          没有待裁决的模型产出。先跑一次预标注：菜单 → 预标注 → 演示模型，
-          或导入离线结果 JSON。
+          没有待裁决的模型产出。先跑一次预标注：菜单 → 预标注 → 演示模型， 或导入离线结果 JSON。
         </p>
 
         <ul v-else class="rv-list">

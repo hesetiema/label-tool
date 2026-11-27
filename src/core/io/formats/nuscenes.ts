@@ -21,13 +21,22 @@ import { quaternionToYaw } from './conventions'
 import type { FormatAdapter, FormatParseResult, ParseOptions, SkippedInfo } from './types'
 
 const NUS_NAMES = defaultNameMap({
-  'vehicle.car': 'Car', 'vehicle.truck': 'Truck', 'vehicle.bus.rigid': 'Bus',
-  'vehicle.bus.bendy': 'Bus', 'vehicle.van': 'Van', 'vehicle.construction': 'Truck',
-  'vehicle.trailer': 'Truck', 'human.pedestrian.adult': 'Pedestrian',
-  'human.pedestrian.child': 'Pedestrian', 'human.pedestrian.construction_worker': 'Pedestrian',
-  'human.pedestrian.police_officer': 'Pedestrian', 'human.pedestrian.stroller': 'Other',
-  'vehicle.bicycle': 'Cyclist', 'vehicle.motorcycle': 'Rider',
-  'movable_object.trafficcone': 'TrafficCone', 'static_object.bicycle_rack': 'Other',
+  'vehicle.car': 'Car',
+  'vehicle.truck': 'Truck',
+  'vehicle.bus.rigid': 'Bus',
+  'vehicle.bus.bendy': 'Bus',
+  'vehicle.van': 'Van',
+  'vehicle.construction': 'Truck',
+  'vehicle.trailer': 'Truck',
+  'human.pedestrian.adult': 'Pedestrian',
+  'human.pedestrian.child': 'Pedestrian',
+  'human.pedestrian.construction_worker': 'Pedestrian',
+  'human.pedestrian.police_officer': 'Pedestrian',
+  'human.pedestrian.stroller': 'Other',
+  'vehicle.bicycle': 'Cyclist',
+  'vehicle.motorcycle': 'Rider',
+  'movable_object.trafficcone': 'TrafficCone',
+  'static_object.bicycle_rack': 'Other',
 })
 
 interface NusAnn {
@@ -63,9 +72,13 @@ function toArray(raw: unknown): NusAnn[] | null {
 }
 
 function looksLikeNus(a: NusAnn): boolean {
-  return Array.isArray(a?.translation) && a.translation.length >= 3
-    && Array.isArray(a?.size) && a.size.length >= 3
-    && (Array.isArray(a?.rotation) || !!a?.category_name || !!a?.instance_token)
+  return (
+    Array.isArray(a?.translation) &&
+    a.translation.length >= 3 &&
+    Array.isArray(a?.size) &&
+    a.size.length >= 3 &&
+    (Array.isArray(a?.rotation) || !!a?.category_name || !!a?.instance_token)
+  )
 }
 
 export const nuscenesAdapter: FormatAdapter = {
@@ -76,7 +89,11 @@ export const nuscenesAdapter: FormatAdapter = {
     let data: unknown = raw
     if (typeof raw === 'string') {
       if (!/^\[|^\{/.test(raw.trim())) return 0
-      try { data = JSON.parse(raw) } catch { return 0 }
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        return 0
+      }
     }
     const arr = toArray(data)
     if (arr && arr.length) return looksLikeNus(arr[0]) ? 1 : 0
@@ -90,7 +107,11 @@ export const nuscenesAdapter: FormatAdapter = {
   parse(raw: unknown, options?: ParseOptions): FormatParseResult {
     let data: unknown = raw
     if (typeof raw === 'string') {
-      try { data = JSON.parse(raw) } catch { throw new Error('nuScenes 标注不是合法 JSON') }
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        throw new Error('nuScenes 标注不是合法 JSON')
+      }
     }
     const anns = toArray(data)
     if (!anns) throw new Error('nuScenes 标注应是 sample_annotation 数组或含 annotations 的对象')
@@ -116,12 +137,16 @@ export const nuscenesAdapter: FormatAdapter = {
         skippedAdd(skipped, '缺少 translation/size/rotation')
         continue
       }
-      const rawName = a.category_name
-        ?? (a.instance_token ? instToCat.get(a.instance_token) : undefined)
-        ?? (a.category_token ? catByToken.get(a.category_token) : undefined)
-        ?? 'Car'
+      const rawName =
+        a.category_name ??
+        (a.instance_token ? instToCat.get(a.instance_token) : undefined) ??
+        (a.category_token ? catByToken.get(a.category_token) : undefined) ??
+        'Car'
       const label = mapName(rawName, NUS_NAMES, options?.nameMap)
-      if (!label || label === '__skip__') { skippedAdd(skipped, `类别 ${rawName}`); continue }
+      if (!label || label === '__skip__') {
+        skippedAdd(skipped, `类别 ${rawName}`)
+        continue
+      }
 
       const [w, l, h] = a.size.map((v) => parseNumber(v, 'size'))
       const [x, y, z] = a.translation.map((v) => parseNumber(v, 'translation'))

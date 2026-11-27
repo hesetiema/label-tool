@@ -22,9 +22,21 @@ import { validateVla, vlaIssueCounts, type VlaCheckOptions } from '../domain/vla
 import { generateVlaDemo, type VlaDemoError } from '../domain/vla/demo'
 import { parseVlaJsonl, recordToTask, vlaToJsonLine } from '../domain/io/vlaJsonl'
 import {
-  acceptAllInstructions, addInstruction, alignmentOffset, buildClearVlaCommand, buildCreateVlaCommand,
-  buildVlaEditCommand, instructionAt, removeInstruction, resetAlignment, setInstructionReview,
-  withAlignment, withHz, withInstructionRange, withInstructionText, withSignRule,
+  acceptAllInstructions,
+  addInstruction,
+  alignmentOffset,
+  buildClearVlaCommand,
+  buildCreateVlaCommand,
+  buildVlaEditCommand,
+  instructionAt,
+  removeInstruction,
+  resetAlignment,
+  setInstructionReview,
+  withAlignment,
+  withHz,
+  withInstructionRange,
+  withInstructionText,
+  withSignRule,
 } from '../domain/ops/vlaEdit'
 import { sortIssues } from '../domain/model/issue'
 
@@ -69,7 +81,7 @@ export function useVla(core: StudioCore, deps: VlaDeps) {
   /** 当前帧所在指令（时间线与面板高亮共用） */
   const currentInstruction = computed(() => {
     void core.currentFrame.value
-    return vla.value ? instructionAt(vla.value, core.frameNumber()) ?? null : null
+    return vla.value ? (instructionAt(vla.value, core.frameNumber()) ?? null) : null
   })
 
   /* ---------------- 校验 ---------------- */
@@ -83,7 +95,9 @@ export function useVla(core: StudioCore, deps: VlaDeps) {
   })
 
   const vlaIssueGroups = computed(() => vlaIssueCounts(vlaIssues.value))
-  const vlaBlockers = computed(() => vlaIssues.value.filter((i) => i.severity === 'blocker' || i.severity === 'error').length)
+  const vlaBlockers = computed(
+    () => vlaIssues.value.filter((i) => i.severity === 'blocker' || i.severity === 'error').length,
+  )
 
   /** 覆盖率：被指令覆盖的帧数 / 样本帧数。与规则里的"空档"是同一件事的正面表述 */
   const coverage = computed(() => {
@@ -180,7 +194,10 @@ export function useVla(core: StudioCore, deps: VlaDeps) {
     if (!cur || !seg || !delta) return
     const link = alignmentOffset(cur, seg)
     const base = seg.startFrame + link
-    commit(withAlignment(cur, id, [base + delta, base + delta + (seg.endFrame - seg.startFrame)]), `对齐偏移 ${delta > 0 ? '+' : ''}${delta} 帧`)
+    commit(
+      withAlignment(cur, id, [base + delta, base + delta + (seg.endFrame - seg.startFrame)]),
+      `对齐偏移 ${delta > 0 ? '+' : ''}${delta} 帧`,
+    )
   }
 
   function setHz(hz: number): void {
@@ -216,14 +233,22 @@ export function useVla(core: StudioCore, deps: VlaDeps) {
       const payload = generateVlaDemo({ range: doc.range, hz: 10, errors: demoErrors.value })
       const before = vla.value
       if (before) {
-        deps.applyEdit(buildVlaEditCommand(before, payload, { label: demoErrors.value.length ? '生成 VLA 演示（含注入错误）' : '生成 VLA 演示' }))
+        deps.applyEdit(
+          buildVlaEditCommand(before, payload, {
+            label: demoErrors.value.length ? '生成 VLA 演示（含注入错误）' : '生成 VLA 演示',
+          }),
+        )
       } else {
         deps.applyEdit(buildCreateVlaCommand(payload, { label: '生成 VLA 演示' }))
       }
       vlaSelectedId.value = payload.instructions[0]?.id ?? null
       showVlaTimeline.value = true
-      deps.say(`已生成 ${payload.instructions.length} 条指令 / ${payload.channels.length} 通道`
-        + (demoErrors.value.length ? `（注入 ${demoErrors.value.length} 类错误，用于演示校验）` : '（干净数据，应为 0 问题）'))
+      deps.say(
+        `已生成 ${payload.instructions.length} 条指令 / ${payload.channels.length} 通道` +
+          (demoErrors.value.length
+            ? `（注入 ${demoErrors.value.length} 类错误，用于演示校验）`
+            : '（干净数据，应为 0 问题）'),
+      )
     } finally {
       vlaBusy.value = ''
     }
@@ -344,13 +369,45 @@ export function useVla(core: StudioCore, deps: VlaDeps) {
   })
 
   return {
-    vla, vlaSelectedId, showVlaTimeline, vlaBusy, channelOff, checkOptions, demoErrors,
-    channels, instructions, selected, currentInstruction,
-    vlaIssues, vlaIssueGroups, vlaBlockers, coverage, pendingCount, taskSummary, alignInfo, lastImport,
-    editRange, editText, addAtGap, addAtFrame, removeSelected, setReview, acceptAll,
-    resetAlign, shiftAlign, setHz, setSign, toggleChannel, channelVisible,
-    loadDemo, toggleDemoError, importJsonl, exportJsonl, clearVla,
-    gotoInstruction, selectAtCurrentFrame,
+    vla,
+    vlaSelectedId,
+    showVlaTimeline,
+    vlaBusy,
+    channelOff,
+    checkOptions,
+    demoErrors,
+    channels,
+    instructions,
+    selected,
+    currentInstruction,
+    vlaIssues,
+    vlaIssueGroups,
+    vlaBlockers,
+    coverage,
+    pendingCount,
+    taskSummary,
+    alignInfo,
+    lastImport,
+    editRange,
+    editText,
+    addAtGap,
+    addAtFrame,
+    removeSelected,
+    setReview,
+    acceptAll,
+    resetAlign,
+    shiftAlign,
+    setHz,
+    setSign,
+    toggleChannel,
+    channelVisible,
+    loadDemo,
+    toggleDemoError,
+    importJsonl,
+    exportJsonl,
+    clearVla,
+    gotoInstruction,
+    selectAtCurrentFrame,
   }
 }
 

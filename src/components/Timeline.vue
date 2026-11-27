@@ -24,11 +24,32 @@ import { normalize01 } from '../domain/vla/resample'
 
 const studio = inject(StudioKey)!
 const {
-  frames, store, doc, docVersion, selectedIds, selectedId,
-  selectBox, toggleSelectBox, gotoFrameIndex, frameNumber,
-  addKeyframeAt, splitSelectedAt, mergeSelectedTracks, doInterpolate,
-  setTrackLifecycle, deleteSelected, toggleHidden, toggleLocked, isLocked,
-  vla, instructions, vlaSelectedId, showVlaTimeline, editRange, gotoInstruction, channelVisible,
+  frames,
+  store,
+  doc,
+  docVersion,
+  selectedIds,
+  selectedId,
+  selectBox,
+  toggleSelectBox,
+  gotoFrameIndex,
+  frameNumber,
+  addKeyframeAt,
+  splitSelectedAt,
+  mergeSelectedTracks,
+  doInterpolate,
+  setTrackLifecycle,
+  deleteSelected,
+  toggleHidden,
+  toggleLocked,
+  isLocked,
+  vla,
+  instructions,
+  vlaSelectedId,
+  showVlaTimeline,
+  editRange,
+  gotoInstruction,
+  channelVisible,
 } = studio
 
 const open = defineModel<boolean>('open', { default: true })
@@ -387,13 +408,15 @@ function drawChannels() {
   ctx.stroke()
 }
 
+watch([() => vla.value, () => frameNo.value, () => vlaVisible.value, () => range.value], () => drawChannels(), {
+  flush: 'post',
+})
+// 通道开关是 Record，深监听代价可以忽略（最多 6 个键）
 watch(
-  [() => vla.value, () => frameNo.value, () => vlaVisible.value, () => range.value],
+  () => JSON.stringify(vla.value?.channels.map((c) => channelVisible(c.name))),
   () => drawChannels(),
   { flush: 'post' },
 )
-// 通道开关是 Record，深监听代价可以忽略（最多 6 个键）
-watch(() => JSON.stringify(vla.value?.channels.map((c) => channelVisible(c.name))), () => drawChannels(), { flush: 'post' })
 
 onMounted(() => {
   if (canvasRef.value?.parentElement) {
@@ -406,7 +429,6 @@ onBeforeUnmount(() => {
   resizeObs?.disconnect()
   resizeObs = null
 })
-
 </script>
 
 <template>
@@ -425,12 +447,15 @@ onBeforeUnmount(() => {
         <button class="tl-btn" :disabled="!selectedId" title="把选中轨迹在指针所在帧拆成两条" @click="onSplit">
           拆分
         </button>
-        <button class="tl-btn" :disabled="selectedIds.size < 2" title="Ctrl 多选后合并（第一条保留 id）" @click="mergeSelectedTracks">
+        <button
+          class="tl-btn"
+          :disabled="selectedIds.size < 2"
+          title="Ctrl 多选后合并（第一条保留 id）"
+          @click="mergeSelectedTracks"
+        >
           合并{{ selectedIds.size > 1 ? ` ${selectedIds.size}` : '' }}
         </button>
-        <button class="tl-btn" title="按运动模型补全所有轨迹的中间帧（可撤销）" @click="doInterpolate">
-          插值补全
-        </button>
+        <button class="tl-btn" title="按运动模型补全所有轨迹的中间帧（可撤销）" @click="doInterpolate">插值补全</button>
       </template>
     </header>
 
@@ -464,13 +489,12 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="tl-grid">
-        <div
-          v-for="row in visibleRows"
-          :key="row.id"
-          class="tl-row"
-          :class="{ on: row.selected }"
-        >
-          <button class="tl-name" :title="`${row.label} #${row.id} · ${row.keyframes.length} 个关键帧`" @click="onRowClick($event, row)">
+        <div v-for="row in visibleRows" :key="row.id" class="tl-row" :class="{ on: row.selected }">
+          <button
+            class="tl-name"
+            :title="`${row.label} #${row.id} · ${row.keyframes.length} 个关键帧`"
+            @click="onRowClick($event, row)"
+          >
             <span class="tl-dot" />
             <span class="tl-label">{{ row.label }}</span>
             <span class="tl-id">#{{ row.id }}</span>
@@ -503,12 +527,7 @@ onBeforeUnmount(() => {
               @pointerdown="startDrag($event, row, 'last')"
               @click.stop
             />
-            <i
-              v-for="t in row.ticks"
-              :key="t"
-              class="tl-kf"
-              :style="{ left: t + '%' }"
-            />
+            <i v-for="t in row.ticks" :key="t" class="tl-kf" :style="{ left: t + '%' }" />
             <span v-if="row.selected" class="tl-now" :style="{ left: currentPct + '%' }" />
           </div>
         </div>
@@ -520,15 +539,29 @@ onBeforeUnmount(() => {
       <div class="tl-menu-mask" @click="closeMenu" @contextmenu.prevent="closeMenu" />
       <div class="tl-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }">
         <div class="tl-menu-title">{{ menu.row.label }} #{{ menu.row.id }}</div>
-        <button @click="runMenu(() => addKeyframeAt(menu!.row.id, menu!.frame))">在第 {{ menu.frame }} 帧补关键帧</button>
+        <button @click="runMenu(() => addKeyframeAt(menu!.row.id, menu!.frame))">
+          在第 {{ menu.frame }} 帧补关键帧
+        </button>
         <button @click="runMenu(() => splitSelectedAt(menu!.frame))">在第 {{ menu.frame }} 帧拆分</button>
         <div class="tl-menu-sep" />
         <button @click="runMenu(() => trimTo(menu!.frame, 'first'))">起点设为第 {{ menu.frame }} 帧</button>
         <button @click="runMenu(() => trimTo(menu!.frame, 'last'))">终点设为第 {{ menu.frame }} 帧</button>
         <div class="tl-menu-sep" />
-        <button @click="runMenu(() => toggleLocked(menu!.row.id))">{{ isLocked(menu.row.id) ? '解锁' : '锁定' }}轨迹</button>
+        <button @click="runMenu(() => toggleLocked(menu!.row.id))">
+          {{ isLocked(menu.row.id) ? '解锁' : '锁定' }}轨迹
+        </button>
         <button @click="runMenu(() => toggleHidden(menu!.row.id))">隐藏/显示轨迹</button>
-        <button class="danger" @click="runMenu(() => { selectBox(menu!.row.id); deleteSelected() })">删除轨迹</button>
+        <button
+          class="danger"
+          @click="
+            runMenu(() => {
+              selectBox(menu!.row.id)
+              deleteSelected()
+            })
+          "
+        >
+          删除轨迹
+        </button>
       </div>
     </template>
 
@@ -548,176 +581,374 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
 }
-.timeline.closed { background: var(--panel-2); }
+.timeline.closed {
+  background: var(--panel-2);
+}
 
 .tl-head {
-  height: 30px; flex: 0 0 30px;
-  display: flex; align-items: center; gap: 8px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
 }
-.timeline.closed .tl-head { border-bottom: none; }
+.timeline.closed .tl-head {
+  border-bottom: none;
+}
 .tl-toggle {
-  width: 18px; height: 18px; padding: 0; line-height: 1;
-  background: transparent; color: var(--muted); border: none; font-size: 11px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  line-height: 1;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  font-size: 11px;
 }
-.tl-toggle:hover { color: var(--text); }
-.tl-title { font-size: 11px; font-weight: 600; letter-spacing: .2px; }
-.tl-meta { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.tl-spacer { flex: 1; }
+.tl-toggle:hover {
+  color: var(--text);
+}
+.tl-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.tl-meta {
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tl-spacer {
+  flex: 1;
+}
 .tl-btn {
-  height: 20px; padding: 0 7px; font-size: 10px;
-  background: var(--panel-2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 4px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
-.tl-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.tl-btn:disabled { opacity: .4; cursor: not-allowed; }
+.tl-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tl-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
-.tl-body { max-height: 132px; overflow-y: auto; padding: 4px 0; }
+.tl-body {
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
 /* VLA 两行是额外高度，展开时把可视区一起加高，否则轨迹被挤到只剩两三行 */
-.tl-body.has-vla { max-height: 224px; }
-.tl-grid { display: flex; flex-direction: column; gap: 1px; }
+.tl-body.has-vla {
+  max-height: 224px;
+}
+.tl-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
 
 /* ---------------- VLA：指令条 + 动作曲线 ---------------- */
 .tl-vla {
-  display: flex; flex-direction: column; gap: 2px;
-  padding-bottom: 4px; margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
-.tl-vla-row { display: flex; align-items: center; height: 18px; }
-.tl-vla-row:last-child { height: 46px; }
+.tl-vla-row {
+  display: flex;
+  align-items: center;
+  height: 18px;
+}
+.tl-vla-row:last-child {
+  height: 46px;
+}
 .tl-vla-name {
-  flex: 0 0 138px; width: 138px; padding: 0 6px;
-  font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden;
+  flex: 0 0 138px;
+  width: 138px;
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
 }
 .tl-vla-bar {
-  position: relative; flex: 1 1 0; min-width: 0; height: 14px; margin-right: 8px;
-  background: rgba(255, 255, 255, .04); border-radius: 2px;
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 14px;
+  margin-right: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 2px;
 }
 .tl-ins {
-  position: absolute; top: 1px; height: 12px;
-  display: flex; align-items: center;
-  background: rgba(255, 202, 40, .18);
-  border: 1px solid rgba(255, 202, 40, .45);
-  border-radius: 2px; cursor: pointer; overflow: hidden;
+  position: absolute;
+  top: 1px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  background: rgba(255, 202, 40, 0.18);
+  border: 1px solid rgba(255, 202, 40, 0.45);
+  border-radius: 2px;
+  cursor: pointer;
+  overflow: hidden;
   touch-action: none;
 }
-.tl-ins.on { background: rgba(255, 202, 40, .38); border-color: #ffca28; }
+.tl-ins.on {
+  background: rgba(255, 202, 40, 0.38);
+  border-color: #ffca28;
+}
 /* 待确认用虚线：与框的复核标记同一套语义，不给它新颜色 */
-.tl-ins.pending { border-style: dashed; }
+.tl-ins.pending {
+  border-style: dashed;
+}
 .tl-ins-t {
-  font-size: 8.5px; line-height: 1; color: #ffd66b;
-  padding: 0 6px; white-space: nowrap; overflow: hidden;
+  font-size: 8.5px;
+  line-height: 1;
+  color: #ffd66b;
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
   pointer-events: none;
 }
 .tl-ins-h {
-  position: absolute; top: -1px; width: 4px; height: 14px;
-  background: rgba(255, 202, 40, .7); cursor: ew-resize; z-index: 2;
+  position: absolute;
+  top: -1px;
+  width: 4px;
+  height: 14px;
+  background: rgba(255, 202, 40, 0.7);
+  cursor: ew-resize;
+  z-index: 2;
 }
-.tl-ins-h:nth-of-type(1) { left: 0; }
-.tl-ins-h:nth-of-type(2) { right: 0; }
-.tl-ins-h:hover { background: #ffca28; }
+.tl-ins-h:nth-of-type(1) {
+  left: 0;
+}
+.tl-ins-h:nth-of-type(2) {
+  right: 0;
+}
+.tl-ins-h:hover {
+  background: #ffca28;
+}
 /* width:100% 会和 flex:1 打架：画布会按整行宽度算，比轨迹条多出名称列的 138px，
    结果曲线与轨迹条错位 138px。这里只留 flex 与 min-width:0 */
-.tl-vla-canvas { flex: 1 1 0; min-width: 0; height: 46px; margin-right: 8px; display: block; }
+.tl-vla-canvas {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 46px;
+  margin-right: 8px;
+  display: block;
+}
 
-.tl-row { display: flex; align-items: center; height: 18px; }
-.tl-row.on { background: rgba(79, 195, 247, .08); }
+.tl-row {
+  display: flex;
+  align-items: center;
+  height: 18px;
+}
+.tl-row.on {
+  background: rgba(79, 195, 247, 0.08);
+}
 
 .tl-name {
-  flex: 0 0 138px; width: 138px;
-  display: flex; align-items: center; gap: 4px;
-  padding: 0 6px; background: transparent; border: none;
-  color: var(--muted); font-size: 10px; text-align: left;
-  overflow: hidden; white-space: nowrap;
+  flex: 0 0 138px;
+  width: 138px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
 }
-.tl-name:hover { color: var(--text); }
-.tl-row.on .tl-name { color: var(--accent); }
-.tl-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: 0 0 5px; }
-.tl-label { overflow: hidden; text-overflow: ellipsis; }
-.tl-id { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-name:hover {
+  color: var(--text);
+}
+.tl-row.on .tl-name {
+  color: var(--accent);
+}
+.tl-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 5px;
+}
+.tl-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-id {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 .tl-bar {
-  position: relative; flex: 1; height: 12px; margin-right: 8px;
-  background: rgba(255, 255, 255, .04);
-  border-radius: 2px; cursor: crosshair;
+  position: relative;
+  flex: 1;
+  height: 12px;
+  margin-right: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 2px;
+  cursor: crosshair;
 }
-.tl-bar:hover { background: rgba(255, 255, 255, .07); }
+.tl-bar:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
 
 .tl-span {
-  position: absolute; top: 3px; height: 6px;
-  background: rgba(79, 195, 247, .22);
-  border: 1px solid rgba(79, 195, 247, .45);
+  position: absolute;
+  top: 3px;
+  height: 6px;
+  background: rgba(79, 195, 247, 0.22);
+  border: 1px solid rgba(79, 195, 247, 0.45);
   border-radius: 2px;
 }
-.tl-row.on .tl-span { background: rgba(79, 195, 247, .35); border-color: var(--accent); }
+.tl-row.on .tl-span {
+  background: rgba(79, 195, 247, 0.35);
+  border-color: var(--accent);
+}
 
 .tl-handle {
-  position: absolute; top: -1px; width: 5px; height: 14px;
+  position: absolute;
+  top: -1px;
+  width: 5px;
+  height: 14px;
   /* 关键帧刻度是后画的，正好盖住两端的把手（末帧刻度就在 100% 处）。
      给把手更高层级，否则"最后一帧那根刻度"会把拖拽点击吃掉 */
   z-index: 2;
   margin-left: -2px;
-  background: rgba(79, 195, 247, .55);
+  background: rgba(79, 195, 247, 0.55);
   border-radius: 2px;
   cursor: ew-resize;
   touch-action: none;
 }
-.tl-handle:hover { background: var(--accent); }
-.tl-row.on .tl-handle { background: var(--accent); }
-
-.tl-kf {
-  position: absolute; top: 1px; z-index: 1; width: 1px; height: 10px;
-  background: rgba(79, 195, 247, .9);
+.tl-handle:hover {
+  background: var(--accent);
 }
 .tl-row.on .tl-handle {
-  position: absolute; top: -1px; width: 5px; height: 14px;
+  background: var(--accent);
+}
+
+.tl-kf {
+  position: absolute;
+  top: 1px;
+  z-index: 1;
+  width: 1px;
+  height: 10px;
+  background: rgba(79, 195, 247, 0.9);
+}
+.tl-row.on .tl-handle {
+  position: absolute;
+  top: -1px;
+  width: 5px;
+  height: 14px;
   /* 关键帧刻度是后画的，正好盖住两端的把手（末帧刻度就在 100% 处）。
      给把手更高层级，否则"最后一帧那根刻度"会把拖拽点击吃掉 */
   z-index: 2;
   margin-left: -2px;
-  background: rgba(79, 195, 247, .55);
+  background: rgba(79, 195, 247, 0.55);
   border-radius: 2px;
   cursor: ew-resize;
   touch-action: none;
 }
-.tl-handle:hover { background: var(--accent); }
-.tl-row.on .tl-handle { background: var(--accent); }
+.tl-handle:hover {
+  background: var(--accent);
+}
+.tl-row.on .tl-handle {
+  background: var(--accent);
+}
 
-.tl-kf { background: var(--accent); }
+.tl-kf {
+  background: var(--accent);
+}
 
 .tl-now {
-  position: absolute; top: -2px; width: 1px; height: 16px;
+  position: absolute;
+  top: -2px;
+  width: 1px;
+  height: 16px;
   background: #ffca28;
-  box-shadow: 0 0 4px rgba(255, 202, 40, .6);
+  box-shadow: 0 0 4px rgba(255, 202, 40, 0.6);
 }
 
-.tl-more { padding: 2px 8px; font-size: 10px; color: var(--muted); }
+.tl-more {
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
 
 .tl-axis {
-  height: 18px; flex: 0 0 18px;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 8px; font-size: 9px; color: var(--muted);
-  border-top: 1px solid var(--border); font-variant-numeric: tabular-nums;
+  height: 18px;
+  flex: 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: 9px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
 }
-.tl-axis-hint { opacity: .7; }
+.tl-axis-hint {
+  opacity: 0.7;
+}
 
-.tl-menu-mask { position: fixed; inset: 0; z-index: 40; }
+.tl-menu-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
 .tl-menu {
-  position: fixed; z-index: 41; min-width: 176px;
-  padding: 4px; display: flex; flex-direction: column;
-  background: var(--panel); border: 1px solid var(--border);
-  border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  position: fixed;
+  z-index: 41;
+  min-width: 176px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 .tl-menu-title {
-  padding: 4px 8px; font-size: 10px; color: var(--muted);
-  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
 }
 .tl-menu button {
-  padding: 5px 8px; text-align: left; font-size: 11px;
-  background: transparent; color: var(--text); border: none; border-radius: 4px;
+  padding: 5px 8px;
+  text-align: left;
+  font-size: 11px;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  border-radius: 4px;
 }
-.tl-menu button:hover { background: var(--panel-2); color: var(--accent); }
-.tl-menu button.danger:hover { color: #ef5350; }
-.tl-menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+.tl-menu button:hover {
+  background: var(--panel-2);
+  color: var(--accent);
+}
+.tl-menu button.danger:hover {
+  color: #ef5350;
+}
+.tl-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 2px;
+}
 </style>

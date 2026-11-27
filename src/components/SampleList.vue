@@ -14,8 +14,20 @@ import { StudioKey } from '../state/studioContext'
 
 const studio = inject(StudioKey)!
 const {
-  open, rows, loading, error, usage, pendingId, busyId,
-  summary, closeList, refresh, requestRemove, cancelRemove, confirmRemove, formatBytes,
+  open,
+  rows,
+  loading,
+  error,
+  usage,
+  pendingId,
+  busyId,
+  summary,
+  closeList,
+  refresh,
+  requestRemove,
+  cancelRemove,
+  confirmRemove,
+  formatBytes,
 } = studio
 
 /** Esc 关闭：只在弹层打开时抢键，避免影响画布快捷键 */
@@ -34,7 +46,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
   <div v-if="open" class="modal-mask" @click.self="closeList">
     <div class="modal lib-modal">
       <header class="modal-head">
-        <h3>本地样本<span class="lib-count">{{ summary().total }}</span></h3>
+        <h3>
+          本地样本<span class="lib-count">{{ summary().total }}</span>
+        </h3>
         <div class="lib-head-right">
           <span v-if="usage && usage.quota" class="lib-usage" title="浏览器为本站分配的配额">
             {{ formatBytes(usage.used) }} / {{ formatBytes(usage.quota) }}
@@ -48,9 +62,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
       <div class="lib-body">
         <p v-if="error" class="lib-error">{{ error }}</p>
         <p v-if="loading && !rows.length" class="lib-empty">读取中…</p>
-        <p v-else-if="!rows.length" class="lib-empty">
-          本地还没有保存过样本。编辑并等待自动保存后，这里会出现一行。
-        </p>
+        <p v-else-if="!rows.length" class="lib-empty">本地还没有保存过样本。编辑并等待自动保存后，这里会出现一行。</p>
 
         <ul v-else class="lib-list">
           <li
@@ -86,7 +98,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
                 :disabled="r.isCurrent || busyId === r.sampleId"
                 :title="r.isCurrent ? '当前正在编辑的样本不能在这里删' : '删除这份文档（标注会一起删掉）'"
                 @click="requestRemove(r)"
-              >{{ busyId === r.sampleId ? '删除中…' : '删除' }}</button>
+              >
+                {{ busyId === r.sampleId ? '删除中…' : '删除' }}
+              </button>
             </div>
           </li>
         </ul>

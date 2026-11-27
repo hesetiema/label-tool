@@ -17,7 +17,11 @@ import { studioStore } from '../adapters/studioStore'
 import { formatBytes } from '../adapters/studioGc'
 import { clearDraftPointer, loadDraftPointer } from '../core/io/session'
 import {
-  decorateLibrary, judgeRemove, librarySummary, type LibraryEntry, type LibraryRow,
+  decorateLibrary,
+  judgeRemove,
+  librarySummary,
+  type LibraryEntry,
+  type LibraryRow,
 } from '../domain/store/library'
 
 export interface LibraryDeps {
@@ -69,10 +73,7 @@ export function useLibrary(deps: LibraryDeps) {
     loading.value = true
     error.value = ''
     try {
-      const [list, est] = await Promise.all([
-        store.documents.listSamples(),
-        store.blobs.usage().catch(() => null),
-      ])
+      const [list, est] = await Promise.all([store.documents.listSamples(), store.blobs.usage().catch(() => null)])
       rows.value = decorateLibrary(list as LibraryEntry[], {
         now: Date.now(),
         currentSampleId: deps.currentSampleId(),
@@ -118,7 +119,9 @@ export function useLibrary(deps: LibraryDeps) {
     error.value = ''
     pendingId.value = row.sampleId
     if (confirmTimer) window.clearTimeout(confirmTimer)
-    confirmTimer = window.setTimeout(() => { pendingId.value = '' }, CONFIRM_TTL)
+    confirmTimer = window.setTimeout(() => {
+      pendingId.value = ''
+    }, CONFIRM_TTL)
     return true
   }
 
@@ -166,7 +169,9 @@ export function useLibrary(deps: LibraryDeps) {
         const pointer = await loadDraftPointer()
         pointerHit = !!pointer && pointer.sampleId === sampleId
         if (pointerHit) await clearDraftPointer()
-      } catch { /* 指针读不到不影响删除本身 */ }
+      } catch {
+        /* 指针读不到不影响删除本身 */
+      }
 
       let note = ''
       try {
@@ -178,8 +183,8 @@ export function useLibrary(deps: LibraryDeps) {
       rows.value = rows.value.filter((r) => r.sampleId !== sampleId)
       clearPending()
       deps.say(
-        `已删除样本 ${sampleId}${pointerHit ? '（草稿指针已解除）' : ''}`
-        + (note ? `，${note}` : '，相关缓存会在下次清扫时释放'),
+        `已删除样本 ${sampleId}${pointerHit ? '（草稿指针已解除）' : ''}` +
+          (note ? `，${note}` : '，相关缓存会在下次清扫时释放'),
       )
       await refresh()
       return true
@@ -192,10 +197,20 @@ export function useLibrary(deps: LibraryDeps) {
   }
 
   return {
-    open, rows, loading, error, usage, pendingId, busyId,
+    open,
+    rows,
+    loading,
+    error,
+    usage,
+    pendingId,
+    busyId,
     summary,
-    openList, closeList, refresh,
-    requestRemove, cancelRemove, confirmRemove,
+    openList,
+    closeList,
+    refresh,
+    requestRemove,
+    cancelRemove,
+    confirmRemove,
     /** 给模板用的字节格式化 */
     formatBytes,
   }

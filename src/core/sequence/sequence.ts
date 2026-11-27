@@ -152,7 +152,10 @@ export function propagateBox(
   if (currentFrame < 0 || currentFrame >= frames.length) return 0
 
   // 增量：编辑后 - 编辑前（朝向走最短弧，避免 ±π 绕圈）
-  let dx = 0, dy = 0, dz = 0, dyaw = 0
+  let dx = 0,
+    dy = 0,
+    dz = 0,
+    dyaw = 0
   if (strategy === 'offset') {
     dx = editedBox.position.x - referenceBox.position.x
     dy = editedBox.position.y - referenceBox.position.y
@@ -197,7 +200,10 @@ export function extractTrajectories(frames: FrameData[]): Trajectory[] {
         byId.set(box.id, tr)
       }
       tr.points.push({
-        frame: fi, x: box.position.x, y: box.position.y, z: box.position.z,
+        frame: fi,
+        x: box.position.x,
+        y: box.position.y,
+        z: box.position.z,
         visibility: box.visibility ?? 'visible',
       })
     }
@@ -228,7 +234,8 @@ export function interpolateTracks(frames: FrameData[], trackIds?: string[]): num
 
     // 每对相邻观测之间，补出所有缺失帧
     for (let k = 0; k < obs.length - 1; k++) {
-      const a = obs[k], b = obs[k + 1]
+      const a = obs[k],
+        b = obs[k + 1]
       for (let fi = a.fi + 1; fi < b.fi; fi++) {
         if (frames[fi].boxes.some((box) => box.id === id)) continue
         const t = (fi - a.fi) / (b.fi - a.fi)
@@ -244,19 +251,23 @@ export function interpolateTracks(frames: FrameData[], trackIds?: string[]): num
 interface MovingSpec {
   id: string
   label: string
-  cx: number; cy: number
-  L: number; W: number; H: number
+  cx: number
+  cy: number
+  L: number
+  W: number
+  H: number
   yaw: number
-  vx: number; vy: number
+  vx: number
+  vy: number
 }
 
 const DEMO_SPECS: MovingSpec[] = [
-  { id: '1', label: 'Car',        cx: 18,  cy:  2.5, L: 4.5, W: 1.8, H: 1.5,  yaw: 0.05,          vx:  6.0, vy:  0.0 },
-  { id: '2', label: 'Car',        cx:  6,  cy: -2.5, L: 4.6, W: 1.85,H: 1.55, yaw: Math.PI - 0.08,vx:  5.0, vy:  0.0 },
-  { id: '3', label: 'Truck',      cx: 28,  cy:  2.5, L: 8.5, W: 2.5, H: 3.2,  yaw: 0.02,          vx:  4.0, vy:  0.0 },
-  { id: '4', label: 'Pedestrian', cx:  2,  cy:  6.0, L: 0.6, W: 0.6, H: 1.75, yaw: 0,             vx:  0.0, vy: -1.2 },
-  { id: '5', label: 'Rider',      cx: -8,  cy: -3.0, L: 2.0, W: 0.8, H: 1.7,  yaw: 0.3,           vx: -5.0, vy:  0.0 },
-  { id: '6', label: 'Cyclist',    cx:-14,  cy:  2.0, L: 1.7, W: 0.6, H: 1.7,  yaw: Math.PI / 2,   vx: -4.0, vy:  0.0 },
+  { id: '1', label: 'Car', cx: 18, cy: 2.5, L: 4.5, W: 1.8, H: 1.5, yaw: 0.05, vx: 6.0, vy: 0.0 },
+  { id: '2', label: 'Car', cx: 6, cy: -2.5, L: 4.6, W: 1.85, H: 1.55, yaw: Math.PI - 0.08, vx: 5.0, vy: 0.0 },
+  { id: '3', label: 'Truck', cx: 28, cy: 2.5, L: 8.5, W: 2.5, H: 3.2, yaw: 0.02, vx: 4.0, vy: 0.0 },
+  { id: '4', label: 'Pedestrian', cx: 2, cy: 6.0, L: 0.6, W: 0.6, H: 1.75, yaw: 0, vx: 0.0, vy: -1.2 },
+  { id: '5', label: 'Rider', cx: -8, cy: -3.0, L: 2.0, W: 0.8, H: 1.7, yaw: 0.3, vx: -5.0, vy: 0.0 },
+  { id: '6', label: 'Cyclist', cx: -14, cy: 2.0, L: 1.7, W: 0.6, H: 1.7, yaw: Math.PI / 2, vx: -4.0, vy: 0.0 },
 ]
 
 /**

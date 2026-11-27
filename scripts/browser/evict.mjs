@@ -38,20 +38,26 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const errors = []
 const watchErrors = (page, tag) => {
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`[${tag}] ${m.text()}`) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(`[${tag}] ${m.text()}`)
+  })
   page.on('pageerror', (e) => errors.push(`[${tag}] pageerror: ${e.message}`))
 }
 
 /** 等应用把库建出来（store 惰性创建，早于它 open 会自建一个 v1 空库并把升级挡住） */
 async function ensureDb(p) {
-  await p.waitForFunction(async (name) => {
-    const list = await indexedDB.databases?.().catch(() => null)
-    if (list) {
-      const hit = list.find((d) => d.name === name)
-      return !!hit && (hit.version ?? 0) >= 3
-    }
-    return false
-  }, DB, { timeout: 20000 })
+  await p.waitForFunction(
+    async (name) => {
+      const list = await indexedDB.databases?.().catch(() => null)
+      if (list) {
+        const hit = list.find((d) => d.name === name)
+        return !!hit && (hit.version ?? 0) >= 3
+      }
+      return false
+    },
+    DB,
+    { timeout: 20000 },
+  )
 }
 
 /**
@@ -60,48 +66,57 @@ async function ensureDb(p) {
  * 与真实读路径（`noteFrameUsed` → `touchMany`）产生的是同一种记录。
  */
 async function seed(p, rows) {
-  await p.evaluate(async ({ rows, pos, col, name }) => {
-    const db = await new Promise((res) => {
-      const r = indexedDB.open(name)
-      r.onsuccess = () => res(r.result)
-    })
-    const tx = db.transaction(['blobs', 'blobUsage'], 'readwrite')
-    const blobs = tx.objectStore('blobs')
-    const usage = tx.objectStore('blobUsage')
-    for (const [enc, frame, used, hits] of rows) {
-      const posKey = `frames/${enc}/${frame}`
-      blobs.put({ data: new ArrayBuffer(pos), bytes: pos, savedAt: used - 1 }, posKey)
-      blobs.put({ data: new ArrayBuffer(col), bytes: col, savedAt: used - 1 }, `${posKey}:colors`)
-      usage.put({ at: used, hits }, posKey)
-      usage.put({ at: used, hits }, `${posKey}:colors`)
-    }
-    await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = () => j(tx.error) })
-    db.close()
-  }, { rows, pos: POS, col: COL, name: DB })
+  await p.evaluate(
+    async ({ rows, pos, col, name }) => {
+      const db = await new Promise((res) => {
+        const r = indexedDB.open(name)
+        r.onsuccess = () => res(r.result)
+      })
+      const tx = db.transaction(['blobs', 'blobUsage'], 'readwrite')
+      const blobs = tx.objectStore('blobs')
+      const usage = tx.objectStore('blobUsage')
+      for (const [enc, frame, used, hits] of rows) {
+        const posKey = `frames/${enc}/${frame}`
+        blobs.put({ data: new ArrayBuffer(pos), bytes: pos, savedAt: used - 1 }, posKey)
+        blobs.put({ data: new ArrayBuffer(col), bytes: col, savedAt: used - 1 }, `${posKey}:colors`)
+        usage.put({ at: used, hits }, posKey)
+        usage.put({ at: used, hits }, `${posKey}:colors`)
+      }
+      await new Promise((r, j) => {
+        tx.oncomplete = r
+        tx.onerror = () => j(tx.error)
+      })
+      db.close()
+    },
+    { rows, pos: POS, col: COL, name: DB },
+  )
 }
 
 /** 每帧的位置/颜色是否还在 */
 async function frameFlags(p, enc, count) {
-  return p.evaluate(async ({ enc, count, name }) => {
-    const db = await new Promise((res) => {
-      const r = indexedDB.open(name)
-      r.onsuccess = () => res(r.result)
-    })
-    const tx = db.transaction(['blobs'], 'readonly')
-    const all = await new Promise((res) => {
-      const r = tx.objectStore('blobs').getAllKeys()
-      r.onsuccess = () => res(r.result.map(String))
-    })
-    db.close()
-    const out = []
-    for (let f = 0; f < count; f++) {
-      out.push({
-        pos: all.includes(`frames/${enc}/${f}`),
-        col: all.includes(`frames/${enc}/${f}:colors`),
+  return p.evaluate(
+    async ({ enc, count, name }) => {
+      const db = await new Promise((res) => {
+        const r = indexedDB.open(name)
+        r.onsuccess = () => res(r.result)
       })
-    }
-    return out
-  }, { enc, count, name: DB })
+      const tx = db.transaction(['blobs'], 'readonly')
+      const all = await new Promise((res) => {
+        const r = tx.objectStore('blobs').getAllKeys()
+        r.onsuccess = () => res(r.result.map(String))
+      })
+      db.close()
+      const out = []
+      for (let f = 0; f < count; f++) {
+        out.push({
+          pos: all.includes(`frames/${enc}/${f}`),
+          col: all.includes(`frames/${enc}/${f}:colors`),
+        })
+      }
+      return out
+    },
+    { enc, count, name: DB },
+  )
 }
 
 /** 两侧都铺满 12 帧：peer 整体更旧（用于验证"跨数据集统一排序"） */
@@ -142,8 +157,10 @@ await pageB.evaluate((ds) => {
   window.studio.currentFrame.value = 0 // 保护邻域 = 0..2
 }, PEER)
 
-check('A 与 B 是不同的标签页身份', await pageA.evaluate(() => window.studio.tabBus.tabId)
-  !== await pageB.evaluate(() => window.studio.tabBus.tabId))
+check(
+  'A 与 B 是不同的标签页身份',
+  (await pageA.evaluate(() => window.studio.tabBus.tabId)) !== (await pageB.evaluate(() => window.studio.tabBus.tabId)),
+)
 
 await seed(pageA, bothRows())
 const seeded = await frameFlags(pageA, encOwn, FRAMES)
@@ -163,17 +180,25 @@ const phase1 = await pageA.evaluate(async (bytes) => {
     policy: rep?.lru?.policy ?? null,
   }
 }, FRAME * 2)
-check('对端不可淘汰时只动本端', JSON.stringify(phase1.datasets) === JSON.stringify([OWN]),
-  JSON.stringify(phase1.datasets))
-check('本端淘汰的是最旧的两帧（0、1 号；3..5 在保护邻域里）',
-  JSON.stringify(phase1.groups) === JSON.stringify([`${OWN}/0`, `${OWN}/1`]), JSON.stringify(phase1.groups))
+check(
+  '对端不可淘汰时只动本端',
+  JSON.stringify(phase1.datasets) === JSON.stringify([OWN]),
+  JSON.stringify(phase1.datasets),
+)
+check(
+  '本端淘汰的是最旧的两帧（0、1 号；3..5 在保护邻域里）',
+  JSON.stringify(phase1.groups) === JSON.stringify([`${OWN}/0`, `${OWN}/1`]),
+  JSON.stringify(phase1.groups),
+)
 check('候选数只算本端未被保护的 3 帧', phase1.candidates === 3, String(phase1.candidates))
 check('默认策略为 hybrid', phase1.policy === 'hybrid', String(phase1.policy))
 
 // ------------------------------------------------------------------
 // 2. 对端声明可重解码：候选池跨数据集，按同一把尺子排序
 // ------------------------------------------------------------------
-await pageB.evaluate(() => { window.studio.framesReloadable.value = true })
+await pageB.evaluate(() => {
+  window.studio.framesReloadable.value = true
+})
 await pageB.waitForTimeout(120)
 check('对端已声明可淘汰', await pageB.evaluate(() => window.studio.canEvictFrames() === true))
 
@@ -188,11 +213,20 @@ const phase2 = await pageA.evaluate(async (bytes) => {
 }, FRAME * 2)
 check('候选池扩到对端数据集（3 + 3 = 6）', phase2.candidates === 6, String(phase2.candidates))
 check('两边各自的当前帧邻域都被保护（共 6 帧）', phase2.protectedFrames === 6, String(phase2.protectedFrames))
-check('对端更旧，于是先淘汰对端的 3、4 号',
-  JSON.stringify(phase2.groups) === JSON.stringify([`${PEER}/3`, `${PEER}/4`]), JSON.stringify(phase2.groups))
-check('计划只涉及对端数据集', JSON.stringify(phase2.datasets) === JSON.stringify([PEER]),
-  JSON.stringify(phase2.datasets))
-check('预演一条都没删', (await frameFlags(pageA, encPeer, FRAMES)).every((f) => f.pos))
+check(
+  '对端更旧，于是先淘汰对端的 3、4 号',
+  JSON.stringify(phase2.groups) === JSON.stringify([`${PEER}/3`, `${PEER}/4`]),
+  JSON.stringify(phase2.groups),
+)
+check(
+  '计划只涉及对端数据集',
+  JSON.stringify(phase2.datasets) === JSON.stringify([PEER]),
+  JSON.stringify(phase2.datasets),
+)
+check(
+  '预演一条都没删',
+  (await frameFlags(pageA, encPeer, FRAMES)).every((f) => f.pos),
+)
 
 // ------------------------------------------------------------------
 // 3. 真跑：删对端的帧 + 反向广播通知对端撤回记账
@@ -212,15 +246,23 @@ const afterPeer = await frameFlags(pageA, encPeer, FRAMES)
 const afterOwn = await frameFlags(pageA, encOwn, FRAMES)
 check('对端的 3、4 号从库里消失', !afterPeer[3].pos && !afterPeer[4].pos, JSON.stringify(afterPeer.map((f) => f.pos)))
 check('对端的颜色记录一起删（不留孤儿）', !afterPeer[3].col && !afterPeer[4].col)
-check('本端一帧未动', afterOwn.every((f) => f.pos && f.col))
+check(
+  '本端一帧未动',
+  afterOwn.every((f) => f.pos && f.col),
+)
 check('理由记 lru-evicted（2 帧 × 2 条 = 4）', phase3.reasonCount === 4, String(phase3.reasonCount))
-check('A 的状态栏说明配额淘汰与策略',
-  phase3.status.includes('配额淘汰') && phase3.status.includes('策略'), phase3.status)
+check(
+  'A 的状态栏说明配额淘汰与策略',
+  phase3.status.includes('配额淘汰') && phase3.status.includes('策略'),
+  phase3.status,
+)
 check('审计记下策略', phase3.audit?.evictPolicy === 'hybrid', JSON.stringify(phase3.audit?.evictPolicy))
 check('审计记下跨了 1 个数据集', phase3.audit?.lruDatasets === 1, String(phase3.audit?.lruDatasets))
-check('对端收到"你的帧被淘汰"的通知',
+check(
+  '对端收到"你的帧被淘汰"的通知',
   (await pageB.evaluate(() => window.studio.statusText.value)).includes('另一标签页回收'),
-  await pageB.evaluate(() => window.studio.statusText.value))
+  await pageB.evaluate(() => window.studio.statusText.value),
+)
 check('审计记下淘汰字节', phase3.audit?.lruBytes === FRAME * 2, String(phase3.audit?.lruBytes))
 
 // ------------------------------------------------------------------
@@ -231,15 +273,16 @@ await pageA.evaluate(() => {
   window.studio.tabBus.announceFramesEvicted('bogus#none', [{ frame: 0, bytes: 1 }], 1)
 })
 await pageB.waitForTimeout(200)
-check('无关数据集的淘汰通知被忽略',
-  (await pageB.evaluate(() => window.studio.statusText.value)) === beforeBogus)
+check('无关数据集的淘汰通知被忽略', (await pageB.evaluate(() => window.studio.statusText.value)) === beforeBogus)
 
 // ------------------------------------------------------------------
 // 5. 对端的保护键随它自己的当前帧挪动
 // ------------------------------------------------------------------
 await seed(pageA, bothRows())
 // B 是 5 帧演示序列，最后一帧是 4：邻域 2..4，于是 0、1 号重新变成候选
-await pageB.evaluate(() => { window.studio.currentFrame.value = 4 })
+await pageB.evaluate(() => {
+  window.studio.currentFrame.value = 4
+})
 await pageB.waitForTimeout(120)
 const phase5 = await pageA.evaluate(async (bytes) => {
   const rep = await window.studio.runBlobGc({ manual: true, dryRun: true, reclaimBytes: bytes })
@@ -249,21 +292,31 @@ const phase5 = await pageA.evaluate(async (bytes) => {
     protectedFrames: rep?.lru?.protectedFrames ?? -1,
   }
 }, FRAME * 2)
-check('对端当前帧挪走后 0、1 号重新变成候选',
-  JSON.stringify(phase5.groups) === JSON.stringify([`${PEER}/0`, `${PEER}/1`]), JSON.stringify(phase5.groups))
+check(
+  '对端当前帧挪走后 0、1 号重新变成候选',
+  JSON.stringify(phase5.groups) === JSON.stringify([`${PEER}/0`, `${PEER}/1`]),
+  JSON.stringify(phase5.groups),
+)
 // A 护自己的 3..7 → 3/4/5；B 护它的 2..6 → 2/3/4/5。两侧各按自己的当前帧算
 check('保护范围各按自己的当前帧算（3 + 4 = 7）', phase5.protectedFrames === 7, String(phase5.protectedFrames))
 
 // ------------------------------------------------------------------
 // 6. LFU：同样的数据，按"读得最少"与按"最久未用"删的不是同一帧
 // ------------------------------------------------------------------
-await pageB.evaluate(() => { window.studio.framesReloadable.value = false }) // 先排除对端干扰
-await pageA.evaluate(() => { window.studio.currentFrame.value = 5 })
-await seed(pageA, bothRows([
-  [base + 900_000, 0], // 最新，但从没被回看
-  [base + 10_000, 5],  // 最旧，却反复回看
-  [base + 500_000, 2],
-]))
+await pageB.evaluate(() => {
+  window.studio.framesReloadable.value = false
+}) // 先排除对端干扰
+await pageA.evaluate(() => {
+  window.studio.currentFrame.value = 5
+})
+await seed(
+  pageA,
+  bothRows([
+    [base + 900_000, 0], // 最新，但从没被回看
+    [base + 10_000, 5], // 最旧，却反复回看
+    [base + 500_000, 2],
+  ]),
+)
 const byLru = await pageA.evaluate(async (bytes) => {
   window.studio.setEvictionPolicy('lru')
   const rep = await window.studio.runBlobGc({ manual: true, dryRun: true, reclaimBytes: bytes })
@@ -276,8 +329,8 @@ const byLfu = await pageA.evaluate(async (bytes) => {
 }, FRAME)
 check('lru 先淘汰最旧的 1 号', JSON.stringify(byLru) === JSON.stringify([1]), JSON.stringify(byLru))
 check('lfu 先淘汰从没回看的 0 号', JSON.stringify(byLfu) === JSON.stringify([0]), JSON.stringify(byLfu))
-check('策略写进 localStorage', await pageA.evaluate(() => localStorage.getItem('lt:evict-policy')) === 'lfu')
-check('页面上的策略状态同步', await pageA.evaluate(() => window.studio.evictionPolicy.value) === 'lfu')
+check('策略写进 localStorage', (await pageA.evaluate(() => localStorage.getItem('lt:evict-policy'))) === 'lfu')
+check('页面上的策略状态同步', (await pageA.evaluate(() => window.studio.evictionPolicy.value)) === 'lfu')
 
 const lfuReal = await pageA.evaluate(async (bytes) => {
   const rep = await window.studio.runBlobGc({ manual: true, reclaimBytes: bytes })
@@ -311,12 +364,18 @@ const cross = await pageA.evaluate(async (bytes) => {
     audit: window.studio.gcAudit().entries[0] ?? null,
   }
 }, FRAME * 4)
-check('一次淘汰跨两个数据集',
-  JSON.stringify(cross.datasets) === JSON.stringify([OWN, PEER].sort()), JSON.stringify(cross.datasets))
-check('先删对端的 0/1 号，再轮到本端 0/1 号（peer 整体更旧）',
-  cross.groups?.length === 4 && cross.groups.filter((g) => g.startsWith(PEER)).length === 2
-  && cross.groups.filter((g) => g.startsWith(OWN)).length === 2,
-  JSON.stringify(cross.groups))
+check(
+  '一次淘汰跨两个数据集',
+  JSON.stringify(cross.datasets) === JSON.stringify([OWN, PEER].sort()),
+  JSON.stringify(cross.datasets),
+)
+check(
+  '先删对端的 0/1 号，再轮到本端 0/1 号（peer 整体更旧）',
+  cross.groups?.length === 4 &&
+    cross.groups.filter((g) => g.startsWith(PEER)).length === 2 &&
+    cross.groups.filter((g) => g.startsWith(OWN)).length === 2,
+  JSON.stringify(cross.groups),
+)
 check('审计记下 lruDatasets=2', cross.audit?.lruDatasets === 2, String(cross.audit?.lruDatasets))
 check('审计记下淘汰帧数 4', cross.audit?.lruFrames === 4, String(cross.audit?.lruFrames))
 
@@ -328,10 +387,12 @@ const pageC = await ctx.newPage()
 watchErrors(pageC, 'C')
 await pageC.goto(APP + '?data=demo&evict=lru', { waitUntil: 'load' })
 await pageC.waitForFunction(() => !!window.studio, null, { timeout: 30000 })
-check('?evict=lru 覆盖本次策略', await pageC.evaluate(() => window.studio.evictionPolicy.value) === 'lru')
-check('URL 覆盖不写回存储',
-  await pageC.evaluate(() => localStorage.getItem('lt:evict-policy')) === storedBefore,
-  String(storedBefore))
+check('?evict=lru 覆盖本次策略', (await pageC.evaluate(() => window.studio.evictionPolicy.value)) === 'lru')
+check(
+  'URL 覆盖不写回存储',
+  (await pageC.evaluate(() => localStorage.getItem('lt:evict-policy'))) === storedBefore,
+  String(storedBefore),
+)
 await pageC.close()
 
 check('页面无 console 报错', errors.length === 0, errors.slice(0, 6).join(' || '))

@@ -16,27 +16,69 @@ import { VLA_DEMO_ERRORS } from '../../state/useVla'
 
 const studio = inject(StudioKey)!
 const {
-  vla, instructions, selected, vlaSelectedId, currentInstruction,
-  vlaIssues, vlaIssueGroups, vlaBlockers, coverage, pendingCount, taskSummary, alignInfo,
-  showVlaTimeline, vlaBusy, demoErrors, checkOptions, lastImport,
-  editRange, editText, addAtGap, addAtFrame, removeSelected, setReview, acceptAll,
-  resetAlign, shiftAlign, setHz, setSign, toggleChannel, channelVisible,
-  loadDemo, toggleDemoError, importJsonl, exportJsonl, clearVla,
-  gotoInstruction, selectAtCurrentFrame, channels, frameNumber,
+  vla,
+  instructions,
+  selected,
+  vlaSelectedId,
+  currentInstruction,
+  vlaIssues,
+  vlaIssueGroups,
+  vlaBlockers,
+  coverage,
+  pendingCount,
+  taskSummary,
+  alignInfo,
+  showVlaTimeline,
+  vlaBusy,
+  demoErrors,
+  checkOptions,
+  lastImport,
+  editRange,
+  editText,
+  addAtGap,
+  addAtFrame,
+  removeSelected,
+  setReview,
+  acceptAll,
+  resetAlign,
+  shiftAlign,
+  setHz,
+  setSign,
+  toggleChannel,
+  channelVisible,
+  loadDemo,
+  toggleDemoError,
+  importJsonl,
+  exportJsonl,
+  clearVla,
+  gotoInstruction,
+  selectAtCurrentFrame,
+  channels,
+  frameNumber,
 } = studio
 
 const fileInput = ref<HTMLInputElement | null>(null)
 
 /** 文本编辑缓冲：失焦或回车才提交，避免逐字进历史 */
 const textDraft = ref('')
-watch(selected, (s) => { textDraft.value = s?.text ?? '' }, { immediate: true })
+watch(
+  selected,
+  (s) => {
+    textDraft.value = s?.text ?? ''
+  },
+  { immediate: true },
+)
 
 const startDraft = ref(0)
 const endDraft = ref(0)
-watch(selected, (s) => {
-  startDraft.value = s?.startFrame ?? 0
-  endDraft.value = s?.endFrame ?? 0
-}, { immediate: true })
+watch(
+  selected,
+  (s) => {
+    startDraft.value = s?.startFrame ?? 0
+    endDraft.value = s?.endFrame ?? 0
+  },
+  { immediate: true },
+)
 
 function commitText() {
   const s = selected.value
@@ -73,7 +115,7 @@ const offsetText = computed(() => {
   return `${sign}${a.offset} 帧（${sign}${a.seconds.toFixed(2)}s）`
 })
 
-const scanText = computed(() => checkOptions.value.checkTextDup ? '含相邻重复文本' : '标准 8 条')
+const scanText = computed(() => (checkOptions.value.checkTextDup ? '含相邻重复文本' : '标准 8 条'))
 
 const reviewLabel: Record<string, string> = {
   none: '人工',
@@ -88,13 +130,28 @@ const signTags = computed(() => Object.entries(vla.value?.signMap ?? {}))
 
 <template>
   <section class="vla-panel">
-    <h3>VLA 对齐 <span class="count">{{ instructions.length }}</span></h3>
+    <h3>
+      VLA 对齐 <span class="count">{{ instructions.length }}</span>
+    </h3>
 
-    <div class="vla-kv"><span>概要</span><b>{{ summaryText }}</b></div>
-    <div class="vla-kv"><span>指令覆盖</span><b :class="coverage >= 0.999 ? 'qa-good' : 'qa-warn'">{{ coverageText }}</b></div>
-    <div class="vla-kv"><span>问题</span>
-      <b :class="vlaBlockers ? 'qa-warn' : (vlaIssueGroups.length ? '' : 'qa-good')">
-        {{ vlaBlockers ? `${vlaBlockers} 必须修` : (vlaIssueGroups.length ? `${vlaIssueGroups.length} 类提示` : (vla ? '无' : '—')) }}
+    <div class="vla-kv">
+      <span>概要</span><b>{{ summaryText }}</b>
+    </div>
+    <div class="vla-kv">
+      <span>指令覆盖</span><b :class="coverage >= 0.999 ? 'qa-good' : 'qa-warn'">{{ coverageText }}</b>
+    </div>
+    <div class="vla-kv">
+      <span>问题</span>
+      <b :class="vlaBlockers ? 'qa-warn' : vlaIssueGroups.length ? '' : 'qa-good'">
+        {{
+          vlaBlockers
+            ? `${vlaBlockers} 必须修`
+            : vlaIssueGroups.length
+              ? `${vlaIssueGroups.length} 类提示`
+              : vla
+                ? '无'
+                : '—'
+        }}
       </b>
     </div>
 
@@ -156,9 +213,12 @@ const signTags = computed(() => Object.entries(vla.value?.signMap ?? {}))
         <label class="vla-field">
           <span>文本</span>
           <input
-            v-model="textDraft" type="text" class="vla-input"
+            v-model="textDraft"
+            type="text"
+            class="vla-input"
             placeholder="例如：前方路口左转"
-            @blur="commitText" @keyup.enter="commitText"
+            @blur="commitText"
+            @keyup.enter="commitText"
           />
         </label>
         <div class="vla-field">
@@ -169,18 +229,24 @@ const signTags = computed(() => Object.entries(vla.value?.signMap ?? {}))
             <input v-model.number="endDraft" type="number" class="vla-num" @change="commitRange" />
           </div>
         </div>
-        <div class="vla-kv"><span>对齐偏移</span><b class="vla-mono">{{ offsetText }}</b></div>
+        <div class="vla-kv">
+          <span>对齐偏移</span><b class="vla-mono">{{ offsetText }}</b>
+        </div>
         <div class="vla-row">
           <button class="ghost" title="动作区间整体前移 1 帧" @click="shiftAlign(selected.id, -1)">−1</button>
           <button class="ghost" title="动作区间整体后移 1 帧" @click="shiftAlign(selected.id, 1)">+1</button>
           <button class="ghost" @click="resetAlign(selected.id)">对齐回区间</button>
-          <button class="ghost" :disabled="selected.review === 'accepted'" @click="setReview(selected.id, 'accepted')">确认</button>
-          <button class="ghost" :disabled="selected.review === 'rejected'" @click="setReview(selected.id, 'rejected')">拒绝</button>
+          <button class="ghost" :disabled="selected.review === 'accepted'" @click="setReview(selected.id, 'accepted')">
+            确认
+          </button>
+          <button class="ghost" :disabled="selected.review === 'rejected'" @click="setReview(selected.id, 'rejected')">
+            拒绝
+          </button>
           <button class="ghost danger" @click="removeSelected">删除</button>
         </div>
         <div class="hint-small">
-          对齐偏移是标出来的：指令说"左转"，动作可能晚 0.6 秒才开始。
-          改指令区间不会顺带搬对齐区间 —— 那等于把标过的结论抹掉。
+          对齐偏移是标出来的：指令说"左转"，动作可能晚 0.6 秒才开始。 改指令区间不会顺带搬对齐区间 ——
+          那等于把标过的结论抹掉。
         </div>
       </template>
 
@@ -188,19 +254,29 @@ const signTags = computed(() => Object.entries(vla.value?.signMap ?? {}))
       <h3 class="vla-sec">动作通道</h3>
       <div class="vla-chips">
         <button
-          v-for="c in channels" :key="c.name"
-          class="vla-chip" :class="{ off: !channelVisible(c.name) }"
+          v-for="c in channels"
+          :key="c.name"
+          class="vla-chip"
+          :class="{ off: !channelVisible(c.name) }"
           :title="`${c.unit} · ${c.values.length} 帧 · 源 ${c.sourceHz}Hz`"
           @click="toggleChannel(c.name)"
-        >{{ c.name }}</button>
+        >
+          {{ c.name }}
+        </button>
       </div>
       <div class="vla-kv">
         <span>帧率</span>
         <b>
           <input
-            :value="vla.hz" type="number" min="1" max="120" step="1" class="vla-num"
+            :value="vla.hz"
+            type="number"
+            min="1"
+            max="120"
+            step="1"
+            class="vla-num"
             @change="setHz(Number(($event.target as HTMLInputElement).value))"
-          /> Hz
+          />
+          Hz
         </b>
       </div>
       <div class="hint-small">帧率只用于"秒"的换算（滞后 0.5s、抖动门禁）；内部一律帧号</div>
@@ -216,17 +292,14 @@ const signTags = computed(() => Object.entries(vla.value?.signMap ?? {}))
           </span>
         </div>
         <div class="hint-small">
-          左转为负、右转为正是本项目的约定，不是普适真理。换数据集时先核对这一栏，
-          否则 VLA_ACTION_SIGN 会全量误报。
+          左转为负、右转为正是本项目的约定，不是普适真理。换数据集时先核对这一栏， 否则 VLA_ACTION_SIGN 会全量误报。
         </div>
       </details>
 
       <!-- ---------------- 校验 ---------------- -->
       <h3 class="vla-sec">对齐校验</h3>
       <div class="vla-row">
-        <label class="check-row">
-          <input v-model="checkOptions.checkTextDup" type="checkbox" /> 查相邻重复文本
-        </label>
+        <label class="check-row"> <input v-model="checkOptions.checkTextDup" type="checkbox" /> 查相邻重复文本 </label>
         <span class="vla-hint">{{ scanText }}</span>
       </div>
       <div v-if="vlaIssueGroups.length" class="vla-groups">
@@ -235,16 +308,20 @@ const signTags = computed(() => Object.entries(vla.value?.signMap ?? {}))
         </span>
       </div>
       <ul v-if="vlaIssues.length" class="vla-issues">
-        <li v-for="(i, k) in vlaIssues.slice(0, 14)" :key="k" class="vla-issue" :class="i.severity" :title="i.fixHint || ''">
+        <li
+          v-for="(i, k) in vlaIssues.slice(0, 14)"
+          :key="k"
+          class="vla-issue"
+          :class="i.severity"
+          :title="i.fixHint || ''"
+        >
           <span class="vla-code">{{ i.code }}</span>
           <span class="vla-msg">{{ i.message }}</span>
         </li>
       </ul>
       <div v-else-if="vla" class="hint-small qa-good">没有发现问题</div>
 
-      <label class="check-row">
-        <input v-model="showVlaTimeline" type="checkbox" /> 在时间线上显示指令与曲线
-      </label>
+      <label class="check-row"> <input v-model="showVlaTimeline" type="checkbox" /> 在时间线上显示指令与曲线 </label>
     </template>
   </section>
 </template>

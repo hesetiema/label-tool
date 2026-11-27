@@ -81,7 +81,12 @@ export function collectReviewRows(doc: SampleDocument): ReviewRow[] {
 
 export function reviewStats(doc: SampleDocument): ReviewStats {
   const stats: ReviewStats = {
-    tracks: 0, frames: 0, conflicts: 0, accepted: 0, rejected: 0, modelFrames: 0,
+    tracks: 0,
+    frames: 0,
+    conflicts: 0,
+    accepted: 0,
+    rejected: 0,
+    modelFrames: 0,
   }
   for (const track of doc.tasks.boxes.tracks) {
     let open = 0
@@ -111,11 +116,7 @@ export function reviewStats(doc: SampleDocument): ReviewStats {
  *
  * `frames` 给定时只裁决这些帧（复核队列里的"只处理当前帧"）。
  */
-export function buildReviewCommand(
-  tracks: readonly Track[],
-  decision: ReviewDecision,
-  frame?: number,
-): Command | null {
+export function buildReviewCommand(tracks: readonly Track[], decision: ReviewDecision, frame?: number): Command | null {
   const children: CommandData[] = []
   const touched: number[] = []
   for (const track of tracks) {
@@ -137,12 +138,11 @@ export function buildReviewCommand(
     }
   }
   if (!children.length) return null
-  const label = decision === 'accepted'
-    ? `接受预标注（${children.length} 帧）`
-    : `拒绝预标注（${children.length} 帧）`
-  const command = children.length === 1
-    ? makeCommand(children[0], { label })
-    : makeCommand({ type: 'batch', commands: children }, { label })
+  const label = decision === 'accepted' ? `接受预标注（${children.length} 帧）` : `拒绝预标注（${children.length} 帧）`
+  const command =
+    children.length === 1
+      ? makeCommand(children[0], { label })
+      : makeCommand({ type: 'batch', commands: children }, { label })
   return command
 }
 

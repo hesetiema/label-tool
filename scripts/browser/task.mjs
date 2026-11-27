@@ -19,7 +19,9 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 980 } })
 const page = await ctx.newPage()
 const consoleErrors = []
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message))
 
 await page.goto(APP + '?data=sequence', { waitUntil: 'load' })
@@ -58,9 +60,11 @@ const gen = await page.evaluate(async () => {
 })
 check('占据写进文档：5 帧', gen.frames === 5, String(gen.frames))
 check('每帧都是 payload 引用（字节在 BlobStore）', gen.allPayload === true)
-check('规格是默认 200×200×16 @0.4m',
+check(
+  '规格是默认 200×200×16 @0.4m',
   gen.spec?.size?.x === 200 && gen.spec?.size?.z === 16 && gen.spec?.resolution === 0.4,
-  JSON.stringify(gen.spec?.size))
+  JSON.stringify(gen.spec?.size),
+)
 check('渲染层拿到当前帧', gen.layerCount > 0, String(gen.layerCount))
 check('渲染器真的建了实例（不是只更新了状态）', gen.instanceCount > 0, String(gen.instanceCount))
 check('生成后自动显示占据层', gen.show === true)
@@ -82,7 +86,9 @@ const undo = await page.evaluate(async () => {
 check('撤销后文档里没有占据', undo.task === false)
 check('撤销后渲染层也清掉（不留幽灵）', undo.layer === false)
 
-await page.evaluate(() => { window.studio.doRedo() })
+await page.evaluate(() => {
+  window.studio.doRedo()
+})
 await page.waitForTimeout(300)
 const redo = await page.evaluate(() => ({
   frames: window.studio.doc.value.tasks.occupancy?.frames?.length ?? -1,
@@ -121,14 +127,27 @@ const undone = await page.evaluate(async () => {
     ref: window.studio.doc.value.tasks.occupancy.frames.find((f) => f.frame === window.studio.frameNumber())?.ref,
   }
 })
-check('删一格：体素数 -1', paint.removed.count === paint.before.count - 1,
-  `${paint.before.count} → ${paint.removed.count}`)
-check('删一格：引用变了（内容寻址）', paint.removed.ref !== paint.before.ref, `${paint.before.ref} → ${paint.removed.ref}`)
+check(
+  '删一格：体素数 -1',
+  paint.removed.count === paint.before.count - 1,
+  `${paint.before.count} → ${paint.removed.count}`,
+)
+check(
+  '删一格：引用变了（内容寻址）',
+  paint.removed.ref !== paint.before.ref,
+  `${paint.before.ref} → ${paint.removed.ref}`,
+)
 check('删一格：状态栏说明可撤销', /可撤销/.test(paint.removed.status), paint.removed.status)
-check('补一格：体素数回到原值', paint.added.count === paint.before.count,
-  `${paint.removed.count} → ${paint.added.count}`)
-check('撤销一步回到删除后的状态', undone.count === paint.removed.count && undone.ref === paint.removed.ref,
-  `${undone.count} / ${undone.ref}`)
+check(
+  '补一格：体素数回到原值',
+  paint.added.count === paint.before.count,
+  `${paint.removed.count} → ${paint.added.count}`,
+)
+check(
+  '撤销一步回到删除后的状态',
+  undone.count === paint.removed.count && undone.ref === paint.removed.ref,
+  `${undone.count} / ${undone.ref}`,
+)
 
 // ---- 4. 有效性：切片减少实例 ----
 const slice = await page.evaluate(() => {
@@ -140,8 +159,11 @@ const slice = await page.evaluate(() => {
   const afterFull = viewer.occObject?.count ?? -1
   return { before, afterLow, afterFull, slice: window.studio.occSlice.value }
 })
-check('切片到 0.6m 后实例变少', slice.afterLow > 0 && slice.afterLow < slice.before,
-  `${slice.before} → ${slice.afterLow}`)
+check(
+  '切片到 0.6m 后实例变少',
+  slice.afterLow > 0 && slice.afterLow < slice.before,
+  `${slice.before} → ${slice.afterLow}`,
+)
 check('放开切片后实例恢复', slice.afterFull === slice.before, `${slice.afterLow} → ${slice.afterFull}`)
 
 // ---- 5. 跨任务一致性：干净 → 注入悬空映射 → I3 ----
@@ -157,7 +179,7 @@ check('自洽数据不误报', crossClean.issues === 0, JSON.stringify(crossClea
 check('校验确实跑了本帧', crossClean.checked === 1, String(crossClean.checked))
 
 const crossBad = await page.evaluate(async () => {
-  window.studio.doc.value.tasks.semantic = { instanceMap: { '3': 'ghost-99' } }
+  window.studio.doc.value.tasks.semantic = { instanceMap: { 3: 'ghost-99' } }
   window.studio.bumpDoc()
   await window.studio.runCrossCheck('current')
   const issue = window.studio.issues.value[0]
@@ -172,7 +194,9 @@ check('I3 指名悬空的轨迹 id', crossBad.target === 'ghost-99', String(cros
 check('状态栏汇总问题数', /一致性校验：1 帧里 1 个问题/.test(crossBad.status), crossBad.status)
 
 // ---- 6. 自车运动估计与光流箭头 ----
-await page.evaluate(() => { window.studio.gotoFrame(1) })
+await page.evaluate(() => {
+  window.studio.gotoFrame(1)
+})
 await page.waitForTimeout(200)
 const ego = await page.evaluate(async () => {
   await window.studio.estimateEgo()
@@ -181,14 +205,19 @@ const ego = await page.evaluate(async () => {
   return {
     records: task?.ego?.length ?? -1,
     frame: e?.frame,
-    dx: e?.dx, dy: e?.dy, dyaw: e?.dyaw, rmse: e?.rmse,
+    dx: e?.dx,
+    dy: e?.dy,
+    dyaw: e?.dyaw,
+    rmse: e?.rmse,
     status: window.studio.statusText.value,
   }
 })
 check('自车运动落盘一条（第 1 帧）', ego.records === 1 && ego.frame === 1, JSON.stringify(ego))
-check('演示场景地面静止 → 位移接近 0',
+check(
+  '演示场景地面静止 → 位移接近 0',
   Math.abs(ego.dx) < 0.3 && Math.abs(ego.dy) < 0.3 && Math.abs(ego.dyaw) < 0.05,
-  `${ego.dx}, ${ego.dy}, ${ego.dyaw}`)
+  `${ego.dx}, ${ego.dy}, ${ego.dyaw}`,
+)
 check('状态栏报内点与残差', /内点 \d+\/\d+.*rmse/.test(ego.status), ego.status)
 
 const flow = await page.evaluate(() => {
@@ -209,9 +238,14 @@ check('箭头来源被说明（上一帧 → 预测位置）', /上一帧/.test(
 const exported = await page.evaluate(async () => {
   const sizes = []
   const orig = URL.createObjectURL
-  URL.createObjectURL = (blob) => { sizes.push(blob.size); return orig(blob) }
+  URL.createObjectURL = (blob) => {
+    sizes.push(blob.size)
+    return orig(blob)
+  }
   const origClick = HTMLAnchorElement.prototype.click
-  HTMLAnchorElement.prototype.click = function () { /* 不真的下载 */ }
+  HTMLAnchorElement.prototype.click = function () {
+    /* 不真的下载 */
+  }
   try {
     await window.studio.exportOccupancy()
   } finally {
@@ -231,7 +265,7 @@ await page.waitForTimeout(200)
 const panel = await page.evaluate(() => {
   const chips = [...document.querySelectorAll('.tk-class-chip')].map((el) => el.textContent?.trim() ?? '')
   // chip 文本形如 "Truck 1233"，取末尾数字求和 —— 用来核对"各格加总 == 占据格数"
-  const sum = chips.reduce((n, t) => n + (Number(t.match(/(\d+)$/)?.[1] ?? 0)), 0)
+  const sum = chips.reduce((n, t) => n + Number(t.match(/(\d+)$/)?.[1] ?? 0), 0)
   return {
     rows: document.querySelectorAll('.tk-task').length,
     occTitles: [...document.querySelectorAll('.tk-sec')].map((el) => el.textContent?.trim()),
@@ -243,11 +277,17 @@ const panel = await page.evaluate(() => {
 })
 check('任务面板渲染六行（P4 起含 VLA）', panel.rows === 6, String(panel.rows))
 check('面板分出三块子任务', panel.occTitles.length === 3, JSON.stringify(panel.occTitles))
-check('面板有生成/校验/导出按钮',
+check(
+  '面板有生成/校验/导出按钮',
   ['生成本帧', '生成全段', '校验本帧', '导出 .occ + spec'].every((t) => panel.hasButtons.includes(t)),
-  JSON.stringify(panel.hasButtons))
+  JSON.stringify(panel.hasButtons),
+)
 // 只显示前 3 类时必须补"其余"，否则 chip 加起来对不上占据率，看着像统计出错
-check('类别 chip 有"其余"汇总', panel.chips.some((t) => t.startsWith('其余')), JSON.stringify(panel.chips))
+check(
+  '类别 chip 有"其余"汇总',
+  panel.chips.some((t) => t.startsWith('其余')),
+  JSON.stringify(panel.chips),
+)
 check('chip 合计 == 占据格数', panel.chipSum === panel.occupied, `${panel.chipSum} vs ${panel.occupied}`)
 
 // ---- 9. 清除：载荷与层一起清 ----

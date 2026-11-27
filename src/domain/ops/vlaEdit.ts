@@ -61,7 +61,8 @@ export function withInstructionRange(
   end: number,
   docRange: [number, number],
 ): VlaTaskData {
-  const [s, e] = start > end ? clampRange(end, start, docRange[0], docRange[1]) : clampRange(start, end, docRange[0], docRange[1])
+  const [s, e] =
+    start > end ? clampRange(end, start, docRange[0], docRange[1]) : clampRange(start, end, docRange[0], docRange[1])
   const instructions = vla.instructions.map((seg) => (seg.id === id ? { ...seg, startFrame: s, endFrame: e } : seg))
   return sortInstructions({ ...vla, instructions })
 }
@@ -107,7 +108,11 @@ export function addInstruction(
     ...(opts.tags?.length ? { tags: opts.tags } : {}),
   }
   return {
-    vla: sortInstructions({ ...vla, instructions: [...vla.instructions, seg], alignment: [...vla.alignment, { instructionId: id, actionRange: [seg.startFrame, seg.endFrame] }] }),
+    vla: sortInstructions({
+      ...vla,
+      instructions: [...vla.instructions, seg],
+      alignment: [...vla.alignment, { instructionId: id, actionRange: [seg.startFrame, seg.endFrame] }],
+    }),
     id,
   }
 }
@@ -127,7 +132,10 @@ export function setInstructionReview(vla: VlaTaskData, id: string, review: VlaRe
 
 /** 全部待确认一次确认掉（复核队列里的"全接受"） */
 export function acceptAllInstructions(vla: VlaTaskData): VlaTaskData {
-  return { ...vla, instructions: vla.instructions.map((s) => (s.review === 'pending' ? { ...s, review: 'accepted' } : s)) }
+  return {
+    ...vla,
+    instructions: vla.instructions.map((s) => (s.review === 'pending' ? { ...s, review: 'accepted' } : s)),
+  }
 }
 
 /** 显式改对齐区间；这是唯一会移动对齐的入口 */

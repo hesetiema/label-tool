@@ -13,8 +13,13 @@ import { cloneBoxes } from '../core/history'
 import { extractTrajectories, type PropagateScope } from '../core/sequence/sequence'
 import { evaluateTemporal, injectTemporalDefects } from '../core/sequence/temporalQA'
 import {
-  buildInsertFramesCommand, buildInterpolateCommand, buildMergeCommand,
-  buildOcclusionMarkerCommand, buildPropagateCommand, buildSetLifecycleCommand, buildSplitCommand,
+  buildInsertFramesCommand,
+  buildInterpolateCommand,
+  buildMergeCommand,
+  buildOcclusionMarkerCommand,
+  buildPropagateCommand,
+  buildSetLifecycleCommand,
+  buildSplitCommand,
 } from '../domain/ops/trackOps'
 import { geometryAtFrame } from '../domain/ops/interpolate'
 import { toGeometry } from '../domain/model/geometry'
@@ -22,8 +27,21 @@ import { strVal, type StudioCore } from './studioCore'
 
 export function useSequence(core: StudioCore) {
   const {
-    boxes, selectedId, selectedIds, cloud, frames, currentFrame, statusText, showTrajectories,
-    temporalReport, origin, mutate, syncViewer, onReset, markDirty, frameNav,
+    boxes,
+    selectedId,
+    selectedIds,
+    cloud,
+    frames,
+    currentFrame,
+    statusText,
+    showTrajectories,
+    temporalReport,
+    origin,
+    mutate,
+    syncViewer,
+    onReset,
+    markDirty,
+    frameNav,
     store,
   } = core
 
@@ -85,21 +103,24 @@ export function useSequence(core: StudioCore) {
     cloud.value = null
     syncViewer()
     statusText.value = `第 ${target + 1}/${frames.value.length} 帧 · 正在解码点云…`
-    void core.loadFrameCloud(target).then((c) => {
-      // 用户可能已经点到别的帧：迟到结果必须丢掉，否则画面与帧号不一致
-      if (token !== cloudLoadToken || currentFrame.value !== target) return
-      if (!c) {
-        statusText.value = `第 ${target + 1} 帧点云未缓存，请重新导入源文件（标注未丢失）`
-        return
-      }
-      cloud.value = c
-      syncViewer()
-      markDirty()
-      statusText.value = `第 ${target + 1}/${frames.value.length} 帧 · ${boxes.value.length} 个框`
-    }).catch((err) => {
-      if (token !== cloudLoadToken) return
-      statusText.value = `第 ${target + 1} 帧点云读取失败：${(err as Error).message}（可重新导入源文件）`
-    })
+    void core
+      .loadFrameCloud(target)
+      .then((c) => {
+        // 用户可能已经点到别的帧：迟到结果必须丢掉，否则画面与帧号不一致
+        if (token !== cloudLoadToken || currentFrame.value !== target) return
+        if (!c) {
+          statusText.value = `第 ${target + 1} 帧点云未缓存，请重新导入源文件（标注未丢失）`
+          return
+        }
+        cloud.value = c
+        syncViewer()
+        markDirty()
+        statusText.value = `第 ${target + 1}/${frames.value.length} 帧 · ${boxes.value.length} 个框`
+      })
+      .catch((err) => {
+        if (token !== cloudLoadToken) return
+        statusText.value = `第 ${target + 1} 帧点云读取失败：${(err as Error).message}（可重新导入源文件）`
+      })
 
     markDirty()
   }
@@ -191,9 +212,7 @@ export function useSequence(core: StudioCore) {
     selectedId.value = null
     syncViewer()
     markDirty()
-    const longNote = stats.longSpans
-      ? `；${stats.longSpans} 段超过 15 帧，建议补一个关键帧再插值`
-      : ''
+    const longNote = stats.longSpans ? `；${stats.longSpans} 段超过 15 帧，建议补一个关键帧再插值` : ''
     statusText.value = `轨迹插值完成：补出 ${stats.frames} 帧 / ${stats.tracks} 条轨迹${longNote}（Ctrl+Z 可整段回退）`
   }
 
@@ -207,8 +226,12 @@ export function useSequence(core: StudioCore) {
   }
 
   // ---- 跨帧传播 ----
-  function onScopeChange(e: Event) { propagateScope.value = strVal(e) as PropagateScope }
-  function onStrategyChange(e: Event) { propagateStrategy.value = strVal(e) as 'replace' | 'offset' }
+  function onScopeChange(e: Event) {
+    propagateScope.value = strVal(e) as PropagateScope
+  }
+  function onStrategyChange(e: Event) {
+    propagateStrategy.value = strVal(e) as 'replace' | 'offset'
+  }
 
   /**
    * 把选中框的当前修改传播到其他帧的同一条轨迹。
@@ -262,9 +285,10 @@ export function useSequence(core: StudioCore) {
     core.refreshFrameBoxes()
     temporalReport.value = evaluateTemporal(frames.value)
     const r = temporalReport.value
-    statusText.value = r.issues.length === 0
-      ? `时序质检通过：${r.trackCount} 条轨迹、${r.frameCount} 帧，未发现异常`
-      : `时序质检发现 ${r.issues.length} 处问题（ID跳变 ${r.counts.id_switch} / 速度突变 ${r.counts.speed_jump} / 抖动 ${r.counts.jitter} / 断裂 ${r.counts.track_gap}），健康分 ${r.score}`
+    statusText.value =
+      r.issues.length === 0
+        ? `时序质检通过：${r.trackCount} 条轨迹、${r.frameCount} 帧，未发现异常`
+        : `时序质检发现 ${r.issues.length} 处问题（ID跳变 ${r.counts.id_switch} / 速度突变 ${r.counts.speed_jump} / 抖动 ${r.counts.jitter} / 断裂 ${r.counts.track_gap}），健康分 ${r.score}`
   }
 
   /** 演示"显式标记遮挡"：把有 track_gap 的目标在缺口帧标为 occluded，看健康分回升 */
@@ -354,9 +378,19 @@ export function useSequence(core: StudioCore) {
       statusText.value = `第 ${frame} 帧在 #${trackId} 的跨度之外，无法推断位置`
       return
     }
-    s.exec(buildInsertFramesCommand(trackId, [{
-      frame, geometry, source: { kind: 'manual' },
-    }], `#${trackId} 第 ${frame} 帧新增关键帧`))
+    s.exec(
+      buildInsertFramesCommand(
+        trackId,
+        [
+          {
+            frame,
+            geometry,
+            source: { kind: 'manual' },
+          },
+        ],
+        `#${trackId} 第 ${frame} 帧新增关键帧`,
+      ),
+    )
     core.refreshFrameBoxes([frame])
     core.bumpDoc()
     if (core.frameNumber() === frame) boxes.value = core.materializeNow()
@@ -419,7 +453,10 @@ export function useSequence(core: StudioCore) {
       return
     }
     const keep = s.getTrack(ids[0])
-    const absorbed = ids.slice(1).map((id) => s.getTrack(id)).filter((t): t is NonNullable<typeof t> => !!t)
+    const absorbed = ids
+      .slice(1)
+      .map((id) => s.getTrack(id))
+      .filter((t): t is NonNullable<typeof t> => !!t)
     const command = keep ? buildMergeCommand(keep, absorbed) : null
     if (!command) {
       statusText.value = '没有可合并的轨迹'
@@ -438,12 +475,33 @@ export function useSequence(core: StudioCore) {
   }
 
   return {
-    isPlaying, playSpeed, propagateScope, propagateStrategy,
-    pausePlay, play, togglePlay, onSpeedChange, gotoFrame, prevFrame, nextFrame, setFrame,
+    isPlaying,
+    playSpeed,
+    propagateScope,
+    propagateStrategy,
+    pausePlay,
+    play,
+    togglePlay,
+    onSpeedChange,
+    gotoFrame,
+    prevFrame,
+    nextFrame,
+    setFrame,
     jumpToBoxFrame,
-    doInterpolate, toggleTrajectories,
-    onScopeChange, onStrategyChange, doPropagate,
-    runTemporalQA, runOcclusionDemo, toggleSelectedVisibility, runTemporalDemo, gotoIssueFrame,
-    gotoFrameIndex, addKeyframeAt, splitSelectedAt, mergeSelectedTracks, setTrackLifecycle,
+    doInterpolate,
+    toggleTrajectories,
+    onScopeChange,
+    onStrategyChange,
+    doPropagate,
+    runTemporalQA,
+    runOcclusionDemo,
+    toggleSelectedVisibility,
+    runTemporalDemo,
+    gotoIssueFrame,
+    gotoFrameIndex,
+    addKeyframeAt,
+    splitSelectedAt,
+    mergeSelectedTracks,
+    setTrackLifecycle,
   }
 }

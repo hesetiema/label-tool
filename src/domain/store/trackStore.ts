@@ -28,9 +28,7 @@ import { CommandHistory } from './commandHistory'
 import type { AuditEntry } from './commandHistory'
 import { EditSession, type EditTarget } from './editSession'
 import { commandBlobRefs, documentBlobRefs } from './blobRefs'
-import {
-  materializeFrame, materializeTrack, type Box3DView, type MaterializeOptions,
-} from './materialize'
+import { materializeFrame, materializeTrack, type Box3DView, type MaterializeOptions } from './materialize'
 
 export class TrackStore implements Omit<EditTarget, 'frame'> {
   private doc: SampleDocument
@@ -72,9 +70,7 @@ export class TrackStore implements Omit<EditTarget, 'frame'> {
   }
 
   tracksInFrame(frame: number): Track[] {
-    return this.doc.tasks.boxes.tracks.filter(
-      (t) => frame >= t.lifecycle.first && frame <= t.lifecycle.last,
-    )
+    return this.doc.tasks.boxes.tracks.filter((t) => frame >= t.lifecycle.first && frame <= t.lifecycle.last)
   }
 
   materialize(frame: number, opts: MaterializeOptions = {}): Box3DView[] {
@@ -130,11 +126,21 @@ export class TrackStore implements Omit<EditTarget, 'frame'> {
     return nextNumericId(this.index.ids())
   }
 
-  get canUndo(): boolean { return this.history.canUndo }
-  get canRedo(): boolean { return this.history.canRedo }
-  get undoLabel(): string { return this.history.undoLabel }
-  get redoLabel(): string { return this.history.redoLabel }
-  get undoCount(): number { return this.history.undoCount }
+  get canUndo(): boolean {
+    return this.history.canUndo
+  }
+  get canRedo(): boolean {
+    return this.history.canRedo
+  }
+  get undoLabel(): string {
+    return this.history.undoLabel
+  }
+  get redoLabel(): string {
+    return this.history.redoLabel
+  }
+  get undoCount(): number {
+    return this.history.undoCount
+  }
 
   auditLog(): AuditEntry[] {
     return this.history.auditLog()
@@ -159,7 +165,9 @@ export class TrackStore implements Omit<EditTarget, 'frame'> {
    */
   onCommandDropped(cb: (refs: string[]) => void): () => void {
     this.dropHooks.add(cb)
-    return () => { this.dropHooks.delete(cb) }
+    return () => {
+      this.dropHooks.delete(cb)
+    }
   }
 
   clearHistory(): void {

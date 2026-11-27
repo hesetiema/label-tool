@@ -73,18 +73,64 @@ export const DEFAULT_SEMANTIC_CLASSES = SEMANTIC_KITTI_CLASSES
  * other-structure / other-object / outlier 归为 unlabeled(0)。
  */
 export const SEMANTIC_KITTI_LEARNING_MAP: Readonly<Record<number, number>> = {
-  0: 0, 1: 0, 10: 1, 11: 2, 13: 5, 15: 3, 16: 5, 18: 4, 20: 5,
-  30: 6, 31: 7, 32: 8, 40: 9, 44: 10, 48: 11, 49: 12, 50: 13,
-  51: 14, 52: 0, 60: 9, 70: 15, 71: 16, 72: 17, 80: 18, 81: 19,
-  99: 0, 252: 1, 253: 7, 254: 6, 255: 8, 256: 5, 257: 5, 258: 4, 259: 5,
+  0: 0,
+  1: 0,
+  10: 1,
+  11: 2,
+  13: 5,
+  15: 3,
+  16: 5,
+  18: 4,
+  20: 5,
+  30: 6,
+  31: 7,
+  32: 8,
+  40: 9,
+  44: 10,
+  48: 11,
+  49: 12,
+  50: 13,
+  51: 14,
+  52: 0,
+  60: 9,
+  70: 15,
+  71: 16,
+  72: 17,
+  80: 18,
+  81: 19,
+  99: 0,
+  252: 1,
+  253: 7,
+  254: 6,
+  255: 8,
+  256: 5,
+  257: 5,
+  258: 4,
+  259: 5,
 }
 
 /** 训练 id → 类别名，用于展示映射后的统计（与官方 learning_map_inv 对应） */
 export const LEARNING_CLASS_NAMES = [
-  'unlabeled', 'car', 'bicycle', 'motorcycle', 'truck', 'other-vehicle',
-  'person', 'bicyclist', 'motorcyclist', 'road', 'parking', 'sidewalk',
-  'other-ground', 'building', 'fence', 'vegetation', 'trunk', 'terrain',
-  'pole', 'traffic-sign',
+  'unlabeled',
+  'car',
+  'bicycle',
+  'motorcycle',
+  'truck',
+  'other-vehicle',
+  'person',
+  'bicyclist',
+  'motorcyclist',
+  'road',
+  'parking',
+  'sidewalk',
+  'other-ground',
+  'building',
+  'fence',
+  'vegetation',
+  'trunk',
+  'terrain',
+  'pole',
+  'traffic-sign',
 ] as const
 
 /** 原始 id → 训练 id；未登记的 id 保持原值（便于外部自定义类别） */
@@ -131,7 +177,7 @@ export function labelsToColors(labels: SemanticLabels, classes?: SemanticClass[]
   const out = new Float32Array(labels.length * 3)
   // 先建 id→rgb 查找表，避免每个点都 find 一次（百万点会差几个数量级）
   const table = new Map<number, [number, number, number]>()
-  for (const c of (classes ?? SEMANTIC_KITTI_CLASSES)) table.set(c.id, rgbOf(c.color))
+  for (const c of classes ?? SEMANTIC_KITTI_CLASSES) table.set(c.id, rgbOf(c.color))
   for (let i = 0; i < labels.length; i++) {
     let rgb = table.get(labels[i])
     if (!rgb) {
@@ -218,10 +264,7 @@ export function parseSemanticLabelBin(buffer: ArrayBuffer, count?: number): Sema
  * 导出为 SemanticKITTI 兼容的 uint32 二进制。
  * 传入 instances 时写回高 16 位，保证导出的 .label 能被官方 devkit 读取。
  */
-export function serializeSemanticLabelBin(
-  labels: SemanticLabels,
-  instances?: Uint16Array,
-): ArrayBuffer {
+export function serializeSemanticLabelBin(labels: SemanticLabels, instances?: Uint16Array): ArrayBuffer {
   if (instances && instances.length !== labels.length) {
     throw new Error('语义标签与实例 id 数量不一致')
   }

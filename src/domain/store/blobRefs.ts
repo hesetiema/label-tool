@@ -40,11 +40,7 @@ const PAYLOAD_TASKS: TaskKey[] = ['semantic', 'occupancy', 'flow', 'lane', 'vla'
  * `budget` 存在的意义：将来某个任务载荷变成"十万个 {ref, frame}"时，
  * 这里不能把主线程扫死 —— 超过预算直接停，宁可少回收，不可卡住。
  */
-export function collectRefsDeep(
-  root: unknown,
-  out: Set<string> = new Set(),
-  budget = { left: 20_000 },
-): Set<string> {
+export function collectRefsDeep(root: unknown, out: Set<string> = new Set(), budget = { left: 20_000 }): Set<string> {
   const walk = (value: unknown): void => {
     if (budget.left <= 0) return
     budget.left -= 1
@@ -63,7 +59,10 @@ export function collectRefsDeep(
       return
     }
     if (value instanceof Map) {
-      for (const [k, v] of value) { walk(k); walk(v) }
+      for (const [k, v] of value) {
+        walk(k)
+        walk(v)
+      }
       return
     }
     if (value instanceof Set) {

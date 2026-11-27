@@ -24,13 +24,19 @@ export function makeRng(seed: number) {
 /** 长按给定尺寸与 yaw 生成一个"长方体表面"的点云（模拟一辆车） */
 export function addBoxSurface(
   out: number[],
-  cx: number, cy: number, cz: number,
-  L: number, W: number, H: number, yaw: number,
+  cx: number,
+  cy: number,
+  cz: number,
+  L: number,
+  W: number,
+  H: number,
+  yaw: number,
   density: number,
   rng: () => number,
   labelSink?: { labels: number[]; id: number; instances?: number[]; instanceId?: number },
 ) {
-  const c = Math.cos(yaw), s = Math.sin(yaw)
+  const c = Math.cos(yaw),
+    s = Math.sin(yaw)
   const push = (lx: number, ly: number, lz: number) => {
     // 局部 → 世界：旋转 + 平移，加一点噪声模拟真实扫描
     const nx = (rng() - 0.5) * 0.06
@@ -45,14 +51,14 @@ export function addBoxSurface(
   const n = Math.max(4, Math.floor(density))
   // 四个侧面 + 顶面
   for (let i = 0; i < n; i++) {
-    const t = (i / (n - 1) - 0.5)
+    const t = i / (n - 1) - 0.5
     // 前后两个面（x = ±L/2）
     for (const sx of [-1, 1]) {
-      for (let k = 0; k < 8; k++) push(sx * L / 2, t * W, cz > 0 ? (k / 7) * H - H / 2 : (k / 7) * H)
+      for (let k = 0; k < 8; k++) push((sx * L) / 2, t * W, cz > 0 ? (k / 7) * H - H / 2 : (k / 7) * H)
     }
     // 左右两个面（y = ±W/2）
     for (const sy of [-1, 1]) {
-      for (let k = 0; k < 8; k++) push(t * L, sy * W / 2, (k / 7) * H)
+      for (let k = 0; k < 8; k++) push(t * L, (sy * W) / 2, (k / 7) * H)
     }
     // 顶面（z = H）
     for (let k = 0; k < n; k++) push(t * L, (k / (n - 1) - 0.5) * W, H)
@@ -146,9 +152,15 @@ export function generateSemanticDemoScene(): { cloud: PointCloud; boxes: Box3D[]
 
   // 3) 目标：每类一个语义 id
   const specs: {
-    label: string; cx: number; cy: number
-    L: number; W: number; H: number; yaw: number
-    semanticId: number; instanceId: number
+    label: string
+    cx: number
+    cy: number
+    L: number
+    W: number
+    H: number
+    yaw: number
+    semanticId: number
+    instanceId: number
   }[] = [
     { label: 'Car', cx: 18, cy: 2.5, L: 4.5, W: 1.8, H: 1.5, yaw: 0.05, semanticId: 10, instanceId: 1 },
     { label: 'Car', cx: 6, cy: -2.5, L: 4.6, W: 1.85, H: 1.55, yaw: Math.PI - 0.08, semanticId: 10, instanceId: 2 },

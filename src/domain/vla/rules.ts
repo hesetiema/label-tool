@@ -105,30 +105,34 @@ export function validateVla(
   for (const seg of segs) {
     if (cap('VLA_INSTRUCTION_RANGE')) break
     if (seg.startFrame > seg.endFrame || seg.startFrame < range[0] || seg.endFrame > range[1]) {
-      out.push(makeIssue({
-        code: 'VLA_INSTRUCTION_RANGE',
-        ruleId: 'vla.instruction.range',
-        severity: 'error',
-        scope: 'task',
-        targets: [{ task: 'vla', frame: seg.startFrame }],
-        message: `指令「${seg.text}」的区间 [${seg.startFrame}, ${seg.endFrame}] 非法或超出样本范围 [${range[0]}, ${range[1]}]`,
-        fixHint: '把区间拉回样本范围内，或删掉这条指令重标',
-      }))
+      out.push(
+        makeIssue({
+          code: 'VLA_INSTRUCTION_RANGE',
+          ruleId: 'vla.instruction.range',
+          severity: 'error',
+          scope: 'task',
+          targets: [{ task: 'vla', frame: seg.startFrame }],
+          message: `指令「${seg.text}」的区间 [${seg.startFrame}, ${seg.endFrame}] 非法或超出样本范围 [${range[0]}, ${range[1]}]`,
+          fixHint: '把区间拉回样本范围内，或删掉这条指令重标',
+        }),
+      )
     }
   }
 
   for (const seg of segs) {
     if (cap('VLA_TEXT_EMPTY')) break
     if (normalizeText(seg.text).length < 2) {
-      out.push(makeIssue({
-        code: 'VLA_TEXT_EMPTY',
-        ruleId: 'vla.text.empty',
-        severity: 'error',
-        scope: 'task',
-        targets: [{ task: 'vla', frame: seg.startFrame }],
-        message: `指令段 #${seg.id} 的文本为空或只有标点：「${seg.text}」`,
-        fixHint: '补全指令文本；空指令会让语言侧的训练样本直接失效',
-      }))
+      out.push(
+        makeIssue({
+          code: 'VLA_TEXT_EMPTY',
+          ruleId: 'vla.text.empty',
+          severity: 'error',
+          scope: 'task',
+          targets: [{ task: 'vla', frame: seg.startFrame }],
+          message: `指令段 #${seg.id} 的文本为空或只有标点：「${seg.text}」`,
+          fixHint: '补全指令文本；空指令会让语言侧的训练样本直接失效',
+        }),
+      )
     }
   }
 
@@ -136,16 +140,18 @@ export function validateVla(
   let prev: InstructionSegment | null = null
   for (const seg of segs) {
     if (prev && seg.startFrame <= prev.endFrame && !cap('VLA_INSTRUCTION_OVERLAP')) {
-      out.push(makeIssue({
-        code: 'VLA_INSTRUCTION_OVERLAP',
-        ruleId: 'vla.instruction.overlap',
-        severity: 'error',
-        scope: 'task',
-        targets: [{ task: 'vla', frame: seg.startFrame }],
-        value: prev.endFrame - seg.startFrame + 1,
-        message: `指令段 #${prev.id} 与 #${seg.id} 重叠 ${prev.endFrame - seg.startFrame + 1} 帧（${seg.startFrame}–${prev.endFrame}）`,
-        fixHint: '一条指令只能覆盖一个区间：改一条的端点，或删掉多余的',
-      }))
+      out.push(
+        makeIssue({
+          code: 'VLA_INSTRUCTION_OVERLAP',
+          ruleId: 'vla.instruction.overlap',
+          severity: 'error',
+          scope: 'task',
+          targets: [{ task: 'vla', frame: seg.startFrame }],
+          value: prev.endFrame - seg.startFrame + 1,
+          message: `指令段 #${prev.id} 与 #${seg.id} 重叠 ${prev.endFrame - seg.startFrame + 1} 帧（${seg.startFrame}–${prev.endFrame}）`,
+          fixHint: '一条指令只能覆盖一个区间：改一条的端点，或删掉多余的',
+        }),
+      )
     }
     if (!prev || seg.endFrame > prev.endFrame) prev = seg
   }
@@ -155,45 +161,51 @@ export function validateVla(
   for (const seg of segs) {
     if (cap('VLA_INSTRUCTION_GAP')) break
     if (seg.startFrame > cursor) {
-      out.push(makeIssue({
+      out.push(
+        makeIssue({
+          code: 'VLA_INSTRUCTION_GAP',
+          ruleId: 'vla.instruction.gap',
+          severity: 'warn',
+          scope: 'task',
+          targets: [{ task: 'vla', frame: cursor }],
+          value: seg.startFrame - cursor,
+          message: `第 ${cursor}–${seg.startFrame - 1} 帧（${seg.startFrame - cursor} 帧）没有指令覆盖`,
+          fixHint: '补一条"保持行驶"之类的指令，或把相邻指令的区间拉过来',
+        }),
+      )
+    }
+    if (seg.endFrame + 1 > cursor) cursor = seg.endFrame + 1
+  }
+  if (!cap('VLA_INSTRUCTION_GAP') && cursor <= range[1]) {
+    out.push(
+      makeIssue({
         code: 'VLA_INSTRUCTION_GAP',
         ruleId: 'vla.instruction.gap',
         severity: 'warn',
         scope: 'task',
         targets: [{ task: 'vla', frame: cursor }],
-        value: seg.startFrame - cursor,
-        message: `第 ${cursor}–${seg.startFrame - 1} 帧（${seg.startFrame - cursor} 帧）没有指令覆盖`,
-        fixHint: '补一条"保持行驶"之类的指令，或把相邻指令的区间拉过来',
-      }))
-    }
-    if (seg.endFrame + 1 > cursor) cursor = seg.endFrame + 1
-  }
-  if (!cap('VLA_INSTRUCTION_GAP') && cursor <= range[1]) {
-    out.push(makeIssue({
-      code: 'VLA_INSTRUCTION_GAP',
-      ruleId: 'vla.instruction.gap',
-      severity: 'warn',
-      scope: 'task',
-      targets: [{ task: 'vla', frame: cursor }],
-      value: range[1] - cursor + 1,
-      message: `末尾第 ${cursor}–${range[1]} 帧（${range[1] - cursor + 1} 帧）没有指令覆盖`,
-      fixHint: '补一条收尾指令，或把最后一段的区间拉到样本末尾',
-    }))
+        value: range[1] - cursor + 1,
+        message: `末尾第 ${cursor}–${range[1]} 帧（${range[1] - cursor + 1} 帧）没有指令覆盖`,
+        fixHint: '补一条收尾指令，或把最后一段的区间拉到样本末尾',
+      }),
+    )
   }
 
   if (o.checkTextDup) {
     for (let i = 1; i < segs.length; i++) {
       if (cap('VLA_TEXT_DUP')) break
       if (normalizeText(segs[i].text) && normalizeText(segs[i].text) === normalizeText(segs[i - 1].text)) {
-        out.push(makeIssue({
-          code: 'VLA_TEXT_DUP',
-          ruleId: 'vla.text.dup',
-          severity: 'warn',
-          scope: 'task',
-          targets: [{ task: 'vla', frame: segs[i].startFrame }],
-          message: `指令段 #${segs[i - 1].id} 与 #${segs[i].id} 文本完全相同：「${segs[i].text}」`,
-          fixHint: '确认是不是该合成一段；若确实是两次独立指令（如两次"保持车道"），可以忽略',
-        }))
+        out.push(
+          makeIssue({
+            code: 'VLA_TEXT_DUP',
+            ruleId: 'vla.text.dup',
+            severity: 'warn',
+            scope: 'task',
+            targets: [{ task: 'vla', frame: segs[i].startFrame }],
+            message: `指令段 #${segs[i - 1].id} 与 #${segs[i].id} 文本完全相同：「${segs[i].text}」`,
+            fixHint: '确认是不是该合成一段；若确实是两次独立指令（如两次"保持车道"），可以忽略',
+          }),
+        )
       }
     }
   }
@@ -206,42 +218,48 @@ export function validateVla(
     for (const ch of channels) {
       if (cap('VLA_CHANNEL_LENGTH')) break
       if (!ch.values.length) {
-        out.push(makeIssue({
-          code: 'VLA_CHANNEL_LENGTH',
-          ruleId: 'vla.channel.length',
-          severity: 'blocker',
-          scope: 'task',
-          targets: [{ task: 'vla', frame: ch.startFrame }],
-          message: `通道 ${ch.name} 没有任何采样值`,
-          fixHint: '删掉空通道，或重新导入该通道数据',
-        }))
+        out.push(
+          makeIssue({
+            code: 'VLA_CHANNEL_LENGTH',
+            ruleId: 'vla.channel.length',
+            severity: 'blocker',
+            scope: 'task',
+            targets: [{ task: 'vla', frame: ch.startFrame }],
+            message: `通道 ${ch.name} 没有任何采样值`,
+            fixHint: '删掉空通道，或重新导入该通道数据',
+          }),
+        )
         continue
       }
       const last = channelLastFrame(ch)
       if (last > range[1]) {
-        out.push(makeIssue({
-          code: 'VLA_CHANNEL_LENGTH',
-          ruleId: 'vla.channel.length',
-          severity: 'blocker',
-          scope: 'task',
-          targets: [{ task: 'vla', frame: range[1] }],
-          value: last - range[1],
-          message: `通道 ${ch.name} 覆盖到第 ${last} 帧，超出样本末帧 ${range[1]}（多 ${last - range[1]} 个采样）`,
-          fixHint: '采样率与帧率不匹配：按 hz 重采样，或裁掉多余部分',
-        }))
+        out.push(
+          makeIssue({
+            code: 'VLA_CHANNEL_LENGTH',
+            ruleId: 'vla.channel.length',
+            severity: 'blocker',
+            scope: 'task',
+            targets: [{ task: 'vla', frame: range[1] }],
+            value: last - range[1],
+            message: `通道 ${ch.name} 覆盖到第 ${last} 帧，超出样本末帧 ${range[1]}（多 ${last - range[1]} 个采样）`,
+            fixHint: '采样率与帧率不匹配：按 hz 重采样，或裁掉多余部分',
+          }),
+        )
       }
       // 通道之间必须同起点同长度，否则"第 i 个采样"在不同通道上不是同一帧
       if (ch !== first && (ch.startFrame !== first.startFrame || ch.values.length !== first.values.length)) {
-        out.push(makeIssue({
-          code: 'VLA_CHANNEL_LENGTH',
-          ruleId: 'vla.channel.length',
-          severity: 'blocker',
-          scope: 'task',
-          targets: [{ task: 'vla', frame: ch.startFrame }],
-          value: ch.values.length - first.values.length,
-          message: `通道 ${ch.name}（起点 ${ch.startFrame}、${ch.values.length} 个值）与 ${first.name}（起点 ${first.startFrame}、${first.values.length} 个值）不一致`,
-          fixHint: '逐帧对齐要求所有通道覆盖同一区间：统一重采样到样本帧率',
-        }))
+        out.push(
+          makeIssue({
+            code: 'VLA_CHANNEL_LENGTH',
+            ruleId: 'vla.channel.length',
+            severity: 'blocker',
+            scope: 'task',
+            targets: [{ task: 'vla', frame: ch.startFrame }],
+            value: ch.values.length - first.values.length,
+            message: `通道 ${ch.name}（起点 ${ch.startFrame}、${ch.values.length} 个值）与 ${first.name}（起点 ${first.startFrame}、${first.values.length} 个值）不一致`,
+            fixHint: '逐帧对齐要求所有通道覆盖同一区间：统一重采样到样本帧率',
+          }),
+        )
       }
     }
 
@@ -249,15 +267,17 @@ export function validateVla(
       if (cap('VLA_CHANNEL_FINITE')) break
       const bad = ch.values.findIndex((v) => !Number.isFinite(v))
       if (bad >= 0) {
-        out.push(makeIssue({
-          code: 'VLA_CHANNEL_FINITE',
-          ruleId: 'vla.channel.finite',
-          severity: 'blocker',
-          scope: 'task',
-          targets: [{ task: 'vla', frame: ch.startFrame + bad }],
-          message: `通道 ${ch.name} 第 ${ch.startFrame + bad} 帧的值不是有限数（${String(ch.values[bad])}）`,
-          fixHint: 'JSON 里的 null/字符串会变成 NaN：导入时补成 0 或删掉该帧',
-        }))
+        out.push(
+          makeIssue({
+            code: 'VLA_CHANNEL_FINITE',
+            ruleId: 'vla.channel.finite',
+            severity: 'blocker',
+            scope: 'task',
+            targets: [{ task: 'vla', frame: ch.startFrame + bad }],
+            message: `通道 ${ch.name} 第 ${ch.startFrame + bad} 帧的值不是有限数（${String(ch.values[bad])}）`,
+            fixHint: 'JSON 里的 null/字符串会变成 NaN：导入时补成 0 或删掉该帧',
+          }),
+        )
       }
     }
   }
@@ -268,15 +288,17 @@ export function validateVla(
   for (const link of payload.alignment) {
     if (cap('VLA_ALIGNMENT_ORPHAN')) break
     if (!instructionIds.has(link.instructionId)) {
-      out.push(makeIssue({
-        code: 'VLA_ALIGNMENT_ORPHAN',
-        ruleId: 'vla.alignment.orphan',
-        severity: 'error',
-        scope: 'task',
-        targets: [{ task: 'vla' }],
-        message: `对齐关系指向不存在的指令 #${link.instructionId}`,
-        fixHint: '删掉这条对齐，或补回被删的指令（多半是删指令时忘了清对齐）',
-      }))
+      out.push(
+        makeIssue({
+          code: 'VLA_ALIGNMENT_ORPHAN',
+          ruleId: 'vla.alignment.orphan',
+          severity: 'error',
+          scope: 'task',
+          targets: [{ task: 'vla' }],
+          message: `对齐关系指向不存在的指令 #${link.instructionId}`,
+          fixHint: '删掉这条对齐，或补回被删的指令（多半是删指令时忘了清对齐）',
+        }),
+      )
     }
   }
 
@@ -297,17 +319,19 @@ export function validateVla(
     const expect = signMap[tag]
     const signOk = expect === 'negative' ? m < 0 : m > 0
     if (!signOk && Math.abs(m) > o.minAbsSteer) {
-      out.push(makeIssue({
-        code: 'VLA_ACTION_SIGN',
-        ruleId: 'vla.action.sign',
-        severity: 'error',
-        scope: 'crossTask',
-        targets: [{ task: 'vla', frame: ar[0] }],
-        value: m,
-        threshold: o.minAbsSteer,
-        message: `指令「${seg.text}」标为 ${tag}（期望 steer ${expect === 'negative' ? '< 0' : '> 0'}），实测该区间均值 ${m.toFixed(3)}`,
-        fixHint: '三种可能：指令文本错了、动作区间没对齐、或符号约定与该数据集相反（改 signMap）',
-      }))
+      out.push(
+        makeIssue({
+          code: 'VLA_ACTION_SIGN',
+          ruleId: 'vla.action.sign',
+          severity: 'error',
+          scope: 'crossTask',
+          targets: [{ task: 'vla', frame: ar[0] }],
+          value: m,
+          threshold: o.minAbsSteer,
+          message: `指令「${seg.text}」标为 ${tag}（期望 steer ${expect === 'negative' ? '< 0' : '> 0'}），实测该区间均值 ${m.toFixed(3)}`,
+          fixHint: '三种可能：指令文本错了、动作区间没对齐、或符号约定与该数据集相反（改 signMap）',
+        }),
+      )
     }
   }
 
@@ -319,17 +343,19 @@ export function validateVla(
     if (brake.length < 3) continue
     const m = mean(brake)
     if (m < 0.3) {
-      out.push(makeIssue({
-        code: 'VLA_ACTION_SIGN',
-        ruleId: 'vla.action.sign',
-        severity: 'error',
-        scope: 'crossTask',
-        targets: [{ task: 'vla', frame: seg.startFrame }],
-        value: m,
-        threshold: 0.3,
-        message: `指令「${seg.text}」标为停车，但该区间刹车均值为 ${m.toFixed(3)}（阈值 0.3）`,
-        fixHint: '确认是真停车还是"减速通过"；若动作对，改指令文本',
-      }))
+      out.push(
+        makeIssue({
+          code: 'VLA_ACTION_SIGN',
+          ruleId: 'vla.action.sign',
+          severity: 'error',
+          scope: 'crossTask',
+          targets: [{ task: 'vla', frame: seg.startFrame }],
+          value: m,
+          threshold: 0.3,
+          message: `指令「${seg.text}」标为停车，但该区间刹车均值为 ${m.toFixed(3)}（阈值 0.3）`,
+          fixHint: '确认是真停车还是"减速通过"；若动作对，改指令文本',
+        }),
+      )
     }
   }
 
@@ -347,17 +373,19 @@ export function validateVla(
       if (idx < 0) continue // 全程没动：那是 SIGN 或文本的问题，不是滞后
       const lag = (lo + idx - ar[0]) / hz
       if (lag > o.lagSeconds) {
-        out.push(makeIssue({
-          code: 'VLA_ACTION_LAG',
-          ruleId: 'vla.action.lag',
-          severity: 'warn',
-          scope: 'crossTask',
-          targets: [{ task: 'vla', frame: ar[0] }],
-          value: lag,
-          threshold: o.lagSeconds,
-          message: `指令「${seg.text}」起于第 ${ar[0]} 帧，动作到第 ${lo + idx} 帧才动（滞后 ${lag.toFixed(2)}s）`,
-          fixHint: '若指令确实提前发出，把动作区间前移；若是自动对齐的，手工对一次更准',
-        }))
+        out.push(
+          makeIssue({
+            code: 'VLA_ACTION_LAG',
+            ruleId: 'vla.action.lag',
+            severity: 'warn',
+            scope: 'crossTask',
+            targets: [{ task: 'vla', frame: ar[0] }],
+            value: lag,
+            threshold: o.lagSeconds,
+            message: `指令「${seg.text}」起于第 ${ar[0]} 帧，动作到第 ${lo + idx} 帧才动（滞后 ${lag.toFixed(2)}s）`,
+            fixHint: '若指令确实提前发出，把动作区间前移；若是自动对齐的，手工对一次更准',
+          }),
+        )
       }
     }
   }
@@ -366,34 +394,38 @@ export function validateVla(
   if (hasSteer) {
     const ch = findChannel(payload, 'steer')!
     if (!hz || hz < o.minHzForSmooth) {
-      out.push(makeIssue({
-        code: 'VLA_ACTION_SMOOTH',
-        ruleId: 'vla.action.smooth',
-        severity: 'info',
-        scope: 'task',
-        targets: [{ task: 'vla' }],
-        value: hz,
-        threshold: o.minHzForSmooth,
-        message: hz
-          ? `帧率 ${hz}Hz 低于 ${o.minHzForSmooth}Hz，抖动检查已跳过（二阶差分量级不可比）`
-          : '载荷没有有效 hz，抖动检查已跳过',
-        fixHint: '导入时填上真实帧率（hz），或在数据集侧提高采样率',
-      }))
+      out.push(
+        makeIssue({
+          code: 'VLA_ACTION_SMOOTH',
+          ruleId: 'vla.action.smooth',
+          severity: 'info',
+          scope: 'task',
+          targets: [{ task: 'vla' }],
+          value: hz,
+          threshold: o.minHzForSmooth,
+          message: hz
+            ? `帧率 ${hz}Hz 低于 ${o.minHzForSmooth}Hz，抖动检查已跳过（二阶差分量级不可比）`
+            : '载荷没有有效 hz，抖动检查已跳过',
+          fixHint: '导入时填上真实帧率（hz），或在数据集侧提高采样率',
+        }),
+      )
     } else {
       const d2 = secondDifference(ch.values)
       const p95 = percentile(d2, 0.95)
       if (p95 > o.smoothJerk) {
-        out.push(makeIssue({
-          code: 'VLA_ACTION_SMOOTH',
-          ruleId: 'vla.action.smooth',
-          severity: 'warn',
-          scope: 'task',
-          targets: [{ task: 'vla', frame: ch.startFrame }],
-          value: p95,
-          threshold: o.smoothJerk,
-          message: `steer 二阶差分 95 分位 ${p95.toFixed(4)}，超过 ${o.smoothJerk}`,
-          fixHint: '先确认不是逐帧独立采集造成的锯齿；是的话在通道上做一次平滑',
-        }))
+        out.push(
+          makeIssue({
+            code: 'VLA_ACTION_SMOOTH',
+            ruleId: 'vla.action.smooth',
+            severity: 'warn',
+            scope: 'task',
+            targets: [{ task: 'vla', frame: ch.startFrame }],
+            value: p95,
+            threshold: o.smoothJerk,
+            message: `steer 二阶差分 95 分位 ${p95.toFixed(4)}，超过 ${o.smoothJerk}`,
+            fixHint: '先确认不是逐帧独立采集造成的锯齿；是的话在通道上做一次平滑',
+          }),
+        )
       }
     }
   }
@@ -402,7 +434,9 @@ export function validateVla(
 }
 
 /** 一致性汇总用：按规则分组计数 */
-export function vlaIssueCounts(issues: readonly QaIssue[]): Array<{ code: string; count: number; severity: QaIssue['severity'] }> {
+export function vlaIssueCounts(
+  issues: readonly QaIssue[],
+): Array<{ code: string; count: number; severity: QaIssue['severity'] }> {
   const map = new Map<string, { count: number; severity: QaIssue['severity'] }>()
   const order: Record<QaIssue['severity'], number> = { blocker: 0, error: 1, warn: 2, info: 3 }
   for (const i of issues) {

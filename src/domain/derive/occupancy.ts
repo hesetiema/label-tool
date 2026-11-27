@@ -312,9 +312,9 @@ function insideObb(g: BoxGeometryLike, p: Vec3, eps: number): boolean {
   // 逆旋转：world → 框坐标系。yaw 绕 z 轴，所以 z 不变
   const lx = dx * c + dy * s
   const ly = -dx * s + dy * c
-  return Math.abs(lx) <= g.scale.x / 2 + eps
-    && Math.abs(ly) <= g.scale.y / 2 + eps
-    && Math.abs(dz) <= g.scale.z / 2 + eps
+  return (
+    Math.abs(lx) <= g.scale.x / 2 + eps && Math.abs(ly) <= g.scale.y / 2 + eps && Math.abs(dz) <= g.scale.z / 2 + eps
+  )
 }
 
 /** 冲突裁决：体积小的赢（大框通常把旁边的东西裹进来了），再比置信度、类别优先级、id */
@@ -336,7 +336,7 @@ export function carveFromTracks(
 
   const res = spec.resolution
   const eps = res * 1e-6
-  const ground = opts.mode === 'box+ground' ? opts.ground ?? null : null
+  const ground = opts.mode === 'box+ground' ? (opts.ground ?? null) : null
   const cells = new Map<number, Cell>()
   const pairs = new Map<string, [TrackId, TrackId]>()
   const skipped: CarveResult['skipped'] = []
@@ -412,13 +412,10 @@ export function carveFromTracks(
           }
           if (existing.trackId === track.id) continue
           overlapVoxels++
-          const key = existing.trackId < track.id
-            ? `${existing.trackId}|${track.id}`
-            : `${track.id}|${existing.trackId}`
+          const key =
+            existing.trackId < track.id ? `${existing.trackId}|${track.id}` : `${track.id}|${existing.trackId}`
           if (!pairs.has(key) && pairs.size < 32) {
-            pairs.set(key, existing.trackId < track.id
-              ? [existing.trackId, track.id]
-              : [track.id, existing.trackId])
+            pairs.set(key, existing.trackId < track.id ? [existing.trackId, track.id] : [track.id, existing.trackId])
           }
           if (beats(cell, existing)) cells.set(idx, cell)
         }
@@ -448,8 +445,11 @@ export function carveFromTracks(
               const i2 = voxelToIndex(spec, ix + dx, iy + dy, iz)
               if (i2 >= 0 && !cells.has(i2)) {
                 cells.set(i2, {
-                  label: gLabel, volume: 0, confidence: 1,
-                  priority: priorityOf(opts.groundClass), trackId: '__ground__',
+                  label: gLabel,
+                  volume: 0,
+                  confidence: 1,
+                  priority: priorityOf(opts.groundClass),
+                  trackId: '__ground__',
                 })
               }
             }
@@ -511,11 +511,7 @@ export interface BoxOccupancy {
 }
 
 /** 一个框内有多少体素被占用、分别是什么类 —— I1/I2 两个规则的唯一口径 */
-export function occupiedInBox(
-  frame: OccupancyFrame,
-  spec: OccupancyGridSpec,
-  box: BoxGeometryLike,
-): BoxOccupancy {
+export function occupiedInBox(frame: OccupancyFrame, spec: OccupancyGridSpec, box: BoxGeometryLike): BoxOccupancy {
   const res = spec.resolution
   const hx = (Math.abs(box.scale.x * Math.cos(box.yaw)) + Math.abs(box.scale.y * Math.sin(box.yaw))) / 2
   const hy = (Math.abs(box.scale.x * Math.sin(box.yaw)) + Math.abs(box.scale.y * Math.cos(box.yaw))) / 2
@@ -643,15 +639,23 @@ export function encodeOccRle(frame: OccupancyFrame): ArrayBuffer {
   const view = new DataView(buf)
   const bytes = new Uint8Array(buf)
   let p = 0
-  view.setUint32(p, RLE_MAGIC, true); p += 4
-  view.setUint32(p, frame.frame, true); p += 4
-  view.setUint16(p, specBytes.length, true); p += 2
-  bytes.set(specBytes, p); p += specBytes.length
-  view.setUint32(p, runs.length, true); p += 4
+  view.setUint32(p, RLE_MAGIC, true)
+  p += 4
+  view.setUint32(p, frame.frame, true)
+  p += 4
+  view.setUint16(p, specBytes.length, true)
+  p += 2
+  bytes.set(specBytes, p)
+  p += specBytes.length
+  view.setUint32(p, runs.length, true)
+  p += 4
   for (const run of runs) {
-    view.setUint32(p, run.start, true); p += 4
-    view.setUint32(p, run.len, true); p += 4
-    view.setUint8(p, run.label); p += 1
+    view.setUint32(p, run.start, true)
+    p += 4
+    view.setUint32(p, run.len, true)
+    p += 4
+    view.setUint8(p, run.label)
+    p += 1
   }
   return buf
 }
@@ -663,11 +667,15 @@ export function decodeOccRle(buf: ArrayBuffer): OccupancyFrame {
   let p = 0
   if (view.getUint32(p, true) !== RLE_MAGIC) throw new Error('占据 RLE magic 不匹配')
   p += 4
-  const frame = view.getUint32(p, true); p += 4
-  const specLen = view.getUint16(p, true); p += 2
+  const frame = view.getUint32(p, true)
+  p += 4
+  const specLen = view.getUint16(p, true)
+  p += 2
   if (p + specLen + 4 > buf.byteLength) throw new Error('占据 RLE 头部越界')
-  const spec = new TextDecoder().decode(bytes.subarray(p, p + specLen)); p += specLen
-  const runCount = view.getUint32(p, true); p += 4
+  const spec = new TextDecoder().decode(bytes.subarray(p, p + specLen))
+  p += specLen
+  const runCount = view.getUint32(p, true)
+  p += 4
   if (p + runCount * RUN_BYTES !== buf.byteLength) {
     throw new Error(`占据 RLE 长度不符：头部说 ${runCount} 段，实际 ${(buf.byteLength - p) / RUN_BYTES}`)
   }
@@ -677,9 +685,12 @@ export function decodeOccRle(buf: ArrayBuffer): OccupancyFrame {
   const labels = new Uint8Array(total)
   let at = 0
   for (let i = 0; i < runCount; i++) {
-    const start = view.getUint32(p, true); p += 4
-    const len = view.getUint32(p, true); p += 4
-    const label = view.getUint8(p); p += 1
+    const start = view.getUint32(p, true)
+    p += 4
+    const len = view.getUint32(p, true)
+    p += 4
+    const label = view.getUint8(p)
+    p += 1
     for (let k = 0; k < len; k++) {
       occupied[at] = start + k
       labels[at] = label
@@ -698,10 +709,7 @@ export function decodeOccRle(buf: ArrayBuffer): OccupancyFrame {
  */
 const BUNDLE_MAGIC = 'OCB1'
 
-export function encodeOccBundle(
-  spec: OccupancyGridSpec,
-  frames: readonly OccupancyFrame[],
-): ArrayBuffer {
+export function encodeOccBundle(spec: OccupancyGridSpec, frames: readonly OccupancyFrame[]): ArrayBuffer {
   const chunks = frames.map((f) => encodeOccRle(f))
   const entries = frames.map((f, i) => ({
     frame: f.frame,

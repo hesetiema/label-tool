@@ -13,7 +13,10 @@
  */
 import type { BoxGeometry } from '../../domain/model/geometry'
 import type {
-  PreAnnotationProvider, PreAnnotateChunk, PreAnnotateRequest, ProviderCapabilities,
+  PreAnnotationProvider,
+  PreAnnotateChunk,
+  PreAnnotateRequest,
+  ProviderCapabilities,
 } from '../../ports/preAnnotation'
 import { abortError, isAborted } from '../../ports/preAnnotation'
 
@@ -38,7 +41,7 @@ export interface MockProviderOptions {
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0
   return () => {
-    a = (a + 0x6D2B79F5) >>> 0
+    a = (a + 0x6d2b79f5) >>> 0
     let t = a
     t = Math.imul(t ^ (t >>> 15), t | 1)
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
@@ -104,9 +107,7 @@ export function createMockProvider(opts: MockProviderOptions = {}): PreAnnotatio
           classId: pedestrian ? 'Pedestrian' : 'Car',
           lane: pedestrian ? 6.5 : -6 + i * 3.5,
           speed: pedestrian ? 0.12 : 0.6 + (i % 3) * 0.15,
-          scale: pedestrian
-            ? { x: 0.8, y: 0.8, z: 1.75 }
-            : { x: 4.4, y: 1.9, z: 1.55 },
+          scale: pedestrian ? { x: 0.8, y: 0.8, z: 1.75 } : { x: 4.4, y: 1.9, z: 1.55 },
         })
       }
 

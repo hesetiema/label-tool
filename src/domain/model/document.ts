@@ -91,7 +91,13 @@ export interface LaneTaskData {
  *   被"占据是什么"和"VLA 是什么"淹没。boxes 早在 `./track` 里就是这样处理的。
  */
 export type {
-  VlaTaskData, InstructionSegment, ActionChannel, AlignmentLink, VlaSign, ChannelUnit, ChannelName,
+  VlaTaskData,
+  InstructionSegment,
+  ActionChannel,
+  AlignmentLink,
+  VlaSign,
+  ChannelUnit,
+  ChannelName,
 } from './vla'
 
 export interface SampleDocument {

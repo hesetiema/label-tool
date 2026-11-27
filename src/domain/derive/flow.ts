@@ -184,8 +184,13 @@ function buildGrid(b: Band, cell: number): { map: Map<number, number[]>; key: (x
  * 返回内点数与残差平方和，用于粗搜比较与最终 rmse。
  */
 function score(
-  src: Band, dst: Band, grid: ReturnType<typeof buildGrid>,
-  dx: number, dy: number, dyaw: number, tolerance: number,
+  src: Band,
+  dst: Band,
+  grid: ReturnType<typeof buildGrid>,
+  dx: number,
+  dy: number,
+  dyaw: number,
+  tolerance: number,
 ): { inliers: number; sse: number } {
   const c = Math.cos(dyaw)
   const s = Math.sin(dyaw)
@@ -225,11 +230,7 @@ function score(
  * 估的是"a 帧 → b 帧"的映射，与 `egoBetween` 同一方向：
  * 有位姿时可以用 `egoBetween` 直接算，没位姿才用这个。
  */
-export function estimateEgoMotion(
-  a: CloudLike,
-  b: CloudLike,
-  opts: EgoOptions = {},
-): EgoMotion {
+export function estimateEgoMotion(a: CloudLike, b: CloudLike, opts: EgoOptions = {}): EgoMotion {
   const band = opts.band ?? 0.35
   const quantile = opts.quantile ?? 0.02
   const maxPoints = opts.maxPoints ?? 400

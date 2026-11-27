@@ -13,7 +13,11 @@
 import type { BoxGeometry } from '../../domain/model/geometry'
 import type { PreAnnotateChunk, PreObject } from '../../ports/preAnnotation'
 
-interface VecLike { x?: unknown; y?: unknown; z?: unknown }
+interface VecLike {
+  x?: unknown
+  y?: unknown
+  z?: unknown
+}
 
 function vec(v: VecLike | undefined): { x: number; y: number; z: number } | null {
   if (!v) return null
@@ -54,9 +58,7 @@ export function parsePreObject(raw: unknown): PreObject | null {
 
   // obj_id 就是模型的跨帧身份（SUSTech 的 obj_id 语义与 modelTrackId 一致）
   const trackRaw = r.modelTrackId ?? r.obj_id ?? r.trackId
-  const modelTrackId = typeof trackRaw === 'string' || typeof trackRaw === 'number'
-    ? String(trackRaw)
-    : undefined
+  const modelTrackId = typeof trackRaw === 'string' || typeof trackRaw === 'number' ? String(trackRaw) : undefined
 
   return {
     classId,
@@ -85,9 +87,7 @@ export function parseChunkLine(line: string, fallbackModel: { id: string; versio
   const r = raw as Record<string, unknown>
   const frame = Number(r.frame ?? r.index)
   if (!Number.isFinite(frame)) return null
-  const objects = Array.isArray(r.objects)
-    ? r.objects.map(parsePreObject).filter((o): o is PreObject => !!o)
-    : []
+  const objects = Array.isArray(r.objects) ? r.objects.map(parsePreObject).filter((o): o is PreObject => !!o) : []
   const progress = Number(r.progress)
   const model = r.model as { id?: string; version?: string; runtimeMs?: number } | undefined
   return {

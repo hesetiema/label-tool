@@ -206,10 +206,7 @@ function comparatorFor(policy: EvictionPolicy): (a: FrameGroup, b: FrameGroup) =
     return (a, b) => a.hits - b.hits || a.lastUsedAt - b.lastUsedAt || byTie(a, b)
   }
   if (policy === 'hybrid') {
-    return (a, b) => tierOf(a) - tierOf(b)
-      || a.lastUsedAt - b.lastUsedAt
-      || a.hits - b.hits
-      || byTie(a, b)
+    return (a, b) => tierOf(a) - tierOf(b) || a.lastUsedAt - b.lastUsedAt || a.hits - b.hits || byTie(a, b)
   }
   return (a, b) => a.lastUsedAt - b.lastUsedAt || byTie(a, b)
 }
@@ -227,8 +224,14 @@ export function planFrameEviction(input: FrameEvictionInput): FrameEvictionPlan 
   const policy = input.policy ?? DEFAULT_EVICTION_POLICY
   const need = Math.max(0, input.reclaimBytes)
   const empty: FrameEvictionPlan = {
-    groups: [], keys: [], bytes: 0, protectedFrames: 0, candidates: 0,
-    datasets: [], shortfall: 0, policy,
+    groups: [],
+    keys: [],
+    bytes: 0,
+    protectedFrames: 0,
+    candidates: 0,
+    datasets: [],
+    shortfall: 0,
+    policy,
   }
   if (need <= 0) return empty
 

@@ -57,8 +57,10 @@ export function* serializeSequenceChunks(
   const total = Math.max(0, to - from + 1)
   const exportedAt = new Date().toISOString()
 
-  yield `{"format":${JSON.stringify(SEQUENCE_FORMAT)},"version":1,`
-    + `"exportedAt":${JSON.stringify(exportedAt)},"frameCount":${total},"frames":[`
+  yield (
+    `{"format":${JSON.stringify(SEQUENCE_FORMAT)},"version":1,` +
+    `"exportedAt":${JSON.stringify(exportedAt)},"frameCount":${total},"frames":[`
+  )
 
   let buf: string[] = []
   let first = true

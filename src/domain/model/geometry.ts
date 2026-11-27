@@ -141,7 +141,12 @@ export function bevCorners(g: BoxGeometryLike): Array<{ x: number; y: number }> 
   const s = Math.sin(g.yaw)
   const hx = g.scale.x / 2
   const hy = g.scale.y / 2
-  const local: Array<[number, number]> = [[hx, -hy], [hx, hy], [-hx, hy], [-hx, -hy]]
+  const local: Array<[number, number]> = [
+    [hx, -hy],
+    [hx, hy],
+    [-hx, hy],
+    [-hx, -hy],
+  ]
   return local.map(([lx, ly]) => ({
     x: g.position.x + lx * c - ly * s,
     y: g.position.y + lx * s + ly * c,

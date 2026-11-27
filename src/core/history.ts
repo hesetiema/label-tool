@@ -43,11 +43,13 @@ export class HistoryStack<T> {
   /** 判断两状态是否相等；默认用 JSON 序列化比较（对 Box3D[] 这类纯数据足够） */
   private readonly isEqual: (a: T, b: T) => boolean
 
-  constructor(options: {
-    limit?: number
-    mergeWindowMs?: number
-    isEqual?: (a: T, b: T) => boolean
-  } = {}) {
+  constructor(
+    options: {
+      limit?: number
+      mergeWindowMs?: number
+      isEqual?: (a: T, b: T) => boolean
+    } = {},
+  ) {
     this.limit = options.limit ?? 100
     this.mergeWindowMs = options.mergeWindowMs ?? 700
     this.isEqual = options.isEqual ?? ((a, b) => JSON.stringify(a) === JSON.stringify(b))
@@ -94,12 +96,22 @@ export class HistoryStack<T> {
     return cmd.after
   }
 
-  get canUndo(): boolean { return this.undoStack.length > 0 }
-  get canRedo(): boolean { return this.redoStack.length > 0 }
+  get canUndo(): boolean {
+    return this.undoStack.length > 0
+  }
+  get canRedo(): boolean {
+    return this.redoStack.length > 0
+  }
   /** 供 UI 显示下一个撤销/重做的操作名 */
-  get undoLabel(): string { return this.undoStack[this.undoStack.length - 1]?.label ?? '' }
-  get redoLabel(): string { return this.redoStack[this.redoStack.length - 1]?.label ?? '' }
-  get undoCount(): number { return this.undoStack.length }
+  get undoLabel(): string {
+    return this.undoStack[this.undoStack.length - 1]?.label ?? ''
+  }
+  get redoLabel(): string {
+    return this.redoStack[this.redoStack.length - 1]?.label ?? ''
+  }
+  get undoCount(): number {
+    return this.undoStack.length
+  }
 
   /** 加载新文件 / 切换数据集时清空历史（不同数据集间不能互相撤销） */
   clear(): void {

@@ -59,7 +59,13 @@ let drawnHover: string | null = null
  * 拾取缓存：重绘时把每个框的屏幕凸包存下来。
  * mousemove 每秒几十次，不能每次都重投影 8 个角点 + 求凸包（含一次 sort）。
  */
-interface PickItem { id: string; poly: { x: number; y: number }[]; top: number; left: number; right: number }
+interface PickItem {
+  id: string
+  poly: { x: number; y: number }[]
+  top: number
+  left: number
+  right: number
+}
 let pickList: PickItem[] = []
 
 /** 重绘：图片 + 所有投影框 */
@@ -98,7 +104,10 @@ function draw() {
   ctx.drawImage(img, offsetX, offsetY, drawW, drawH)
 
   pickList = []
-  if (!props.calib) { visibleCount.value = 0; return }
+  if (!props.calib) {
+    visibleCount.value = 0
+    return
+  }
   let visible = 0
 
   for (const box of props.boxes) {
@@ -113,9 +122,15 @@ function draw() {
     }))
 
     // 判断框是否大致在图像范围内（避免画到黑边上）
-    const us = pts.map((p) => p.u), vs = pts.map((p) => p.v)
-    if (Math.max(...us) < offsetX || Math.min(...us) > offsetX + drawW ||
-        Math.max(...vs) < offsetY || Math.min(...vs) > offsetY + drawH) continue
+    const us = pts.map((p) => p.u),
+      vs = pts.map((p) => p.v)
+    if (
+      Math.max(...us) < offsetX ||
+      Math.min(...us) > offsetX + drawW ||
+      Math.max(...vs) < offsetY ||
+      Math.min(...vs) > offsetY + drawH
+    )
+      continue
     visible++
 
     const selected = box.id === props.selectedId
@@ -125,7 +140,9 @@ function draw() {
     // 命中轮廓：8 个投影点的屏幕凸包（与正交视图同一套算法）
     const screenPts = pts.map((p) => ({ x: p.u, y: p.v }))
     const poly = convexHull(screenPts)
-    let top = screenPts[0], left = Infinity, right = -Infinity
+    let top = screenPts[0],
+      left = Infinity,
+      right = -Infinity
     for (const p of screenPts) {
       if (p.y < top.y) top = p
       if (p.x < left) left = p.x
@@ -192,7 +209,10 @@ function onMove(e: MouseEvent) {
 
   let next: string | null = null
   for (let i = pickList.length - 1; i >= 0; i--) {
-    if (pointInPoly(mx, my, pickList[i].poly)) { next = pickList[i].id; break }
+    if (pointInPoly(mx, my, pickList[i].poly)) {
+      next = pickList[i].id
+      break
+    }
   }
   if (next !== localHover) {
     localHover = next
@@ -205,8 +225,14 @@ function onMove(e: MouseEvent) {
 }
 
 function onLeave() {
-  if (localHover) { localHover = null; draw() }
-  if (emittedHover !== null) { emittedHover = null; emit('hover', null) }
+  if (localHover) {
+    localHover = null
+    draw()
+  }
+  if (emittedHover !== null) {
+    emittedHover = null
+    emit('hover', null)
+  }
 }
 
 watch(
@@ -216,9 +242,12 @@ watch(
 )
 // 别处（3D 视口 / 正交视图）改了悬停：跟着高亮，但不再广播回去。
 // 本地刚发出的那次悬停已经画过了，靠 drawnHover 跳过这一帧的重复重绘。
-watch(() => props.hoverId, (id) => {
-  if (id !== drawnHover) draw()
-})
+watch(
+  () => props.hoverId,
+  (id) => {
+    if (id !== drawnHover) draw()
+  },
+)
 
 let ro: ResizeObserver | null = null
 
@@ -245,14 +274,7 @@ defineExpose({ redraw: draw })
 
 <template>
   <div ref="containerRef" class="camera-view">
-    <img
-      ref="imgEl"
-      :src="imageUrl"
-      alt="相机图像"
-      crossorigin="anonymous"
-      @load="onImageLoad"
-      style="display: none"
-    />
+    <img ref="imgEl" :src="imageUrl" alt="相机图像" crossorigin="anonymous" style="display: none" @load="onImageLoad" />
     <canvas ref="canvasRef"></canvas>
     <div class="cam-hud">
       <span class="cam-tag">前视相机 · FRONT</span>
@@ -262,9 +284,37 @@ defineExpose({ redraw: draw })
 </template>
 
 <style scoped>
-.camera-view { position: relative; width: 100%; height: 100%; overflow: hidden; background: #080a0f; }
-.camera-view canvas { display: block; }
-.cam-hud { position: absolute; top: 10px; left: 10px; display: flex; gap: 8px; pointer-events: none; }
-.cam-tag { background: rgba(91,224,160,.15); color: #5ce0a0; border: 1px solid rgba(91,224,160,.4); padding: 4px 9px; border-radius: 4px; font-size: 11px; }
-.cam-count { background: rgba(0,0,0,.5); color: #8b98ad; padding: 4px 9px; border-radius: 4px; font-size: 11px; }
+.camera-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #080a0f;
+}
+.camera-view canvas {
+  display: block;
+}
+.cam-hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+.cam-tag {
+  background: rgba(91, 224, 160, 0.15);
+  color: #5ce0a0;
+  border: 1px solid rgba(91, 224, 160, 0.4);
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.cam-count {
+  background: rgba(0, 0, 0, 0.5);
+  color: #8b98ad;
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+}
 </style>

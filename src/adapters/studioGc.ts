@@ -68,7 +68,7 @@ export async function gcBlobStore(
 ): Promise<StoreGcResult> {
   const ownPayload = new Set<string>(opts.livePayloadRefs ?? [])
   const ownDatasets = [...new Set(opts.liveDatasetKeys ?? [])].filter(Boolean)
-  const peerPayload = new Set([...opts.peerPayloadRefs ?? []].filter(isPayloadRef))
+  const peerPayload = new Set([...(opts.peerPayloadRefs ?? [])].filter(isPayloadRef))
   const peerDatasets = [...new Set(opts.peerDatasetKeys ?? [])].filter(Boolean)
 
   const livePayload = new Set([...ownPayload, ...peerPayload])
@@ -99,11 +99,7 @@ export async function gcBlobStore(
  *   - 载荷：留下且理由是可回收载荷的活引用，但本端引用集里没有它
  *   - 帧缓存：留下且数据集不在本端的数据集集合里
  */
-function countPeerProtected(
-  report: SweepReport,
-  ownPayload: Set<string>,
-  ownDatasets: Set<string>,
-): number {
+function countPeerProtected(report: SweepReport, ownPayload: Set<string>, ownDatasets: Set<string>): number {
   let n = 0
   for (const v of report.verdicts) {
     if (!v.keep) continue
@@ -128,7 +124,7 @@ export async function runStoreGc(opts: StoreGcOptions = {}): Promise<StoreGcResu
 
   const ownPayload = new Set(docRefs)
   for (const ref of opts.livePayloadRefs ?? []) ownPayload.add(ref)
-  const peerPayload = new Set([...opts.peerPayloadRefs ?? []].filter(isPayloadRef))
+  const peerPayload = new Set([...(opts.peerPayloadRefs ?? [])].filter(isPayloadRef))
 
   const ownDatasets = new Set<string>(opts.extraDatasetKeys ?? [])
   if (opts.activeDatasetKey) ownDatasets.add(opts.activeDatasetKey)

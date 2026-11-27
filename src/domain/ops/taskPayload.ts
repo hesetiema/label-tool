@@ -55,12 +55,15 @@ export function buildTaskPayloadCommand(opts: {
 }): Command {
   const before = cloneDescriptor(opts.before)
   const after = cloneDescriptor(opts.after)
-  return makeCommand({
-    type: 'setTaskPayload',
-    task: opts.task,
-    before,
-    after,
-    beforeRef: primaryPayloadRef(opts.task, before),
-    afterRef: primaryPayloadRef(opts.task, after),
-  }, { label: opts.label, ...(opts.actor ? { actor: opts.actor } : {}) })
+  return makeCommand(
+    {
+      type: 'setTaskPayload',
+      task: opts.task,
+      before,
+      after,
+      beforeRef: primaryPayloadRef(opts.task, before),
+      afterRef: primaryPayloadRef(opts.task, after),
+    },
+    { label: opts.label, ...(opts.actor ? { actor: opts.actor } : {}) },
+  )
 }

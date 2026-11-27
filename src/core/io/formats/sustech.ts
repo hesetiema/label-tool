@@ -23,7 +23,9 @@ export const sustechAdapter: FormatAdapter = {
       try {
         const arr = JSON.parse(s) as unknown
         return Array.isArray(arr) && arr.length > 0 && isSustechObject(arr[0]) ? 1 : 0
-      } catch { return 0 }
+      } catch {
+        return 0
+      }
     }
     if (Array.isArray(raw) && raw.length > 0) return isSustechObject(raw[0]) ? 1 : 0
     // 文件名只是弱证据，给 0.3，不足以单独选中

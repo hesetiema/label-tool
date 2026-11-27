@@ -272,7 +272,8 @@ export class KalmanFilter2D {
     // 所以 P·Hᵀ 就是 P 的前两列，K 的第 i 行 = [P[i,0], P[i,1]] · S⁻¹
     const K = new Float64Array(8) // 4×2
     for (let i = 0; i < 4; i++) {
-      const a = P[i * 4 + 0], b = P[i * 4 + 1]
+      const a = P[i * 4 + 0],
+        b = P[i * 4 + 1]
       K[i * 2 + 0] = a * i00 + b * i10
       K[i * 2 + 1] = a * i01 + b * i11
     }
@@ -288,9 +289,7 @@ export class KalmanFilter2D {
     const newP = new Float64Array(16)
     for (let i = 0; i < 4; i++) {
       for (let j = 0; j < 4; j++) {
-        newP[i * 4 + j] = P[i * 4 + j]
-          - K[i * 2] * P[0 * 4 + j]
-          - K[i * 2 + 1] * P[1 * 4 + j]
+        newP[i * 4 + j] = P[i * 4 + j] - K[i * 2] * P[0 * 4 + j] - K[i * 2 + 1] * P[1 * 4 + j]
       }
     }
     this.P = newP
@@ -375,7 +374,7 @@ export function associateHungarianKalman(
   for (const a of assignments) {
     const t = tracks[a.row]
     const d = detections[a.col]
-    t.    kf.update(d.position.x, d.position.y)
+    t.kf.update(d.position.x, d.position.y)
     // 用观测位置作为新的 box 位置（保持 id/label/scale/朝向不变）
     t.box = {
       ...t.box,
@@ -407,7 +406,10 @@ export function associateHungarianKalman(
     assignments,
     gated,
     unmatchedDetections: detections.map((_, j) => j).filter((j) => !usedDets.has(j)),
-    unmatchedTracks: tracks.map((_, i) => i).filter((i) => !usedTracks.has(i)).map((i) => tracks[i].id),
+    unmatchedTracks: tracks
+      .map((_, i) => i)
+      .filter((i) => !usedTracks.has(i))
+      .map((i) => tracks[i].id),
   }
 }
 
@@ -434,10 +436,7 @@ export function initTracks(boxes: Box3D[]): Track[] {
  * 为什么要分两级：真实场景里目标会被卡车挡住几帧又出现（occluded），
  * 也可能驶出视野永不回来（dead）。只用单一阈值会要么过早丢弃、要么无限续假框。
  */
-export function stepTrackState(
-  tracks: Track[],
-  maxDeadFrames = 8,
-): { becameOccluded: string[]; becameDead: string[] } {
+export function stepTrackState(tracks: Track[], maxDeadFrames = 8): { becameOccluded: string[]; becameDead: string[] } {
   const becameOccluded: string[] = []
   const becameDead: string[] = []
   for (const t of tracks) {
@@ -487,17 +486,18 @@ export function coastOccludedTracks(tracks: Track[]): Box3D[] {
  */
 export function demoOcclusionCase(): { frames: Box3D[][]; expectedStates: TrackState[][] } {
   const mk = (id: string, x: number): Box3D => ({
-    id, label: 'Car',
-    position: { x, y: 0, z: 0.8 }, scale: { x: 4.5, y: 1.8, z: 1.6 }, yaw: 0,
+    id,
+    label: 'Car',
+    position: { x, y: 0, z: 0.8 },
+    scale: { x: 4.5, y: 1.8, z: 1.6 },
+    yaw: 0,
   })
   // A 匀速向右 5m/s，dt=0.5 → 每帧 +2.5m；第 2、3 帧消失
   const ax = [0, 2.5, null, null, 7.5]
   const frames: Box3D[][] = ax.map((x) => (x === null ? [] : [mk('A', x)]))
   return {
     frames,
-    expectedStates: [
-      ['alive'], ['alive'], ['occluded'], ['occluded'], ['alive'],
-    ],
+    expectedStates: [['alive'], ['alive'], ['occluded'], ['occluded'], ['alive']],
   }
 }
 
@@ -516,8 +516,11 @@ export function demoCrossingCase(): {
   cost: number[][]
 } {
   const mk = (id: string, x: number, y: number): Box3D => ({
-    id, label: 'Car',
-    position: { x, y, z: 0.8 }, scale: { x: 4.5, y: 1.8, z: 1.6 }, yaw: 0,
+    id,
+    label: 'Car',
+    position: { x, y, z: 0.8 },
+    scale: { x: 4.5, y: 1.8, z: 1.6 },
+    yaw: 0,
   })
   // 上一帧：A 在左(x=8)、B 在右(x=12)
   const prev = [mk('A(原左车)', 8, 0), mk('B(原右车)', 12, 0)]
@@ -533,8 +536,8 @@ export function demoCrossingCase(): {
 
   // Kalman 版：注入两车真实速度，预测位置正确跟随运动方向
   const tracks = initTracks(prev)
-  tracks[0].kf.vx = 8   // A 向右 8m/s
-  tracks[1].kf.vx = -8  // B 向左 8m/s
+  tracks[0].kf.vx = 8 // A 向右 8m/s
+  tracks[1].kf.vx = -8 // B 向左 8m/s
   const kalman = associateHungarianKalman(tracks, curr, 0.5, 3)
 
   return { prev, curr, greedy, kalman, cost: obsCost }

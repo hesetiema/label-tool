@@ -121,10 +121,18 @@ export class FrameCache<T> {
     return [...this.map.keys()]
   }
 
-  get size(): number { return this.map.size }
-  get byteSize(): number { return this.bytes }
-  get budgetBytes(): number { return this.budget }
-  get stats(): FrameCacheStats { return { ...this.counters } }
+  get size(): number {
+    return this.map.size
+  }
+  get byteSize(): number {
+    return this.bytes
+  }
+  get budgetBytes(): number {
+    return this.budget
+  }
+  get stats(): FrameCacheStats {
+    return { ...this.counters }
+  }
 
   private evictUntilFits(): void {
     while (this.bytes > this.budget && this.map.size) {

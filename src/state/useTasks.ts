@@ -22,9 +22,17 @@ import type { OccupancyGridSpec, OccupancyTaskData, FlowTaskData } from '../doma
 import type { QaIssue } from '../domain/model/issue'
 import type { TrackId } from '../domain/model/ids'
 import {
-  carveFromTracks, defaultOccupancySpec, editOccupancy, encodeOccBundle, estimateGround,
-  occStats, occupancySpecKey, worldToIndex,
-  type GroundField, type OccStats, type OccupancyFrame,
+  carveFromTracks,
+  defaultOccupancySpec,
+  editOccupancy,
+  encodeOccBundle,
+  estimateGround,
+  occStats,
+  occupancySpecKey,
+  worldToIndex,
+  type GroundField,
+  type OccStats,
+  type OccupancyFrame,
 } from '../domain/derive/occupancy'
 import { estimateEgoMotion, flowSegments, type EgoMotion } from '../domain/derive/flow'
 import { checkCrossTaskFrames, type CrossTaskInput } from '../domain/qa/crossTask'
@@ -186,11 +194,12 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
     }
     if (occBusy.value) return
 
-    const targets = scope === 'frame'
-      ? [currentFrameNumber()]
-      : core.frames.value.length
-        ? core.frames.value.slice(0, MAX_GENERATE_FRAMES).map((f) => f.index)
-        : [currentFrameNumber()]
+    const targets =
+      scope === 'frame'
+        ? [currentFrameNumber()]
+        : core.frames.value.length
+          ? core.frames.value.slice(0, MAX_GENERATE_FRAMES).map((f) => f.index)
+          : [currentFrameNumber()]
     if (!targets.length) {
       deps.say('没有可用的帧')
       return
@@ -245,17 +254,21 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
         source: { kind: 'derived' },
       }
       occSpec.value = spec
-      deps.applyEdit(buildTaskPayloadCommand({
-        task: 'occupancy',
-        before,
-        after: payload,
-        label: `生成占据（${entries.length} 帧${groundFrames ? '，含地面剪裁' : ''}）`,
-      }))
+      deps.applyEdit(
+        buildTaskPayloadCommand({
+          task: 'occupancy',
+          before,
+          after: payload,
+          label: `生成占据（${entries.length} 帧${groundFrames ? '，含地面剪裁' : ''}）`,
+        }),
+      )
       const ms = Math.round(performance.now() - t0)
-      deps.say(`占据已生成：${entries.length} 帧 / ${ms}ms（${Math.round(ms / entries.length)}ms/帧）`
-        + `${groundFrames ? `，${groundFrames} 帧剪掉地面以下体素` : ''}`
-        + `${kept.length ? `，保留其余 ${kept.length} 帧` : ''}`
-        + `${overlap ? `，${overlap} 个体素被多框覆盖` : ''}${skipped ? `，${skipped} 条轨迹跳过` : ''}`)
+      deps.say(
+        `占据已生成：${entries.length} 帧 / ${ms}ms（${Math.round(ms / entries.length)}ms/帧）` +
+          `${groundFrames ? `，${groundFrames} 帧剪掉地面以下体素` : ''}` +
+          `${kept.length ? `，保留其余 ${kept.length} 帧` : ''}` +
+          `${overlap ? `，${overlap} 个体素被多框覆盖` : ''}${skipped ? `，${skipped} 条轨迹跳过` : ''}`,
+      )
       showOcc.value = true
       await refreshCurrentOcc()
     } catch (err) {
@@ -272,12 +285,14 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
       deps.say('当前样本没有占据')
       return
     }
-    deps.applyEdit(buildTaskPayloadCommand({
-      task: 'occupancy',
-      before,
-      after: null,
-      label: '清除占据',
-    }))
+    deps.applyEdit(
+      buildTaskPayloadCommand({
+        task: 'occupancy',
+        before,
+        after: null,
+        label: '清除占据',
+      }),
+    )
     resetOccCache()
     showOcc.value = false
     core.syncViewer()
@@ -322,7 +337,7 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
       return
     }
 
-    let occ = occCache.get(frame) ?? await getOccFrame(blobs, entry.ref)
+    const occ = occCache.get(frame) ?? (await getOccFrame(blobs, entry.ref))
     const beforeRef = entry.ref
     const next = editOccupancy(occ, spec, [{ index, label: action === 'add' ? labelIdx : null }])
     const ref = await putOccFrame(blobs, next)
@@ -332,12 +347,14 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
       spec,
       frames: occEntries.value.map((e) => (e.frame === frame ? { frame, ref } : e)),
     }
-    deps.applyEdit(buildTaskPayloadCommand({
-      task: 'occupancy',
-      before: doc.tasks.occupancy ?? null,
-      after: payload,
-      label: `${action === 'add' ? '补' : '删'}占据体素（第 ${frame} 帧）`,
-    }))
+    deps.applyEdit(
+      buildTaskPayloadCommand({
+        task: 'occupancy',
+        before: doc.tasks.occupancy ?? null,
+        after: payload,
+        label: `${action === 'add' ? '补' : '删'}占据体素（第 ${frame} 帧）`,
+      }),
+    )
 
     occCache.set(frame, next)
     occRefs.set(frame, ref)
@@ -414,18 +431,30 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
         ego: [...rest, entry].sort((a, b) => a.frame - b.frame),
         source: { kind: 'derived' },
       }
-      deps.applyEdit(buildTaskPayloadCommand({
-        task: 'flow', before: before ?? null, after: payload, label: `估计自车运动（第 ${frame} 帧）`,
-      }))
+      deps.applyEdit(
+        buildTaskPayloadCommand({
+          task: 'flow',
+          before: before ?? null,
+          after: payload,
+          label: `估计自车运动（第 ${frame} 帧）`,
+        }),
+      )
       const warn = m.rmse > 0.2 ? '（残差偏大，仅参考）' : ''
-      deps.say(`自车运动：dx ${m.dx.toFixed(2)}m · dy ${m.dy.toFixed(2)}m · dyaw ${(m.dyaw * 180 / Math.PI).toFixed(1)}° · 内点 ${m.inliers}/${m.samples} · rmse ${m.rmse.toFixed(3)}m${warn}`)
+      deps.say(
+        `自车运动：dx ${m.dx.toFixed(2)}m · dy ${m.dy.toFixed(2)}m · dyaw ${((m.dyaw * 180) / Math.PI).toFixed(1)}° · 内点 ${m.inliers}/${m.samples} · rmse ${m.rmse.toFixed(3)}m${warn}`,
+      )
       flowNote.value = `${m.inliers}/${m.samples} 内点 · rmse ${m.rmse.toFixed(3)}m`
     } finally {
       occBusy.value = ''
     }
   }
 
-  function insideBox(g: { position: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number }; yaw: number }, x: number, y: number, z: number): boolean {
+  function insideBox(
+    g: { position: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number }; yaw: number },
+    x: number,
+    y: number,
+    z: number,
+  ): boolean {
     const dx = x - g.position.x
     const dy = y - g.position.y
     const dz = z - g.position.z
@@ -515,9 +544,10 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
     try {
       const spec = occTask.value.spec
       const trackIds = store.tracks.map((t) => t.id as TrackId)
-      const entries = scope === 'current'
-        ? occEntries.value.filter((e) => e.frame === currentFrameNumber())
-        : occEntries.value.slice(0, MAX_CHECK_FRAMES)
+      const entries =
+        scope === 'current'
+          ? occEntries.value.filter((e) => e.frame === currentFrameNumber())
+          : occEntries.value.slice(0, MAX_CHECK_FRAMES)
       const inputs: CrossTaskInput[] = []
       for (const entry of entries) {
         let occ = occCache.get(entry.frame)
@@ -528,7 +558,11 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
         inputs.push({
           frame: entry.frame,
           boxes: store.materialize(entry.frame, { mode: 'linear' }).map((b) => ({
-            id: b.trackId, label: b.label, position: b.position, scale: b.scale, yaw: b.yaw,
+            id: b.trackId,
+            label: b.label,
+            position: b.position,
+            scale: b.scale,
+            yaw: b.yaw,
           })),
           spec: spec ?? null,
           occ,
@@ -543,9 +577,11 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
       const byCode = new Map<string, number>()
       for (const i of result.issues) byCode.set(i.code, (byCode.get(i.code) ?? 0) + 1)
       const detail = [...byCode].map(([c, n]) => `${c}×${n}`).join('、')
-      deps.say(result.issues.length
-        ? `一致性校验：${result.checked} 帧里 ${result.issues.length} 个问题（${detail}）`
-        : `一致性校验通过：${result.checked} 帧无明显冲突`)
+      deps.say(
+        result.issues.length
+          ? `一致性校验：${result.checked} 帧里 ${result.issues.length} 个问题（${detail}）`
+          : `一致性校验通过：${result.checked} 帧无明显冲突`,
+      )
     } catch (err) {
       deps.say(`校验失败：${(err as Error).message}`)
     } finally {
@@ -596,39 +632,70 @@ export function useTasks(core: StudioCore, deps: TaskDeps) {
 
   /* ---------------- 跟随文档 / 帧 ---------------- */
 
-  watch(currentFrameNumber, () => { if (showOcc.value) void refreshCurrentOcc() })
-  watch(() => core.docVersion.value, () => {
-    const spec = occTask.value?.spec ?? null
-    if (spec) occSpec.value = spec
-    // 引用变了才丢缓存（撤销/重做会换回来）
-    for (const entry of occEntries.value) {
-      const ref = occRefs.get(entry.frame)
-      if (ref && ref !== entry.ref) occCache.delete(entry.frame)
-      occRefs.set(entry.frame, entry.ref)
-    }
+  watch(currentFrameNumber, () => {
     if (showOcc.value) void refreshCurrentOcc()
   })
-  watch(() => core.doc.value?.sampleId ?? '', () => {
-    resetOccCache()
-    issues.value = []
-    lastCheck.value = null
-    ego.value = null
-    showFlow.value = false
-    core.flowSegments.value = null
-    occSpec.value = occTask.value?.spec ?? null
-  })
+  watch(
+    () => core.docVersion.value,
+    () => {
+      const spec = occTask.value?.spec ?? null
+      if (spec) occSpec.value = spec
+      // 引用变了才丢缓存（撤销/重做会换回来）
+      for (const entry of occEntries.value) {
+        const ref = occRefs.get(entry.frame)
+        if (ref && ref !== entry.ref) occCache.delete(entry.frame)
+        occRefs.set(entry.frame, entry.ref)
+      }
+      if (showOcc.value) void refreshCurrentOcc()
+    },
+  )
+  watch(
+    () => core.doc.value?.sampleId ?? '',
+    () => {
+      resetOccCache()
+      issues.value = []
+      lastCheck.value = null
+      ego.value = null
+      showFlow.value = false
+      core.flowSegments.value = null
+      occSpec.value = occTask.value?.spec ?? null
+    },
+  )
 
   return {
     // 任务
-    taskRows, taskIssues, registry,
+    taskRows,
+    taskIssues,
+    registry,
     // 占据
-    occSpec, occEntries, occCoverage, occStatsNow, occNote, occBusy,
-    showOcc, toggleOcc, sliceLow, sliceHigh, setSlice,
-    generateOccupancy, clearOccupancy, paintVoxel, refreshCurrentOcc,
+    occSpec,
+    occEntries,
+    occCoverage,
+    occStatsNow,
+    occNote,
+    occBusy,
+    showOcc,
+    toggleOcc,
+    sliceLow,
+    sliceHigh,
+    setSlice,
+    generateOccupancy,
+    clearOccupancy,
+    paintVoxel,
+    refreshCurrentOcc,
     // 光流
-    ego, egoRecord, showFlow, toggleFlow, estimateEgo, flowNote,
+    ego,
+    egoRecord,
+    showFlow,
+    toggleFlow,
+    estimateEgo,
+    flowNote,
     // 一致性
-    issues, checkBusy, lastCheck, runCrossCheck, gotoIssue,
+    issues,
+    checkBusy,
+    lastCheck,
+    runCrossCheck,
+    gotoIssue,
     // 导出
     exportOccupancy,
   }

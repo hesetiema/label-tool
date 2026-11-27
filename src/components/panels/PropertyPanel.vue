@@ -10,10 +10,26 @@ import { StudioKey } from '../../state/studioContext'
 
 const studio = inject(StudioKey)!
 const {
-  frames, propagateScope, propagateStrategy, selectedBox, selectedBoxes, selectedCount,
-  categories, lockedIds, selectBox, toggleLocked,
-  onScopeChange, onStrategyChange, doPropagate, toggleSelectedVisibility,
-  numVal, strVal, setBoxProp, relabelSelected, duplicateSelected, deleteSelected,
+  frames,
+  propagateScope,
+  propagateStrategy,
+  selectedBox,
+  selectedBoxes,
+  selectedCount,
+  categories,
+  lockedIds,
+  selectBox,
+  toggleLocked,
+  onScopeChange,
+  onStrategyChange,
+  doPropagate,
+  toggleSelectedVisibility,
+  numVal,
+  strVal,
+  setBoxProp,
+  relabelSelected,
+  duplicateSelected,
+  deleteSelected,
   copyToFrames,
 } = studio
 
@@ -50,13 +66,16 @@ function toggleLockAll() {
 <template>
   <section v-if="selectedCount > 1" class="panel-sec props">
     <div class="panel-head">
-      <span class="panel-title">已选 <b>{{ selectedCount }}</b> 个对象</span>
+      <span class="panel-title"
+        >已选 <b>{{ selectedCount }}</b> 个对象</span
+      >
       <button class="mini-btn" @click="selectBox(null)">取消</button>
     </div>
 
     <div class="multi-summary">{{ summary }}</div>
 
-    <label class="field">批量改类别
+    <label class="field"
+      >批量改类别
       <select value="" @change="onBatchLabel">
         <option value="" disabled>选择类别…</option>
         <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.name }}</option>
@@ -86,28 +105,77 @@ function toggleLockAll() {
 
   <section v-else-if="selectedBox" class="panel-sec props">
     <div class="panel-head">
-      <span class="panel-title">详情 <b>#{{ selectedBox.id }}</b></span>
+      <span class="panel-title"
+        >详情 <b>#{{ selectedBox.id }}</b></span
+      >
       <span v-if="locked()" class="panel-warn">已锁定</span>
     </div>
 
-    <label class="field">类别
+    <label class="field"
+      >类别
       <select :disabled="locked()" :value="selectedBox.label" @change="setBoxProp('label', strVal($event))">
         <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.name }}</option>
       </select>
     </label>
 
     <div class="field-grid">
-      <label>x<input type="number" step="0.1" :disabled="locked()" :value="selectedBox.position.x.toFixed(2)" @input="setBoxProp('x', numVal($event))" /></label>
-      <label>y<input type="number" step="0.1" :disabled="locked()" :value="selectedBox.position.y.toFixed(2)" @input="setBoxProp('y', numVal($event))" /></label>
-      <label>z<input type="number" step="0.1" :disabled="locked()" :value="selectedBox.position.z.toFixed(2)" @input="setBoxProp('z', numVal($event))" /></label>
-      <label>长<input type="number" step="0.1" :disabled="locked()" :value="selectedBox.scale.x.toFixed(2)" @input="setBoxProp('length', numVal($event))" /></label>
-      <label>宽<input type="number" step="0.1" :disabled="locked()" :value="selectedBox.scale.y.toFixed(2)" @input="setBoxProp('width', numVal($event))" /></label>
-      <label>高<input type="number" step="0.1" :disabled="locked()" :value="selectedBox.scale.z.toFixed(2)" @input="setBoxProp('height', numVal($event))" /></label>
+      <label
+        >x<input
+          type="number"
+          step="0.1"
+          :disabled="locked()"
+          :value="selectedBox.position.x.toFixed(2)"
+          @input="setBoxProp('x', numVal($event))"
+      /></label>
+      <label
+        >y<input
+          type="number"
+          step="0.1"
+          :disabled="locked()"
+          :value="selectedBox.position.y.toFixed(2)"
+          @input="setBoxProp('y', numVal($event))"
+      /></label>
+      <label
+        >z<input
+          type="number"
+          step="0.1"
+          :disabled="locked()"
+          :value="selectedBox.position.z.toFixed(2)"
+          @input="setBoxProp('z', numVal($event))"
+      /></label>
+      <label
+        >长<input
+          type="number"
+          step="0.1"
+          :disabled="locked()"
+          :value="selectedBox.scale.x.toFixed(2)"
+          @input="setBoxProp('length', numVal($event))"
+      /></label>
+      <label
+        >宽<input
+          type="number"
+          step="0.1"
+          :disabled="locked()"
+          :value="selectedBox.scale.y.toFixed(2)"
+          @input="setBoxProp('width', numVal($event))"
+      /></label>
+      <label
+        >高<input
+          type="number"
+          step="0.1"
+          :disabled="locked()"
+          :value="selectedBox.scale.z.toFixed(2)"
+          @input="setBoxProp('height', numVal($event))"
+      /></label>
     </div>
 
-    <label class="field">朝向 <span class="mono">{{ (selectedBox.yaw * 180 / Math.PI).toFixed(1) }}°</span>
+    <label class="field"
+      >朝向 <span class="mono">{{ ((selectedBox.yaw * 180) / Math.PI).toFixed(1) }}°</span>
       <input
-        type="range" min="-3.1416" max="3.1416" step="0.005"
+        type="range"
+        min="-3.1416"
+        max="3.1416"
+        step="0.005"
         :disabled="locked()"
         :value="selectedBox.yaw"
         @input="setBoxProp('yaw', numVal($event))"
@@ -146,7 +214,9 @@ function toggleLockAll() {
         <button class="mini-btn" @click="copyToFrames('forward')">后续帧</button>
         <button class="mini-btn" @click="copyToFrames('all')">全部帧</button>
       </div>
-      <div class="multi-tip">先标好一帧，再用这里往后铺，然后逐帧微调。<kbd>Ctrl</kbd>+<kbd>B</kbd> 等价的后续帧复制。</div>
+      <div class="multi-tip">
+        先标好一帧，再用这里往后铺，然后逐帧微调。<kbd>Ctrl</kbd>+<kbd>B</kbd> 等价的后续帧复制。
+      </div>
     </div>
   </section>
 </template>

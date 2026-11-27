@@ -22,7 +22,9 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 980 }, acceptDownloads: true })
 const page = await ctx.newPage()
 const consoleErrors = []
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message))
 
 await page.goto(APP + '?data=sequence&frames=120', { waitUntil: 'load' })
@@ -58,7 +60,11 @@ const gen = await page.evaluate(async () => {
 check('VLA 段写进文档', gen.has)
 check('生成 5 条指令', gen.segments === 5, String(gen.segments))
 check('生成 4 个通道', gen.channels.length === 4, gen.channels.join())
-check('通道长度 = 帧数', gen.lengths.every((n) => n === 120), gen.lengths.join())
+check(
+  '通道长度 = 帧数',
+  gen.lengths.every((n) => n === 120),
+  gen.lengths.join(),
+)
 check('hz 落到载荷', gen.hz === 10, String(gen.hz))
 check('对齐关系补齐 5 条', gen.alignment === 5, String(gen.alignment))
 check('干净数据零问题', gen.issues.length === 0, gen.issues.join())
@@ -92,19 +98,34 @@ const tl = await page.evaluate(() => {
   }
 })
 check('时间线出现 5 段指令条', tl.bars === 5, String(tl.bars))
-check('指令条带文本', tl.texts.every((t) => t.length > 0), JSON.stringify(tl.texts))
-check('指令条宽度按区间成比例（都不是 0）', tl.widths.every((w) => w > 4), JSON.stringify(tl.widths.map((w) => Math.round(w))))
+check(
+  '指令条带文本',
+  tl.texts.every((t) => t.length > 0),
+  JSON.stringify(tl.texts),
+)
+check(
+  '指令条宽度按区间成比例（都不是 0）',
+  tl.widths.every((w) => w > 4),
+  JSON.stringify(tl.widths.map((w) => Math.round(w))),
+)
 check('两行标题是"指令段 / 动作通道"', tl.names.join('/') === '指令段/动作通道', tl.names.join('/'))
 check('canvas 有实际像素尺寸', tl.canvasW > 0 && tl.canvasH > 0, `${tl.canvasW}x${tl.canvasH}`)
 check('曲线真的画出来了（非透明像素 > 2000）', tl.painted > 2000, String(tl.painted))
 // 帧是"槽位"不是"点"：相邻指令条必须正好相接，否则中间会漏出一道缝，
 // 看起来像"这两帧没人标"——而实际上一帧都不缺
-check('指令条与轨迹条左端对齐（同一套百分比坐标）',
-  Math.abs(tl.barLeft - tl.trackLeft) <= 1, `${Math.round(tl.barLeft)} vs ${Math.round(tl.trackLeft)}`)
-check('相邻指令条无缝隙', (() => {
-  const gaps = tl.rects.slice(1).map((r, i) => r.x - (tl.rects[i].x + tl.rects[i].w))
-  return gaps.every((g) => Math.abs(g) <= 2)
-})(), JSON.stringify(tl.rects.slice(1).map((r, i) => Math.round(r.x - (tl.rects[i].x + tl.rects[i].w)))))
+check(
+  '指令条与轨迹条左端对齐（同一套百分比坐标）',
+  Math.abs(tl.barLeft - tl.trackLeft) <= 1,
+  `${Math.round(tl.barLeft)} vs ${Math.round(tl.trackLeft)}`,
+)
+check(
+  '相邻指令条无缝隙',
+  (() => {
+    const gaps = tl.rects.slice(1).map((r, i) => r.x - (tl.rects[i].x + tl.rects[i].w))
+    return gaps.every((g) => Math.abs(g) <= 2)
+  })(),
+  JSON.stringify(tl.rects.slice(1).map((r, i) => Math.round(r.x - (tl.rects[i].x + tl.rects[i].w)))),
+)
 
 // ---- 3. 点指令段 → 跳到首帧 ----
 const nav = await page.evaluate(() => {
@@ -138,11 +159,13 @@ const edit = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 160))
   const redone = window.studio.doc.value.tasks.vla.instructions.find((s) => s.id === seg.id)
   return {
-    before, prevEnd,
+    before,
+    prevEnd,
     afterStart: after?.startFrame,
     undoneStart: undone?.startFrame,
     redoneStart: redone?.startFrame,
-    gapAfter, gapUndone,
+    gapAfter,
+    gapUndone,
   }
 })
 check('改区间写进文档', edit.afterStart === edit.before.start + 3, `${edit.afterStart} vs ${edit.before.start + 3}`)
@@ -165,7 +188,11 @@ const injected = await page.evaluate(async () => {
   return { clean, codes, errors: window.studio.demoErrors.value.slice() }
 })
 check('重新生成干净数据仍为 0 问题', injected.clean === 0, String(injected.clean))
-check('注入 sign + gap 后两条规则都报', injected.codes.includes('VLA_ACTION_SIGN') && injected.codes.includes('VLA_INSTRUCTION_GAP'), injected.codes.join())
+check(
+  '注入 sign + gap 后两条规则都报',
+  injected.codes.includes('VLA_ACTION_SIGN') && injected.codes.includes('VLA_INSTRUCTION_GAP'),
+  injected.codes.join(),
+)
 check('注入项记在状态里', injected.errors.length === 2, JSON.stringify(injected.errors))
 
 // 复位到干净数据，后面测导出
@@ -180,7 +207,9 @@ await page.evaluate(async () => {
 const dl = await Promise.all([
   page.waitForEvent('download', { timeout: 15000 }),
   page.evaluate(() => window.studio.exportJsonl()),
-]).then(([d]) => d).catch(() => null)
+])
+  .then(([d]) => d)
+  .catch(() => null)
 check('导出触发了下载', !!dl, dl ? '' : '没有 download 事件')
 if (dl) {
   check('文件名是 .jsonl', /\.jsonl$/.test(dl.suggestedFilename()), dl.suggestedFilename())
@@ -191,7 +220,11 @@ if (dl) {
   check('内容只有一行', text.split('\n').length === 1, String(text.split('\n').length))
   const parsed = JSON.parse(text)
   check('导出的指令数与文档一致', parsed.instructions.length === 5, String(parsed.instructions.length))
-  check('导出的通道带 values 数组', Array.isArray(parsed.actions?.steer?.values), JSON.stringify(Object.keys(parsed.actions ?? {})))
+  check(
+    '导出的通道带 values 数组',
+    Array.isArray(parsed.actions?.steer?.values),
+    JSON.stringify(Object.keys(parsed.actions ?? {})),
+  )
   check('导出的区间是 snake_case', typeof parsed.instructions[0].start_frame === 'number')
   check('导出带 hz', parsed.hz === 10, String(parsed.hz))
 }
@@ -208,9 +241,16 @@ const panel = await page.evaluate(() => ({
 }))
 check('面板列出 5 条指令', panel.items === 5, String(panel.items))
 check('面板有"指令段 / 动作通道 / 对齐校验"三块', panel.sections.length >= 3, JSON.stringify(panel.sections))
-check('通道 chip 是四个标准名', ['steer', 'throttle', 'brake', 'speed'].every((n) => panel.chips.includes(n)), JSON.stringify(panel.chips))
-check('面板有生成/导入/导出按钮',
-  ['生成演示', '导入 JSONL', '导出 JSONL'].every((t) => panel.buttons.includes(t)), JSON.stringify(panel.buttons))
+check(
+  '通道 chip 是四个标准名',
+  ['steer', 'throttle', 'brake', 'speed'].every((n) => panel.chips.includes(n)),
+  JSON.stringify(panel.chips),
+)
+check(
+  '面板有生成/导入/导出按钮',
+  ['生成演示', '导入 JSONL', '导出 JSONL'].every((t) => panel.buttons.includes(t)),
+  JSON.stringify(panel.buttons),
+)
 check('干净数据时问题区为空', panel.issues.length === 0, JSON.stringify(panel.issues))
 
 // ---- 8. 清除与撤销 ----

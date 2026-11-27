@@ -101,17 +101,19 @@ export class CommandHistory {
   private readonly now: () => number
   private readonly onDrop?: (cmd: Command) => void
 
-  constructor(options: {
-    limit?: number
-    mergeWindowMs?: number
-    now?: () => number
-    /**
-     * 命令被**永久**丢弃时回调：超出 limit、提交新分支清空 redo、clear。
-     * 撤销/重做只是在两个栈之间搬运，不算丢弃 —— 引用仍然活着。
-     * 这是 blob 回收唯一的释放信号源，漏调用的后果是存储只增不减。
-     */
-    onCommandDropped?: (cmd: Command) => void
-  } = {}) {
+  constructor(
+    options: {
+      limit?: number
+      mergeWindowMs?: number
+      now?: () => number
+      /**
+       * 命令被**永久**丢弃时回调：超出 limit、提交新分支清空 redo、clear。
+       * 撤销/重做只是在两个栈之间搬运，不算丢弃 —— 引用仍然活着。
+       * 这是 blob 回收唯一的释放信号源，漏调用的后果是存储只增不减。
+       */
+      onCommandDropped?: (cmd: Command) => void
+    } = {},
+  ) {
     this.limit = options.limit ?? 500
     this.mergeWindowMs = options.mergeWindowMs ?? 700
     this.now = options.now ?? (() => Date.now())
@@ -126,7 +128,9 @@ export class CommandHistory {
     const top = this.undoStack[this.undoStack.length - 1]
     const key = cmd.meta.coalesceKey
     if (
-      key && top && top.meta.coalesceKey === key &&
+      key &&
+      top &&
+      top.meta.coalesceKey === key &&
       this.now() - top.meta.at < this.mergeWindowMs &&
       mergeInto(top, cmd)
     ) {
@@ -160,12 +164,24 @@ export class CommandHistory {
     return cmd
   }
 
-  get canUndo(): boolean { return this.undoStack.length > 0 }
-  get canRedo(): boolean { return this.redoStack.length > 0 }
-  get undoLabel(): string { return this.undoStack[this.undoStack.length - 1]?.meta.label ?? '' }
-  get redoLabel(): string { return this.redoStack[this.redoStack.length - 1]?.meta.label ?? '' }
-  get undoCount(): number { return this.undoStack.length }
-  get redoCount(): number { return this.redoStack.length }
+  get canUndo(): boolean {
+    return this.undoStack.length > 0
+  }
+  get canRedo(): boolean {
+    return this.redoStack.length > 0
+  }
+  get undoLabel(): string {
+    return this.undoStack[this.undoStack.length - 1]?.meta.label ?? ''
+  }
+  get redoLabel(): string {
+    return this.redoStack[this.redoStack.length - 1]?.meta.label ?? ''
+  }
+  get undoCount(): number {
+    return this.undoStack.length
+  }
+  get redoCount(): number {
+    return this.redoStack.length
+  }
 
   /** 当前可撤销命令（只读用途：诊断、测试） */
   peekUndo(): Command | null {

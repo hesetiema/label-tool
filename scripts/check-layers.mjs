@@ -21,9 +21,7 @@ const FORBIDDEN_IN_DOMAIN = [
   { test: /(^|\/)(components|viewer|state|adapters|workers|ports)\//, why: 'domain 不能依赖 UI/适配层' },
 ]
 
-const FORBIDDEN_IN_CORE = [
-  { test: /(^|\/)domain\//, why: 'core 不能反向依赖 domain' },
-]
+const FORBIDDEN_IN_CORE = [{ test: /(^|\/)domain\//, why: 'core 不能反向依赖 domain' }]
 
 async function listFiles(dir) {
   const out = []
@@ -35,7 +33,7 @@ async function listFiles(dir) {
   }
   for (const entry of entries) {
     const full = join(dir, entry.name)
-    if (entry.isDirectory()) out.push(...await listFiles(full))
+    if (entry.isDirectory()) out.push(...(await listFiles(full)))
     else if (entry.name.endsWith('.ts')) out.push(full)
   }
   return out

@@ -98,11 +98,13 @@ export function createTrackRecord(opts: {
     id: opts.id,
     classId: opts.classId,
     attributes: opts.attributes ? { ...opts.attributes } : {},
-    keyframes: [{
-      frame: opts.frame,
-      geometry: cloneGeometry(opts.geometry),
-      source: opts.source ?? { kind: 'manual' },
-    }],
+    keyframes: [
+      {
+        frame: opts.frame,
+        geometry: cloneGeometry(opts.geometry),
+        source: opts.source ?? { kind: 'manual' },
+      },
+    ],
     states: new Map(),
     lifecycle: { first: opts.frame, last: opts.frame, state: 'active' },
   }
@@ -140,10 +142,7 @@ export function getKeyframe(track: Track, frame: number): Keyframe | null {
  *   - `b === null`：frame 在末个关键帧之后（需要 coast）
  *   - `a.frame === frame`：正好命中关键帧，t 为 0
  */
-export function findKeyframeSpan(
-  track: Track,
-  frame: number,
-): { a: Keyframe; b: Keyframe; t: number } | null {
+export function findKeyframeSpan(track: Track, frame: number): { a: Keyframe; b: Keyframe; t: number } | null {
   const kfs = track.keyframes
   if (!kfs.length) return null
   if (frame < kfs[0].frame || frame > kfs[kfs.length - 1].frame) return null

@@ -16,7 +16,9 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage()
 const consoleErrors = []
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message))
 
 /** 清库：用例断言精确条数，上一次运行的残留会让计数全错 */
@@ -28,7 +30,10 @@ async function wipeDb(p) {
     })
     const tx = db.transaction(['blobs', 'session', 'documents', 'docTasks', 'blobUsage'], 'readwrite')
     for (const n of ['blobs', 'session', 'documents', 'docTasks', 'blobUsage']) tx.objectStore(n).clear()
-    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+    await new Promise((res, rej) => {
+      tx.oncomplete = res
+      tx.onerror = () => rej(tx.error)
+    })
     db.close()
   }, DB)
 }
@@ -41,28 +46,37 @@ async function wipeDb(p) {
  * 读端能吃历史格式的头（这正是升级后第一次打开列表的真实情况）。
  */
 async function seedOldDocs(p, list) {
-  return p.evaluate(async ({ name, docs }) => {
-    const db = await new Promise((res) => {
-      const r = indexedDB.open(name)
-      r.onsuccess = () => res(r.result)
-    })
-    const tx = db.transaction(['documents', 'docTasks'], 'readwrite')
-    const heads = tx.objectStore('documents')
-    const tasks = tx.objectStore('docTasks')
-    for (const d of docs) {
-      heads.put({
-        sampleId: d.sampleId,
-        sceneId: d.sceneId,
-        range: d.range,
-        meta: { version: 1, baseVersion: 0, updatedAt: d.savedAt, updatedBy: 'test', hashes: {} },
-        tasks: d.tasks ?? ['boxes'],
-        savedAt: d.savedAt,
-      }, d.sampleId)
-      tasks.put({ tracks: [] }, `${d.sampleId}::boxes`)
-    }
-    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
-    db.close()
-  }, { name: DB, docs: list })
+  return p.evaluate(
+    async ({ name, docs }) => {
+      const db = await new Promise((res) => {
+        const r = indexedDB.open(name)
+        r.onsuccess = () => res(r.result)
+      })
+      const tx = db.transaction(['documents', 'docTasks'], 'readwrite')
+      const heads = tx.objectStore('documents')
+      const tasks = tx.objectStore('docTasks')
+      for (const d of docs) {
+        heads.put(
+          {
+            sampleId: d.sampleId,
+            sceneId: d.sceneId,
+            range: d.range,
+            meta: { version: 1, baseVersion: 0, updatedAt: d.savedAt, updatedBy: 'test', hashes: {} },
+            tasks: d.tasks ?? ['boxes'],
+            savedAt: d.savedAt,
+          },
+          d.sampleId,
+        )
+        tasks.put({ tracks: [] }, `${d.sampleId}::boxes`)
+      }
+      await new Promise((res, rej) => {
+        tx.oncomplete = res
+        tx.onerror = () => rej(tx.error)
+      })
+      db.close()
+    },
+    { name: DB, docs: list },
+  )
 }
 
 const DAY = 86400_000
@@ -79,7 +93,13 @@ check('当前样本已落盘', !!current, current)
 
 // 造两份旧样本：一份 3 天前（带占据段），一份 40 天前
 await seedOldDocs(page, [
-  { sampleId: 'yard-old#0-199', sceneId: 'yard-old', range: [0, 199], savedAt: Date.now() - 3 * DAY, tasks: ['boxes', 'occupancy'] },
+  {
+    sampleId: 'yard-old#0-199',
+    sceneId: 'yard-old',
+    range: [0, 199],
+    savedAt: Date.now() - 3 * DAY,
+    tasks: ['boxes', 'occupancy'],
+  },
   { sampleId: 'lot-legacy#10-18', sceneId: 'lot-legacy', range: [10, 18], savedAt: Date.now() - 40 * DAY },
 ])
 
@@ -89,8 +109,12 @@ const listed = await page.evaluate(async () => {
   return {
     open: window.studio.open.value,
     rows: window.studio.rows.value.map((r) => ({
-      id: r.sampleId, scene: r.sceneId, cur: r.isCurrent,
-      frames: r.frameCount, tasks: r.taskLabels, age: r.ageText,
+      id: r.sampleId,
+      scene: r.sceneId,
+      cur: r.isCurrent,
+      frames: r.frameCount,
+      tasks: r.taskLabels,
+      age: r.ageText,
     })),
     total: window.studio.summary().total,
     error: window.studio.error.value,
@@ -104,7 +128,10 @@ const oldRow = listed.rows.find((r) => r.id === 'yard-old#0-199')
 check('读到帧范围', oldRow?.frames === 200, String(oldRow?.frames))
 check('读到任务段', oldRow?.tasks.join('/') === '框/占据', oldRow?.tasks.join('/'))
 check('相对时间文案', oldRow?.age === '3 天前', String(oldRow?.age))
-check('旧样本（>30 天）显示绝对日期', /\d{4}-\d{2}-\d{2}/.test(listed.rows.find((r) => r.id === 'lot-legacy#10-18')?.age ?? ''))
+check(
+  '旧样本（>30 天）显示绝对日期',
+  /\d{4}-\d{2}-\d{2}/.test(listed.rows.find((r) => r.id === 'lot-legacy#10-18')?.age ?? ''),
+)
 check('打开列表无错误', listed.error === '')
 
 // ---- 2. 当前样本不可删 ----
@@ -164,7 +191,11 @@ const removed = await page.evaluate(async () => {
 check('确认后删除成功', removed.ok === true, removed.error)
 check('文档头已从库中消失', removed.headGone)
 check('任务段一起清掉（不留孤儿）', removed.segGone)
-check('列表立刻减少一行', removed.rows.length === 2 && !removed.rows.includes('yard-old#0-199'), JSON.stringify(removed.rows))
+check(
+  '列表立刻减少一行',
+  removed.rows.length === 2 && !removed.rows.includes('yard-old#0-199'),
+  JSON.stringify(removed.rows),
+)
 check('状态栏报出删除结果', removed.status.includes('已删除'), removed.status)
 
 // ---- 4. 另一个标签页持有的样本不能删 ----
@@ -210,9 +241,15 @@ const fresh = await pageC.evaluate(async () => {
     error: window.studio.error.value,
   }
 })
-check('新标签页看到删除后的结果', fresh.rows.length === 2 && !fresh.rows.some((r) => r.id === 'yard-old#0-199'),
-  JSON.stringify(fresh.rows))
-check('删除结果跨标签页一致（不是内存里的假象）', fresh.rows.some((r) => r.id === 'lot-legacy#10-18'))
+check(
+  '新标签页看到删除后的结果',
+  fresh.rows.length === 2 && !fresh.rows.some((r) => r.id === 'yard-old#0-199'),
+  JSON.stringify(fresh.rows),
+)
+check(
+  '删除结果跨标签页一致（不是内存里的假象）',
+  fresh.rows.some((r) => r.id === 'lot-legacy#10-18'),
+)
 await pageC.close()
 
 // ---- 6. 弹层关闭 ----

@@ -22,8 +22,13 @@ import type { Command } from '../domain/model/command'
 import type { SampleDocument } from '../domain/model/document'
 import type { TrackId } from '../domain/model/ids'
 import {
-  buildMergeCommand, defaultMergePolicy, linkProposals,
-  type MergePolicy, type MergeResult, type MergeStrategy, type ModelObject,
+  buildMergeCommand,
+  defaultMergePolicy,
+  linkProposals,
+  type MergePolicy,
+  type MergeResult,
+  type MergeStrategy,
+  type ModelObject,
 } from '../domain/ops/mergePreLabel'
 import { buildReviewCommandFor, collectReviewRows, reviewStats as statsOf, type ReviewRow } from '../domain/ops/review'
 import type { PreAnnotationProvider } from '../ports/preAnnotation'
@@ -81,7 +86,9 @@ export function usePreAnnotation(deps: PreAnnotationDeps) {
   function refresh(): void {
     const doc = deps.doc()
     reviewRows.value = doc ? collectReviewRows(doc) : []
-    reviewStats.value = doc ? statsOf(doc) : { tracks: 0, frames: 0, conflicts: 0, accepted: 0, rejected: 0, modelFrames: 0 }
+    reviewStats.value = doc
+      ? statsOf(doc)
+      : { tracks: 0, frames: 0, conflicts: 0, accepted: 0, rejected: 0, modelFrames: 0 }
     if (selectedTrackId.value && !reviewRows.value.some((r) => r.trackId === selectedTrackId.value)) {
       selectedTrackId.value = reviewRows.value[0]?.trackId ?? ''
     }
@@ -91,9 +98,11 @@ export function usePreAnnotation(deps: PreAnnotationDeps) {
     refresh()
     reviewOpen.value = true
     if (!selectedTrackId.value) selectedTrackId.value = reviewRows.value[0]?.trackId ?? ''
-    deps.say(reviewRows.value.length
-      ? `复核队列：${reviewStats.value.tracks} 条轨迹 / ${reviewStats.value.frames} 帧待裁决（低置信在前，A 接受 · X 拒绝 · Tab 下一处）`
-      : '复核队列为空：没有待裁决的模型产出')
+    deps.say(
+      reviewRows.value.length
+        ? `复核队列：${reviewStats.value.tracks} 条轨迹 / ${reviewStats.value.frames} 帧待裁决（低置信在前，A 接受 · X 拒绝 · Tab 下一处）`
+        : '复核队列为空：没有待裁决的模型产出',
+    )
   }
 
   function closeReview(): void {
@@ -101,16 +110,25 @@ export function usePreAnnotation(deps: PreAnnotationDeps) {
   }
 
   /** 点云包围盒（抽样，百万点也只扫 2000 个）：让 mock 的框落在数据里而不是漂在空中 */
-  function cloudBounds(): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+  function cloudBounds(): {
+    min: { x: number; y: number; z: number }
+    max: { x: number; y: number; z: number }
+  } | null {
     const cloud = deps.cloud()
     if (!cloud || cloud.count < 8) return null
     const step = Math.max(1, Math.floor(cloud.count / 2000))
     const p = cloud.positions
-    let minX = Infinity, minY = Infinity, minZ = Infinity
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+    let minX = Infinity,
+      minY = Infinity,
+      minZ = Infinity
+    let maxX = -Infinity,
+      maxY = -Infinity,
+      maxZ = -Infinity
     for (let i = 0; i < cloud.count; i += step) {
       const o = i * 3
-      const x = p[o], y = p[o + 1], z = p[o + 2]
+      const x = p[o],
+        y = p[o + 1],
+        z = p[o + 2]
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue
       if (x < minX) minX = x
       if (y < minY) minY = y
@@ -216,12 +234,12 @@ export function usePreAnnotation(deps: PreAnnotationDeps) {
     // 而后者才是"要不要现在复核"的判断依据
     const hasQueue = reviewRows.value.length > 0
     if (hasQueue) openReview()
-    const tail = hasQueue
-      ? `；${reviewStats.value.tracks} 条待裁决（A 接受 / X 拒绝 / Tab 下一处）`
-      : ''
-    deps.say(parts.length
-      ? `预标注完成：${received.value.objects} 个框 → ${proposals.length} 条提案，${parts.join('，')}（Ctrl+Z 可整批退回）${tail}`
-      : '预标注完成：没有可合入的框（全部被策略跳过）')
+    const tail = hasQueue ? `；${reviewStats.value.tracks} 条待裁决（A 接受 / X 拒绝 / Tab 下一处）` : ''
+    deps.say(
+      parts.length
+        ? `预标注完成：${received.value.objects} 个框 → ${proposals.length} 条提案，${parts.join('，')}（Ctrl+Z 可整批退回）${tail}`
+        : '预标注完成：没有可合入的框（全部被策略跳过）',
+    )
   }
 
   async function runMock(): Promise<void> {
@@ -350,11 +368,27 @@ export function usePreAnnotation(deps: PreAnnotationDeps) {
     if (!reviewOpen.value) return false
     if (e.ctrlKey || e.metaKey || e.altKey) return false
     const key = e.key.toLowerCase()
-    if (key === 'a' && e.shiftKey) { acceptInFrame(); return true }
-    if (key === 'a') { acceptSelected(); return true }
-    if (key === 'x') { rejectSelected(); return true }
-    if (key === 'tab') { e.preventDefault(); nextPending(); return true }
-    if (key === 'escape') { closeReview(); return true }
+    if (key === 'a' && e.shiftKey) {
+      acceptInFrame()
+      return true
+    }
+    if (key === 'a') {
+      acceptSelected()
+      return true
+    }
+    if (key === 'x') {
+      rejectSelected()
+      return true
+    }
+    if (key === 'tab') {
+      e.preventDefault()
+      nextPending()
+      return true
+    }
+    if (key === 'escape') {
+      closeReview()
+      return true
+    }
     return false
   }
 
@@ -372,12 +406,38 @@ export function usePreAnnotation(deps: PreAnnotationDeps) {
   }
 
   return {
-    reviewOpen, reviewRows, reviewStats, selectedTrackId, policy, running, progress, lastError, lastModel, lastResult, received,
+    reviewOpen,
+    reviewRows,
+    reviewStats,
+    selectedTrackId,
+    policy,
+    running,
+    progress,
+    lastError,
+    lastModel,
+    lastResult,
+    received,
     activeProviderId: () => activeProvider?.id ?? '',
-    openReview, closeReview, refresh,
-    runMock, runHttp, importFile, cancel,
-    acceptSelected, rejectSelected, acceptAll, rejectAll, acceptInFrame, decideRow,
-    selectRow, nextPending, firstPending, handleKey,
-    setStrategy, setMinConfidence, setPolicy, strategyLabel,
+    openReview,
+    closeReview,
+    refresh,
+    runMock,
+    runHttp,
+    importFile,
+    cancel,
+    acceptSelected,
+    rejectSelected,
+    acceptAll,
+    rejectAll,
+    acceptInFrame,
+    decideRow,
+    selectRow,
+    nextPending,
+    firstPending,
+    handleKey,
+    setStrategy,
+    setMinConfidence,
+    setPolicy,
+    strategyLabel,
   }
 }

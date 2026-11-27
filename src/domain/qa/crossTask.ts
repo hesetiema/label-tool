@@ -94,17 +94,22 @@ export function checkCrossTask(input: CrossTaskInput): QaIssue[] {
       // ---- I1：框里应该有东西 ----
       if (ratio < opts.containment) {
         reported++
-        out.push(makeIssue({
-          code: 'XT_OCC_BOX_CONTAINMENT',
-          ruleId: 'xt.occ-containment',
-          severity: ratio < opts.containment / 2 ? 'error' : 'warn',
-          scope: 'crossTask',
-          targets: [{ frame, trackId: box.id, task: 'occupancy' }, { frame, trackId: box.id, task: 'boxes' }],
-          value: ratio,
-          threshold: opts.containment,
-          message: `第 ${frame} 帧 #${box.id}（${box.label}）框内占据率 ${(ratio * 100).toFixed(0)}%，应 ≥ ${(opts.containment * 100).toFixed(0)}%`,
-          fixHint: '若框已修正，重新对这一帧生成占据；若是人工改过占据，检查是否漏补框内体素',
-        }))
+        out.push(
+          makeIssue({
+            code: 'XT_OCC_BOX_CONTAINMENT',
+            ruleId: 'xt.occ-containment',
+            severity: ratio < opts.containment / 2 ? 'error' : 'warn',
+            scope: 'crossTask',
+            targets: [
+              { frame, trackId: box.id, task: 'occupancy' },
+              { frame, trackId: box.id, task: 'boxes' },
+            ],
+            value: ratio,
+            threshold: opts.containment,
+            message: `第 ${frame} 帧 #${box.id}（${box.label}）框内占据率 ${(ratio * 100).toFixed(0)}%，应 ≥ ${(opts.containment * 100).toFixed(0)}%`,
+            fixHint: '若框已修正，重新对这一帧生成占据；若是人工改过占据，检查是否漏补框内体素',
+          }),
+        )
       }
 
       // ---- I2：框里装的东西类别要对 ----
@@ -124,17 +129,23 @@ export function checkCrossTask(input: CrossTaskInput): QaIssue[] {
             .slice(0, 2)
             .map((x) => `${x.classId}×${x.n}`)
             .join('、')
-          out.push(makeIssue({
-            code: 'XT_OCC_CLASS_MISMATCH',
-            ruleId: 'xt.occ-class',
-            severity: 'warn',
-            scope: 'crossTask',
-            targets: [{ frame, trackId: box.id, task: 'occupancy' }, { frame, trackId: box.id, task: 'boxes' }],
-            value: badRatio,
-            threshold: opts.classTolerance,
-            message: `第 ${frame} 帧 #${box.id} 标为 ${box.label}，框内 ${(badRatio * 100).toFixed(0)}% 体素是别的类（${top}）`,
-            fixHint: '确认是框类别错了，还是占据被邻近目标覆盖；占据冲突会按体积小的优先，小目标压过大目标时容易出这个提示',
-          }))
+          out.push(
+            makeIssue({
+              code: 'XT_OCC_CLASS_MISMATCH',
+              ruleId: 'xt.occ-class',
+              severity: 'warn',
+              scope: 'crossTask',
+              targets: [
+                { frame, trackId: box.id, task: 'occupancy' },
+                { frame, trackId: box.id, task: 'boxes' },
+              ],
+              value: badRatio,
+              threshold: opts.classTolerance,
+              message: `第 ${frame} 帧 #${box.id} 标为 ${box.label}，框内 ${(badRatio * 100).toFixed(0)}% 体素是别的类（${top}）`,
+              fixHint:
+                '确认是框类别错了，还是占据被邻近目标覆盖；占据冲突会按体积小的优先，小目标压过大目标时容易出这个提示',
+            }),
+          )
         }
       }
     }
@@ -149,15 +160,17 @@ export function checkCrossTask(input: CrossTaskInput): QaIssue[] {
       if (reported >= opts.maxPerRule) break
       if (alive.has(trackId)) continue
       reported++
-      out.push(makeIssue({
-        code: 'XT_SEM_INSTANCE_UNMAPPED',
-        ruleId: 'xt.sem-instance',
-        severity: 'error',
-        scope: 'crossTask',
-        targets: [{ task: 'semantic' }, { trackId }],
-        message: `语义实例 ${instance} 指向轨迹 #${trackId}，但该轨迹不存在`,
-        fixHint: '轨迹可能被删除或合并：删除映射项，或用合并后的轨迹 id 重新关联',
-      }))
+      out.push(
+        makeIssue({
+          code: 'XT_SEM_INSTANCE_UNMAPPED',
+          ruleId: 'xt.sem-instance',
+          severity: 'error',
+          scope: 'crossTask',
+          targets: [{ task: 'semantic' }, { trackId }],
+          message: `语义实例 ${instance} 指向轨迹 #${trackId}，但该轨迹不存在`,
+          fixHint: '轨迹可能被删除或合并：删除映射项，或用合并后的轨迹 id 重新关联',
+        }),
+      )
     }
   }
 

@@ -10,9 +10,19 @@ import type { Box3D } from '../../core/types'
 
 const studio = inject(StudioKey)!
 const {
-  boxes, selectedId, selectedIds, selectedCount, lockedIds, hiddenIds,
-  selectBox, toggleSelectBox, toggleLocked, toggleHidden,
-  toggleAllLocked, deleteSelected, colorOf,
+  boxes,
+  selectedId,
+  selectedIds,
+  selectedCount,
+  lockedIds,
+  hiddenIds,
+  selectBox,
+  toggleSelectBox,
+  toggleLocked,
+  toggleHidden,
+  toggleAllLocked,
+  deleteSelected,
+  colorOf,
 } = studio
 
 const sortBy = ref<'id' | 'label'>('id')
@@ -63,7 +73,11 @@ function posText(b: { position: { x: number; y: number; z: number } }) {
           <option value="id">按 ID</option>
           <option value="label">按类别</option>
         </select>
-        <button class="mini-btn" :title="lockedIds.size === boxes.length ? '全部解锁' : '全部锁定'" @click="toggleAllLocked">
+        <button
+          class="mini-btn"
+          :title="lockedIds.size === boxes.length ? '全部解锁' : '全部锁定'"
+          @click="toggleAllLocked"
+        >
           {{ lockedIds.size === boxes.length && boxes.length ? '解锁' : '锁定' }}
         </button>
       </div>
@@ -97,13 +111,17 @@ function posText(b: { position: { x: number; y: number; z: number } }) {
             :class="{ on: lockedIds.has(b.id) }"
             :title="lockedIds.has(b.id) ? '解锁' : '锁定（防止误改）'"
             @click.stop="toggleLocked(b.id)"
-          >{{ lockedIds.has(b.id) ? '▣' : '▢' }}</button>
+          >
+            {{ lockedIds.has(b.id) ? '▣' : '▢' }}
+          </button>
           <button
             class="mini-icon"
             :class="{ on: hiddenIds.has(b.id) }"
             :title="hiddenIds.has(b.id) ? '显示' : '隐藏'"
             @click.stop="toggleHidden(b.id)"
-          >{{ hiddenIds.has(b.id) ? '◌' : '◉' }}</button>
+          >
+            {{ hiddenIds.has(b.id) ? '◌' : '◉' }}
+          </button>
           <button class="mini-icon danger" title="删除" @click.stop="remove(b.id)">✕</button>
         </div>
       </div>

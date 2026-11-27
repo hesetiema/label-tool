@@ -18,12 +18,12 @@ import { angleDelta, cloneGeometry } from '../model/geometry'
 import type { Command, CommandData, InsertedFrame } from '../model/command'
 import { makeCommand } from '../model/command'
 import type { Track } from '../model/track'
-import {
-  cloneTrack, findKeyframeIndex, touchLifecycle,
-} from '../model/track'
+import { cloneTrack, findKeyframeIndex, touchLifecycle } from '../model/track'
 import type { TrackId } from '../model/ids'
 import {
-  DEFAULT_INTERPOLATE_OPTIONS, planInterpolation, type InterpolateOptions,
+  DEFAULT_INTERPOLATE_OPTIONS,
+  planInterpolation,
+  type InterpolateOptions,
   type InterpolationStats,
 } from './interpolate'
 
@@ -45,19 +45,18 @@ export function buildSetLifecycleCommand(
   const next = { first: Math.min(lo, hi), last: Math.max(lo, hi), state: track.lifecycle.state }
   const cur = track.lifecycle
   if (next.first === cur.first && next.last === cur.last) return null
-  return makeCommand({
-    type: 'setLifecycle',
-    trackId: track.id,
-    before: { ...cur },
-    after: next,
-  }, { label: `#${track.id} 生命周期 ${cur.first}–${cur.last} → ${next.first}–${next.last}` })
+  return makeCommand(
+    {
+      type: 'setLifecycle',
+      trackId: track.id,
+      before: { ...cur },
+      after: next,
+    },
+    { label: `#${track.id} 生命周期 ${cur.first}–${cur.last} → ${next.first}–${next.last}` },
+  )
 }
 
-export function buildInsertFramesCommand(
-  trackId: TrackId,
-  entries: InsertedFrame[],
-  label: string,
-): Command {
+export function buildInsertFramesCommand(trackId: TrackId, entries: InsertedFrame[], label: string): Command {
   return makeCommand({ type: 'insertFrames', trackId, entries }, { label })
 }
 
@@ -98,9 +97,13 @@ export function buildInterpolateCommand(
     children.push({ type: 'insertFrames', trackId, entries })
   }
 
-  const command = children.length === 1
-    ? makeCommand(children[0], { label: `插值补全 ${plan.stats.frames} 帧` })
-    : makeCommand({ type: 'batch', commands: children }, { label: `插值补全 ${plan.stats.tracks} 条轨迹 / ${plan.stats.frames} 帧` })
+  const command =
+    children.length === 1
+      ? makeCommand(children[0], { label: `插值补全 ${plan.stats.frames} 帧` })
+      : makeCommand(
+          { type: 'batch', commands: children },
+          { label: `插值补全 ${plan.stats.tracks} 条轨迹 / ${plan.stats.frames} 帧` },
+        )
 
   return { command, stats: plan.stats }
 }
@@ -159,7 +162,10 @@ export function buildPropagateCommand(
   const strategyText = strategy === 'replace' ? '整框替换' : '增量平移'
   return children.length === 1
     ? makeCommand(children[0], { label: `传播 #${track.id}（${strategyText}）` })
-    : makeCommand({ type: 'batch', commands: children }, { label: `传播 #${track.id} 到${scopeText}（${strategyText}）` })
+    : makeCommand(
+        { type: 'batch', commands: children },
+        { label: `传播 #${track.id} 到${scopeText}（${strategyText}）` },
+      )
 }
 
 /** 把当前帧的几何复制到若干目标帧（目标帧已有该轨迹关键帧则跳过，由调用方过滤） */
@@ -183,11 +189,7 @@ export function buildCopyToFramesBatchCommand(
     : makeCommand({ type: 'batch', commands: children }, { label: `${label}（${total} 帧）` })
 }
 
-export function buildCopyToFramesCommand(
-  trackId: TrackId,
-  frames: number[],
-  geometry: BoxGeometry,
-): Command | null {
+export function buildCopyToFramesCommand(trackId: TrackId, frames: number[], geometry: BoxGeometry): Command | null {
   return buildCopyToFramesBatchCommand([{ trackId, frames, geometry }], `#${trackId} 复制到其他帧`)
 }
 
@@ -218,13 +220,16 @@ export function buildMergeCommand(keep: Track, absorbed: Track[]): Command | nul
   }
   touchLifecycle(merged)
 
-  return makeCommand({
-    type: 'mergeTracks',
-    keep: keep.id,
-    absorb: absorbed.map((t) => t.id),
-    before: [cloneTrack(keep), ...absorbed.map(cloneTrack)],
-    after: merged,
-  }, { label: `合并 ${absorbed.length + 1} 条轨迹为 #${keep.id}` })
+  return makeCommand(
+    {
+      type: 'mergeTracks',
+      keep: keep.id,
+      absorb: absorbed.map((t) => t.id),
+      before: [cloneTrack(keep), ...absorbed.map(cloneTrack)],
+      after: merged,
+    },
+    { label: `合并 ${absorbed.length + 1} 条轨迹为 #${keep.id}` },
+  )
 }
 
 /**
@@ -238,7 +243,9 @@ export function buildSplitCommand(track: Track, atFrame: number, newId: TrackId)
 
   const left = cloneTrack(track)
   left.keyframes = leftKfs.map((k) => ({
-    frame: k.frame, geometry: cloneGeometry(k.geometry), source: { ...k.source },
+    frame: k.frame,
+    geometry: cloneGeometry(k.geometry),
+    source: { ...k.source },
   }))
   left.states = new Map([...track.states].filter(([f]) => f < atFrame))
   touchLifecycle(left)
@@ -247,20 +254,25 @@ export function buildSplitCommand(track: Track, atFrame: number, newId: TrackId)
     ...cloneTrack(track),
     id: newId,
     keyframes: rightKfs.map((k) => ({
-      frame: k.frame, geometry: cloneGeometry(k.geometry), source: { ...k.source },
+      frame: k.frame,
+      geometry: cloneGeometry(k.geometry),
+      source: { ...k.source },
     })),
     states: new Map([...track.states].filter(([f]) => f >= atFrame)),
   }
   touchLifecycle(right)
 
-  return makeCommand({
-    type: 'splitTrack',
-    source: track.id,
-    atFrame,
-    newId,
-    before: cloneTrack(track),
-    after: [left, right],
-  }, { label: `拆分 #${track.id} → #${newId}` })
+  return makeCommand(
+    {
+      type: 'splitTrack',
+      source: track.id,
+      atFrame,
+      newId,
+      before: cloneTrack(track),
+      after: [left, right],
+    },
+    { label: `拆分 #${track.id} → #${newId}` },
+  )
 }
 
 /**
@@ -268,19 +280,20 @@ export function buildSplitCommand(track: Track, atFrame: number, newId: TrackId)
  * 这是旧 `runOcclusionDemo` 的正式版本 —— 它以前直接往 frames[i].boxes 里 push，
  * 既不进历史也不进文档，切帧就丢。
  */
-export function buildOcclusionMarkerCommand(
-  track: Track,
-  frame: number,
-  geometry: BoxGeometry,
-): Command {
-  return makeCommand({
-    type: 'insertFrames',
-    trackId: track.id,
-    entries: [{
-      frame,
-      geometry: cloneGeometry(geometry),
-      source: { kind: 'manual' },
-      state: { visibility: 'occluded', source: { kind: 'manual' }, review: 'none' },
-    }],
-  }, { label: `标记 #${track.id} 第 ${frame} 帧遮挡` })
+export function buildOcclusionMarkerCommand(track: Track, frame: number, geometry: BoxGeometry): Command {
+  return makeCommand(
+    {
+      type: 'insertFrames',
+      trackId: track.id,
+      entries: [
+        {
+          frame,
+          geometry: cloneGeometry(geometry),
+          source: { kind: 'manual' },
+          state: { visibility: 'occluded', source: { kind: 'manual' }, review: 'none' },
+        },
+      ],
+    },
+    { label: `标记 #${track.id} 第 ${frame} 帧遮挡` },
+  )
 }

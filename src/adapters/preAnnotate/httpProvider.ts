@@ -17,7 +17,10 @@
  *   注入一个函数比 mock 全局 fetch 干净得多。
  */
 import type {
-  PreAnnotationProvider, PreAnnotateChunk, PreAnnotateRequest, ProviderCapabilities,
+  PreAnnotationProvider,
+  PreAnnotateChunk,
+  PreAnnotateRequest,
+  ProviderCapabilities,
 } from '../../ports/preAnnotation'
 import { abortError, isAborted } from '../../ports/preAnnotation'
 import { parseChunkLine } from './parse'

@@ -60,19 +60,20 @@ export function interpolateSegment(
   const span = b.frame - a.frame
   const t = span > 0 ? (frame - a.frame) / span : 0
 
-  const scale = opts.size === 'lerp'
-    ? {
-        x: mix(a.geometry.scale.x, b.geometry.scale.x, t),
-        y: mix(a.geometry.scale.y, b.geometry.scale.y, t),
-        z: mix(a.geometry.scale.z, b.geometry.scale.z, t),
-      }
-    : {
-        // 刚体：两端的逐轴中位数。对两帧而言就是均值，但语义是"一个尺寸"，
-        // 不是"每帧各自一个尺寸"——避免下游把它当成可变的
-        x: (a.geometry.scale.x + b.geometry.scale.x) / 2,
-        y: (a.geometry.scale.y + b.geometry.scale.y) / 2,
-        z: (a.geometry.scale.z + b.geometry.scale.z) / 2,
-      }
+  const scale =
+    opts.size === 'lerp'
+      ? {
+          x: mix(a.geometry.scale.x, b.geometry.scale.x, t),
+          y: mix(a.geometry.scale.y, b.geometry.scale.y, t),
+          z: mix(a.geometry.scale.z, b.geometry.scale.z, t),
+        }
+      : {
+          // 刚体：两端的逐轴中位数。对两帧而言就是均值，但语义是"一个尺寸"，
+          // 不是"每帧各自一个尺寸"——避免下游把它当成可变的
+          x: (a.geometry.scale.x + b.geometry.scale.x) / 2,
+          y: (a.geometry.scale.y + b.geometry.scale.y) / 2,
+          z: (a.geometry.scale.z + b.geometry.scale.z) / 2,
+        }
 
   if (opts.mode === 'linear') {
     return {
@@ -113,22 +114,20 @@ export function extrapolateEdge(track: Track, frame: number): BoxGeometry | null
   if (!kfs.length) return null
   const after = frame > kfs[kfs.length - 1].frame
   const edge = after ? kfs[kfs.length - 1] : kfs[0]
-  const neighbor = after
-    ? (kfs.length >= 2 ? kfs[kfs.length - 2] : null)
-    : (kfs.length >= 2 ? kfs[1] : null)
+  const neighbor = after ? (kfs.length >= 2 ? kfs[kfs.length - 2] : null) : kfs.length >= 2 ? kfs[1] : null
   const geometry = cloneGeometry(edge.geometry)
   if (!neighbor) return geometry
 
   const span = Math.abs(edge.frame - neighbor.frame) || 1
   const steps = Math.abs(frame - edge.frame)
   const dir = after ? 1 : -1
-  geometry.position.x = edge.geometry.position.x
-    + ((edge.geometry.position.x - neighbor.geometry.position.x) / span) * dir * steps
-  geometry.position.y = edge.geometry.position.y
-    + ((edge.geometry.position.y - neighbor.geometry.position.y) / span) * dir * steps
-  geometry.position.z = edge.geometry.position.z
-    + ((edge.geometry.position.z - neighbor.geometry.position.z) / span) * dir * steps
-  geometry.yaw = edge.geometry.yaw + angleDelta(neighbor.geometry.yaw, edge.geometry.yaw) / span * dir * steps
+  geometry.position.x =
+    edge.geometry.position.x + ((edge.geometry.position.x - neighbor.geometry.position.x) / span) * dir * steps
+  geometry.position.y =
+    edge.geometry.position.y + ((edge.geometry.position.y - neighbor.geometry.position.y) / span) * dir * steps
+  geometry.position.z =
+    edge.geometry.position.z + ((edge.geometry.position.z - neighbor.geometry.position.z) / span) * dir * steps
+  geometry.yaw = edge.geometry.yaw + (angleDelta(neighbor.geometry.yaw, edge.geometry.yaw) / span) * dir * steps
   return geometry
 }
 

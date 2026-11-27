@@ -15,8 +15,21 @@ import type { StudioCore } from './studioCore'
 
 export function useQuality(core: StudioCore) {
   const {
-    boxes, selectedId, cloud, frames, calib, imageUrl, reviewBoxes, qaReport, showReview,
-    statusText, resetHistory, syncViewer, setLayout, invalidateCloud, getViewer,
+    boxes,
+    selectedId,
+    cloud,
+    frames,
+    calib,
+    imageUrl,
+    reviewBoxes,
+    qaReport,
+    showReview,
+    statusText,
+    resetHistory,
+    syncViewer,
+    setLayout,
+    invalidateCloud,
+    getViewer,
   } = core
 
   // ---- 性能压测 ----
@@ -76,21 +89,21 @@ export function useQuality(core: StudioCore) {
     const fmt = (a: { row: number; col: number }[]) =>
       a.length ? a.map((x) => `轨迹${x.row}→检测${x.col}`).join('，') : '无匹配'
     // row0=A(原左车) 应该配 col0(x=12)，row1=B(原右车) 应该配 col1(x=8)
-    const greedySwapped = d.greedy.some((a) =>
-      (a.row === 0 && a.col === 1) || (a.row === 1 && a.col === 0))
-    const kalmanCorrect = d.kalman.assignments.some((a) =>
-      (a.row === 0 && a.col === 0) || (a.row === 1 && a.col === 1))
+    const greedySwapped = d.greedy.some((a) => (a.row === 0 && a.col === 1) || (a.row === 1 && a.col === 0))
+    const kalmanCorrect = d.kalman.assignments.some((a) => (a.row === 0 && a.col === 0) || (a.row === 1 && a.col === 1))
     trackDemo.value = {
-      costText: `A(8)→检测 ${d.cost[0].map((x) => x.toFixed(0)).join(' / ')}　B(12)→检测 ${d.cost[1].map((x) => x.toFixed(0)).join(' / ')}`,
+      // 两个成本矩阵之间的分隔用全角空格（等宽排版对齐），写成转义避免不可见字符
+      costText: `A(8)→检测 ${d.cost[0].map((x) => x.toFixed(0)).join(' / ')}\u3000B(12)→检测 ${d.cost[1].map((x) => x.toFixed(0)).join(' / ')}`,
       greedyText: fmt(d.greedy),
       kalmanText: fmt(d.kalman.assignments),
       greedySwapped,
       kalmanCorrect,
       gated: d.kalman.gated,
     }
-    statusText.value = greedySwapped && kalmanCorrect
-      ? '关联演示：贪心把两个 ID 串了（总距离却是 0），Kalman+Hungarian 正确保持'
-      : '关联演示已运行'
+    statusText.value =
+      greedySwapped && kalmanCorrect
+        ? '关联演示：贪心把两个 ID 串了（总距离却是 0），Kalman+Hungarian 正确保持'
+        : '关联演示已运行'
   }
 
   /** 用 requestAnimationFrame 实测渲染帧率 —— 用数据说话，而不是凭感觉说"优化后更快" */
@@ -140,7 +153,13 @@ export function useQuality(core: StudioCore) {
   }
 
   return {
-    perfBusy, perfStats, trackDemo, pct, runQualityCheck, toggleReviewOverlay,
-    runTrackingDemo, runPerfTest,
+    perfBusy,
+    perfStats,
+    trackDemo,
+    pct,
+    runQualityCheck,
+    toggleReviewOverlay,
+    runTrackingDemo,
+    runPerfTest,
   }
 }

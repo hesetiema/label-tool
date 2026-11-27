@@ -5,9 +5,22 @@ import { boxSizeSummary } from '../viewer/canvasPrimitives'
 
 const studio = inject(StudioKey)!
 const {
-  cloud, statusText, boxes, frames, currentFrame, selectedId, selectedCount,
-  tool, saveState, lockedIds, cursor, hoverId, readOnly, readOnlyNote,
-  takeoverScene, peerTabs,
+  cloud,
+  statusText,
+  boxes,
+  frames,
+  currentFrame,
+  selectedId,
+  selectedCount,
+  tool,
+  saveState,
+  lockedIds,
+  cursor,
+  hoverId,
+  readOnly,
+  readOnlyNote,
+  takeoverScene,
+  peerTabs,
 } = studio
 
 /** 鼠标指着的对象：3D 视口和正交视图共用同一个悬停状态 */
@@ -24,7 +37,8 @@ const hoveredBox = computed(() => (hoverId.value ? boxes.value.find((b) => b.id 
       class="status-chip readonly"
       :title="readOnlyNote || '该样本已在另一个标签页打开；点此接管编辑权'"
       @click="takeoverScene"
-    >只读 · 接管</span>
+      >只读 · 接管</span
+    >
     <span v-else-if="peerTabs.length" class="status-chip" title="同源其它标签页（各自独立编辑不同样本）">
       其它标签页 {{ peerTabs.length }}
     </span>

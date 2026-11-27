@@ -115,11 +115,7 @@ export interface SampledGeometry {
  * 采样某条轨迹在某帧的几何与状态。
  * 返回 null 表示该帧这条轨迹不存在（超出生命周期）。
  */
-export function sampleTrack(
-  track: Track,
-  frame: number,
-  opts: MaterializeOptions = {},
-): SampledGeometry | null {
+export function sampleTrack(track: Track, frame: number, opts: MaterializeOptions = {}): SampledGeometry | null {
   const { mode = 'exact', readStates = true } = opts
   const kfs = track.keyframes
   if (!kfs.length) return null
@@ -142,7 +138,9 @@ export function sampleTrack(
       visibility: state?.visibility ?? 'visible',
       sourceKind: state?.source.kind ?? span.a.source.kind,
       interpolated: false,
-      ...(state ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) } : {}),
+      ...(state
+        ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) }
+        : {}),
     }
   }
 
@@ -168,7 +166,8 @@ export function sampleTrack(
         },
         // 尺寸恒定：刚体车辆不会在补间过程中变长，逐轴插值会插出"变形的车"
         scale: { x: a.geometry.scale.x, y: a.geometry.scale.y, z: a.geometry.scale.z },
-        yaw: a.geometry.yaw + hermite(0, angleDelta(a.geometry.yaw, b.geometry.yaw), wA * spanFrames, wB * spanFrames, t),
+        yaw:
+          a.geometry.yaw + hermite(0, angleDelta(a.geometry.yaw, b.geometry.yaw), wA * spanFrames, wB * spanFrames, t),
       }
     } else {
       geometry = {
@@ -197,16 +196,16 @@ export function sampleTrack(
       visibility: state?.visibility ?? 'visible',
       sourceKind: state?.source.kind ?? (smoothed ? 'derived' : 'interp'),
       interpolated: true,
-      ...(state ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) } : {}),
+      ...(state
+        ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) }
+        : {}),
     }
   }
 
   // ---- 关键帧范围之外，但仍在生命周期内：线性外推（coasting） ----
   const after = frame > kfs[kfs.length - 1].frame
   const edge = after ? kfs[kfs.length - 1] : kfs[0]
-  const prev = after
-    ? (kfs.length >= 2 ? kfs[kfs.length - 2] : null)
-    : (kfs.length >= 2 ? kfs[1] : null)
+  const prev = after ? (kfs.length >= 2 ? kfs[kfs.length - 2] : null) : kfs.length >= 2 ? kfs[1] : null
   let geometry: BoxGeometry = {
     position: cloneVec3(edge.geometry.position),
     scale: cloneVec3(edge.geometry.scale),
@@ -235,15 +234,13 @@ export function sampleTrack(
     visibility: state?.visibility ?? 'predicted',
     sourceKind: 'interp',
     interpolated: true,
-    ...(state ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) } : {}),
+    ...(state
+      ? { review: state.review, ...(state.confidence !== undefined ? { confidence: state.confidence } : {}) }
+      : {}),
   }
 }
 
-export function materializeTrack(
-  track: Track,
-  frame: number,
-  opts: MaterializeOptions = {},
-): Box3DView | null {
+export function materializeTrack(track: Track, frame: number, opts: MaterializeOptions = {}): Box3DView | null {
   const sampled = sampleTrack(track, frame, opts)
   if (!sampled) return null
   return {
@@ -263,11 +260,7 @@ export function materializeTrack(
 }
 
 /** 一帧的全部框，按文档内轨迹顺序（= 首次出现顺序），渲染层可直接消费 */
-export function materializeFrame(
-  doc: SampleDocument,
-  frame: number,
-  opts: MaterializeOptions = {},
-): Box3DView[] {
+export function materializeFrame(doc: SampleDocument, frame: number, opts: MaterializeOptions = {}): Box3DView[] {
   const out: Box3DView[] = []
   for (const track of doc.tasks.boxes.tracks) {
     const view = materializeTrack(track, frame, opts)

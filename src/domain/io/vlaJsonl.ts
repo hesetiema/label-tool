@@ -135,10 +135,8 @@ export function parseVlaJsonl(text: string, opts: { defaultHz?: number } = {}): 
     const hz = Number.isFinite(hzRaw) && hzRaw > 0 ? hzRaw : (opts.defaultHz ?? 10)
     if (!(hzRaw > 0)) warnings.push(`第 ${i + 1} 行没有有效 hz，按 ${hz}Hz 处理`)
 
-    const rawIns = (pick<unknown[]>(obj, 'instructions', 'segments') ?? [])
-    const instructions = rawIns
-      .map((r, k) => toInstruction(r, k))
-      .filter((s): s is InstructionSegment => !!s)
+    const rawIns = pick<unknown[]>(obj, 'instructions', 'segments') ?? []
+    const instructions = rawIns.map((r, k) => toInstruction(r, k)).filter((s): s is InstructionSegment => !!s)
     if (!instructions.length) warnings.push(`第 ${i + 1} 行没有指令段`)
 
     const rawActions = pick<unknown>(obj, 'actions', 'channels') ?? {}
@@ -191,7 +189,10 @@ export function recordToTask(record: VlaJsonRecord, doc: SampleDocument): VlaTas
   return {
     instructions,
     channels: record.channels.map((c) => ({ ...c, startFrame: move(c.startFrame) })),
-    alignment: instructions.map((s) => ({ instructionId: s.id, actionRange: [s.startFrame, s.endFrame] as [number, number] })),
+    alignment: instructions.map((s) => ({
+      instructionId: s.id,
+      actionRange: [s.startFrame, s.endFrame] as [number, number],
+    })),
     hz: record.hz,
     signMap: { ...DEFAULT_VLA_SIGN_MAP },
     source: { kind: 'import' },

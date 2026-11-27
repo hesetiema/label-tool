@@ -3,9 +3,7 @@ import { inject } from 'vue'
 import { StudioKey } from '../../state/studioContext'
 
 const studio = inject(StudioKey)!
-const {
-  perfBusy, perfStats, runPerfTest,
-} = studio
+const { perfBusy, perfStats, runPerfTest } = studio
 </script>
 
 <template>
