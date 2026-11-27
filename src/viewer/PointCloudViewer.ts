@@ -20,11 +20,12 @@ import type { Trajectory } from '../core/sequence/sequence'
 import type { CameraPose, CameraTrajectory } from '../core/camera/cameraTrajectory'
 import { boxToVertices } from '../core/geometry/box'
 import { labelsToColors, semanticClassesOf } from '../core/semantics'
+import { cloudColorsFor } from '../core/geometry/colorize'
 
 export interface AppearanceOptions {
   colorBy: 'label' | 'instance'
-  /** 点云着色：默认淡蓝 / 按逐点语义类别 */
-  pointColorBy: 'default' | 'semantic'
+  /** 点云着色：默认淡蓝 / 按逐点语义类别 / 按强度 / 按高度 */
+  pointColorBy: 'default' | 'semantic' | 'intensity' | 'height'
   opacity: number
   outlinedBorders: boolean
   showOrientation: boolean
@@ -42,9 +43,18 @@ interface BoxVisual {
 }
 
 const EDGE_INDICES: [number, number][] = [
-  [0, 1], [1, 2], [2, 3], [3, 0],
-  [4, 5], [5, 6], [6, 7], [7, 4],
-  [0, 4], [1, 5], [2, 6], [3, 7],
+  [0, 1],
+  [1, 2],
+  [2, 3],
+  [3, 0],
+  [4, 5],
+  [5, 6],
+  [6, 7],
+  [7, 4],
+  [0, 4],
+  [1, 5],
+  [2, 6],
+  [3, 7],
 ]
 
 const tmpMatrix = new THREE.Matrix4()
@@ -116,14 +126,26 @@ export class PointCloudViewer {
   private watermarkSprite?: THREE.Sprite
 
   private appearance: AppearanceOptions = {
-    colorBy: 'label', pointColorBy: 'default', opacity: 0.9, outlinedBorders: true, showOrientation: true,
+    colorBy: 'label',
+    pointColorBy: 'default',
+    opacity: 0.9,
+    outlinedBorders: true,
+    showOrientation: true,
   }
 
   /** 脏标记：只有数据 / 相机变化时才重绘，空闲时不再满帧跑 GPU */
   private needsRender = true
   private disposed = false
+  /**
+   * WebGL 上下文是否已丢失。丢失期间 `render()` 直接返回 —— 往一个失效的上下文
+   * 提交命令只会刷控制台错误，而且 GPU 进程恢复要几秒，这期间的帧全是废的。
+   */
+  private contextLost = false
+  /** 上下文丢失/恢复时通知外部（顶部状态条要告诉用户"不是你的数据没了"） */
+  private readonly onContextChange?: (status: 'lost' | 'restored') => void
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, opts: { onContextChange?: (status: 'lost' | 'restored') => void } = {}) {
+    this.onContextChange = opts.onContextChange
     this.container = container
     this.renderer = new THREE.WebGLRenderer({ antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -139,7 +161,9 @@ export class PointCloudViewer {
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.12
     this.controls.target.set(0, 0, 0)
-    this.controls.addEventListener('change', () => { this.needsRender = true })
+    this.controls.addEventListener('change', () => {
+      this.needsRender = true
+    })
 
     this.scene.add(this.camera)
     this.scene.background = new THREE.Color(0x0f1219)
@@ -151,6 +175,34 @@ export class PointCloudViewer {
 
     window.addEventListener('resize', this.onResize)
     this.renderer.domElement.addEventListener('dblclick', this.onDoubleClickFit)
+    /*
+     * 上下文丢失是**必然会发生**的，不是异常路径：GPU 驱动崩溃/升级、笔记本
+     * 切换独显、系统休眠后唤醒、显存被别的标签页挤爆，都会触发。默认行为是
+     * 画布变黑且永不恢复 —— 用户看到的就是"刚才还好好的，现在点什么都没反应"。
+     * `preventDefault()` 才能让浏览器有机会把上下文还回来，否则不会触发 restored。
+     */
+    this.renderer.domElement.addEventListener('webglcontextlost', this.onContextLost)
+    this.renderer.domElement.addEventListener('webglcontextrestored', this.onContextRestored)
+  }
+
+  private onContextLost = (e: Event) => {
+    // 不 preventDefault 的话浏览器不会尝试恢复，restored 永远不会来
+    e.preventDefault()
+    this.contextLost = true
+    this.onContextChange?.('lost')
+  }
+
+  /**
+   * 上下文回来了：three 会重建自己的 GL 状态，但 GPU 侧的 buffer / 纹理已经全部作废，
+   * 而 BufferGeometry 上的数据还在 CPU 内存里 —— 所以最省事的做法是整套重新上传。
+   * 只重建点云与框，相机与轨道控制器的状态保持不动，用户的视角不会被重置。
+   */
+  private onContextRestored = () => {
+    this.contextLost = false
+    if (this.currentCloud) this.setPointCloud(this.currentCloud)
+    for (const v of this.boxVisuals.values()) v.sig = ''
+    this.needsRender = true
+    this.onContextChange?.('restored')
   }
 
   private onResize = () => {
@@ -170,14 +222,26 @@ export class PointCloudViewer {
     this.needsRender = true
   }
 
-  resize() { this.onResize() }
-  requestRender() { this.needsRender = true }
+  resize() {
+    this.onResize()
+  }
+  requestRender() {
+    this.needsRender = true
+  }
 
-  /** 当前该用哪份颜色：语义模式有标签时优先语义色，否则退回 PCD 自带颜色 */
+  /**
+   * 当前该用哪份颜色：
+   *   语义模式有标签 → 语义色
+   *   强度 / 高度模式 → 现算的色带（`core/geometry/colorize.ts`）
+   *   其余 → PCD 自带颜色（没有就交给材质默认色）
+   * 与正交视图共用 `cloudColorsFor`，保证两边对同一模式的取色一致。
+   */
   private effectiveColors(cloud: PointCloud): Float32Array | undefined {
     if (this.appearance.pointColorBy === 'semantic' && cloud.labels?.length) {
       return labelsToColors(cloud.labels, semanticClassesOf(cloud))
     }
+    const ramp = cloudColorsFor(cloud, this.appearance.pointColorBy)
+    if (ramp) return ramp
     return cloud.colors
   }
 
@@ -206,10 +270,11 @@ export class PointCloudViewer {
   }
 
   setAppearance(opts: AppearanceOptions) {
-    const changed = opts.colorBy !== this.appearance.colorBy
-      || opts.opacity !== this.appearance.opacity
-      || opts.outlinedBorders !== this.appearance.outlinedBorders
-      || opts.showOrientation !== this.appearance.showOrientation
+    const changed =
+      opts.colorBy !== this.appearance.colorBy ||
+      opts.opacity !== this.appearance.opacity ||
+      opts.outlinedBorders !== this.appearance.outlinedBorders ||
+      opts.showOrientation !== this.appearance.showOrientation
     const pointColorChanged = opts.pointColorBy !== this.appearance.pointColorBy
     this.appearance = { ...opts }
     if (changed) {
@@ -231,11 +296,14 @@ export class PointCloudViewer {
     ctx.fillRect(0, 0, 4, 64)
     ctx.fillStyle = '#eef4fb'
     ctx.font = '500 28px system-ui, sans-serif'
-    const reviewTag = box.review === 'pending'
-      ? ` 待复核${box.confidence !== undefined ? ` ${box.confidence.toFixed(2)}` : ''}`
-      : box.review === 'conflict' ? ' 冲突'
-        : box.review === 'rejected' ? ' 已拒绝'
-          : ''
+    const reviewTag =
+      box.review === 'pending'
+        ? ` 待复核${box.confidence !== undefined ? ` ${box.confidence.toFixed(2)}` : ''}`
+        : box.review === 'conflict'
+          ? ' 冲突'
+          : box.review === 'rejected'
+            ? ' 已拒绝'
+            : ''
     const tag = (box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : '') + reviewTag
     ctx.fillText(`${box.label} #${box.id}${tag}`, 14, 42)
     const tex = new THREE.CanvasTexture(canvas)
@@ -257,11 +325,14 @@ export class PointCloudViewer {
     ctx.fillRect(0, 0, 4, 64)
     ctx.fillStyle = '#eef4fb'
     ctx.font = '500 28px system-ui, sans-serif'
-    const reviewTag = box.review === 'pending'
-      ? ` 待复核${box.confidence !== undefined ? ` ${box.confidence.toFixed(2)}` : ''}`
-      : box.review === 'conflict' ? ' 冲突'
-        : box.review === 'rejected' ? ' 已拒绝'
-          : ''
+    const reviewTag =
+      box.review === 'pending'
+        ? ` 待复核${box.confidence !== undefined ? ` ${box.confidence.toFixed(2)}` : ''}`
+        : box.review === 'conflict'
+          ? ' 冲突'
+          : box.review === 'rejected'
+            ? ' 已拒绝'
+            : ''
     const tag = (box.visibility === 'predicted' ? ' 预测' : box.visibility === 'occluded' ? ' 遮挡' : '') + reviewTag
     ctx.fillText(`${box.label} #${box.id}${tag}`, 14, 42)
     tex.needsUpdate = true
@@ -277,15 +348,29 @@ export class PointCloudViewer {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
     const predicted = isDashed(box)
     if (predicted) {
-      const dashed = new THREE.LineSegments(geo, new THREE.LineDashedMaterial({
-        color, dashSize: 0.4, gapSize: 0.3, transparent: true, opacity: 0.75, depthTest: false,
-      }))
+      const dashed = new THREE.LineSegments(
+        geo,
+        new THREE.LineDashedMaterial({
+          color,
+          dashSize: 0.4,
+          gapSize: 0.3,
+          transparent: true,
+          opacity: 0.75,
+          depthTest: false,
+        }),
+      )
       dashed.computeLineDistances()
       return dashed
     }
-    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
-      color, transparent: true, opacity: 1, depthTest: false,
-    }))
+    const line = new THREE.LineSegments(
+      geo,
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+      }),
+    )
     line.renderOrder = 10
     return line
   }
@@ -317,9 +402,15 @@ export class PointCloudViewer {
         box.position.z + box.scale.z / 2 + 0.02,
       ),
     ])
-    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({
-      color, transparent: true, opacity: 0.95, depthTest: false,
-    }))
+    const line = new THREE.Line(
+      geo,
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+      }),
+    )
     line.renderOrder = 11
     return line
   }
@@ -327,10 +418,19 @@ export class PointCloudViewer {
   /** selLevel：0 未选中 / 1 次选中 / 2 主选中。进签名才能让多选变化触发重建 */
   private boxSignature(box: RenderBox, color: number, selLevel: number): string {
     return [
-      box.position.x, box.position.y, box.position.z,
-      box.scale.x, box.scale.y, box.scale.z, box.yaw,
-      box.label, box.visibility ?? 'visible', color, selLevel,
-      box.review ?? '', box.confidence ?? -1,
+      box.position.x,
+      box.position.y,
+      box.position.z,
+      box.scale.x,
+      box.scale.y,
+      box.scale.z,
+      box.yaw,
+      box.label,
+      box.visibility ?? 'visible',
+      color,
+      selLevel,
+      box.review ?? '',
+      box.confidence ?? -1,
       this.appearance.outlinedBorders ? 1 : 0,
       this.appearance.showOrientation ? 1 : 0,
       this.appearance.opacity,
@@ -376,7 +476,7 @@ export class PointCloudViewer {
         ;(vis.edges.material as THREE.Material).dispose()
         vis.edges.material = nextEdges.material
         if (nextEdges instanceof THREE.LineSegments) {
-          (vis.edges as THREE.LineSegments).computeLineDistances?.()
+          ;(vis.edges as THREE.LineSegments).computeLineDistances?.()
         }
 
         vis.faces.geometry.dispose()
@@ -417,7 +517,7 @@ export class PointCloudViewer {
       vis.faces.geometry.dispose()
       ;(vis.faces.material as THREE.Material).dispose()
       const labMat = vis.label.material as THREE.SpriteMaterial
-      labMat.map?.dispose()   // 之前漏了这一步，CanvasTexture 会一直留在显存
+      labMat.map?.dispose() // 之前漏了这一步，CanvasTexture 会一直留在显存
       labMat.dispose()
       vis.orientation.geometry.dispose()
       ;(vis.orientation.material as THREE.Material).dispose()
@@ -439,8 +539,14 @@ export class PointCloudViewer {
       return
     }
     const sig = [
-      box.id, box.position.x, box.position.y, box.position.z,
-      box.scale.x, box.scale.y, box.scale.z, box.yaw,
+      box.id,
+      box.position.x,
+      box.position.y,
+      box.position.z,
+      box.scale.x,
+      box.scale.y,
+      box.scale.z,
+      box.yaw,
     ].join('|')
     if (this.hoverVisual?.sig === sig) return
     this.clearHover()
@@ -477,7 +583,8 @@ export class PointCloudViewer {
    * 采样点用 Points 一次画完，不再「每个点一个 Mesh」——那是拖动时掉帧的主因。
    */
   setTrajectories(tracks: Trajectory[], currentFrame: number, selectedId: string | null) {
-    if (tracks === this.lastTracks && currentFrame === this.lastTrackFrame && selectedId === this.lastTrackSelected) return
+    if (tracks === this.lastTracks && currentFrame === this.lastTrackFrame && selectedId === this.lastTrackSelected)
+      return
     this.lastTracks = tracks
     this.lastTrackFrame = currentFrame
     this.lastTrackSelected = selectedId
@@ -493,7 +600,10 @@ export class PointCloudViewer {
       })
       this.trajLayer = undefined
     }
-    if (!tracks.length) { this.needsRender = true; return }
+    if (!tracks.length) {
+      this.needsRender = true
+      return
+    }
 
     const group = new THREE.Group()
     group.userData.isTrajectoryLayer = true
@@ -503,17 +613,21 @@ export class PointCloudViewer {
       const selected = selectedId === tr.id
       const allPts = tr.points.map((p) => new THREE.Vector3(p.x, p.y, p.z))
 
-      group.add(new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(allPts),
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity: selected ? 0.95 : 0.55, depthTest: false }),
-      ))
+      group.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(allPts),
+          new THREE.LineBasicMaterial({ color, transparent: true, opacity: selected ? 0.95 : 0.55, depthTest: false }),
+        ),
+      )
 
       const passed = tr.points.filter((p) => p.frame <= currentFrame)
       if (passed.length >= 2) {
-        group.add(new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(passed.map((p) => new THREE.Vector3(p.x, p.y, p.z))),
-          new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95, depthTest: false }),
-        ))
+        group.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(passed.map((p) => new THREE.Vector3(p.x, p.y, p.z))),
+            new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95, depthTest: false }),
+          ),
+        )
       }
 
       const dots = new THREE.Points(
@@ -524,10 +638,12 @@ export class PointCloudViewer {
 
       const now = tr.points.find((p) => p.frame === currentFrame)
       if (now) {
-        group.add(new THREE.Points(
-          new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(now.x, now.y, now.z)]),
-          new THREE.PointsMaterial({ color: 0xffffff, size: 0.75, depthTest: false }),
-        ))
+        group.add(
+          new THREE.Points(
+            new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(now.x, now.y, now.z)]),
+            new THREE.PointsMaterial({ color: 0xffffff, size: 0.75, depthTest: false }),
+          ),
+        )
       }
     }
 
@@ -612,9 +728,16 @@ export class PointCloudViewer {
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
-      const points = new THREE.Points(geo, new THREE.PointsMaterial({
-        size: res * 0.8, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.9,
-      }))
+      const points = new THREE.Points(
+        geo,
+        new THREE.PointsMaterial({
+          size: res * 0.8,
+          vertexColors: true,
+          sizeAttenuation: true,
+          transparent: true,
+          opacity: 0.9,
+        }),
+      )
       points.renderOrder = 3
       this.occObject = points
       this.scene.add(points)
@@ -623,7 +746,9 @@ export class PointCloudViewer {
 
     const geo = new THREE.BoxGeometry(res * 0.94, res * 0.94, res * 0.94)
     const material = new THREE.MeshBasicMaterial({
-      transparent: true, opacity: 0.3, depthWrite: false,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
     })
     const mesh = new THREE.InstancedMesh(geo, material, items.length)
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
@@ -662,9 +787,15 @@ export class PointCloudViewer {
     if (!segments || segments.length < 6) return
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(segments, 3))
-    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
-      color: 0x5ad1ff, transparent: true, opacity: 0.8, depthTest: false,
-    }))
+    const line = new THREE.LineSegments(
+      geo,
+      new THREE.LineBasicMaterial({
+        color: 0x5ad1ff,
+        transparent: true,
+        opacity: 0.8,
+        depthTest: false,
+      }),
+    )
     line.renderOrder = 5
     line.frustumCulled = false
     this.flowObject = line
@@ -693,12 +824,11 @@ export class PointCloudViewer {
     if (dir.lengthSq() < 1e-8) dir.set(0, -1, 0)
     dir.normalize()
 
-    const baseUp = Math.abs(dir.z) > 0.98
-      ? new THREE.Vector3(0, 1, 0)
-      : new THREE.Vector3(0, 0, 1)
-    const rolledUp = baseUp.clone().applyQuaternion(
-      new THREE.Quaternion().setFromAxisAngle(dir, pose.roll || 0),
-    ).normalize()
+    const baseUp = Math.abs(dir.z) > 0.98 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1)
+    const rolledUp = baseUp
+      .clone()
+      .applyQuaternion(new THREE.Quaternion().setFromAxisAngle(dir, pose.roll || 0))
+      .normalize()
 
     this.camera.up.copy(rolledUp)
     this.camera.position.copy(pos)
@@ -720,19 +850,22 @@ export class PointCloudViewer {
       })
       this.cameraTrajLayer = undefined
     }
-    if (!traj || !traj.frames.length) { this.needsRender = true; return }
+    if (!traj || !traj.frames.length) {
+      this.needsRender = true
+      return
+    }
 
     const group = new THREE.Group()
     group.userData.isCameraTrajectoryLayer = true
-    const positions = traj.frames.map((k) => new THREE.Vector3(
-      k.pose.position.x, k.pose.position.y, k.pose.position.z,
-    ))
+    const positions = traj.frames.map((k) => new THREE.Vector3(k.pose.position.x, k.pose.position.y, k.pose.position.z))
 
     if (positions.length > 1) {
-      group.add(new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(positions),
-        new THREE.LineBasicMaterial({ color: 0xffca28, transparent: true, opacity: 0.75, depthTest: false }),
-      ))
+      group.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(positions),
+          new THREE.LineBasicMaterial({ color: 0xffca28, transparent: true, opacity: 0.75, depthTest: false }),
+        ),
+      )
     }
 
     traj.frames.forEach((kf, i) => {
@@ -749,8 +882,12 @@ export class PointCloudViewer {
         const gaze = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints([positions[i], target]),
           new THREE.LineDashedMaterial({
-            color: active ? 0x00e5ff : 0xffca28, dashSize: 1.2, gapSize: 0.8,
-            transparent: true, opacity: 0.4, depthTest: false,
+            color: active ? 0x00e5ff : 0xffca28,
+            dashSize: 1.2,
+            gapSize: 0.8,
+            transparent: true,
+            opacity: 0.4,
+            depthTest: false,
           }),
         )
         gaze.computeLineDistances()
@@ -786,10 +923,15 @@ export class PointCloudViewer {
     ctx.fillStyle = '#e6ecf5'
     ctx.font = 'bold 34px sans-serif'
     ctx.fillText('Point Cloud Label Studio', 18, 62)
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false,
-    }))
-    sprite.position.set(0.58, -0.40, -1)
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(canvas),
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    )
+    sprite.position.set(0.58, -0.4, -1)
     sprite.scale.set(0.46, 0.086, 1)
     sprite.renderOrder = 999
     this.camera.add(sprite)
@@ -820,11 +962,9 @@ export class PointCloudViewer {
     const half = new THREE.Vector3()
     for (const box of boxes) {
       tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), box.yaw)
-      tmpMatrix.compose(
-        new THREE.Vector3(box.position.x, box.position.y, box.position.z),
-        tmpQuat,
-        new THREE.Vector3(1, 1, 1),
-      ).invert()
+      tmpMatrix
+        .compose(new THREE.Vector3(box.position.x, box.position.y, box.position.z), tmpQuat, new THREE.Vector3(1, 1, 1))
+        .invert()
       const localRay = raycaster.ray.clone().applyMatrix4(tmpMatrix)
       half.set(box.scale.x / 2, box.scale.y / 2, box.scale.z / 2)
       const hit = localRay.intersectBox(new THREE.Box3(half.clone().negate(), half.clone()), tmpVec)
@@ -881,6 +1021,8 @@ export class PointCloudViewer {
   }
 
   render() {
+    // 上下文丢失期间的每一帧都是废的：直接跳过，等 restored 事件把数据重新传上去
+    if (this.contextLost) return
     if (this.disposed) return
     // 阻尼需要每帧推进，但真正渲染只在脏标记置位时发生
     if (this.controls.enableDamping) this.controls.update()
@@ -892,6 +1034,8 @@ export class PointCloudViewer {
   dispose() {
     this.disposed = true
     window.removeEventListener('resize', this.onResize)
+    this.renderer.domElement.removeEventListener('webglcontextlost', this.onContextLost)
+    this.renderer.domElement.removeEventListener('webglcontextrestored', this.onContextRestored)
     this.renderer.domElement.removeEventListener('dblclick', this.onDoubleClickFit)
     this.setWatermark(false)
     this.setCameraTrajectory(null)

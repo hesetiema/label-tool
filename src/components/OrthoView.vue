@@ -15,9 +15,19 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { boxToVertices } from '../core/geometry/box'
-import { boxSizeSummary, convexHull, drawChip, hexToRgba, HOVER_GLOW, HOVER_TEXT, pointInPoly } from '../viewer/canvasPrimitives'
+import {
+  boxSizeSummary,
+  convexHull,
+  drawChip,
+  hexToRgba,
+  HOVER_GLOW,
+  HOVER_TEXT,
+  pointInPoly,
+} from '../viewer/canvasPrimitives'
 import type { Box3D, PointCloud } from '../core/types'
+import { cloneBoxes } from '../core/history'
 import { labelsToColors, semanticClassesOf } from '../core/semantics'
+import { cloudColorsFor } from '../core/geometry/colorize'
 import type { OrthoAxis, Tool } from '../state/studioCore'
 
 const props = defineProps<{
@@ -40,7 +50,7 @@ const props = defineProps<{
   tool: Tool
   colorOf: (box: Box3D) => number
   /** 点云着色模式：语义标签存在时可按类别着色 */
-  pointColorBy: 'default' | 'semantic'
+  pointColorBy: 'default' | 'semantic' | 'intensity' | 'height'
   opacity: number
   outlinedBorders: boolean
   showOrientation: boolean
@@ -79,7 +89,12 @@ let scale = 10
 let panX = 0
 let panY = 0
 
-interface Bounds { minA: number; maxA: number; minB: number; maxB: number }
+interface Bounds {
+  minA: number
+  maxA: number
+  minB: number
+  maxB: number
+}
 let bounds: Bounds | null = null
 let boundsCloud: PointCloud | null = null
 
@@ -105,7 +120,7 @@ let draft: { a0: number; b0: number; a1: number; b1: number } | null = null
 let bandRect: { x0: number; y0: number; x1: number; y1: number } | null = null
 let hoverCursor = 'default'
 /** 本视图鼠标下的框：用来驱动光标样式与「谁在指着它」的即时高亮 */
-let hoverId: string | null = null
+let localHoverId: string | null = null
 /** 上一次广播出去的悬停值，避免同一目标被反复 emit */
 let emittedHover: string | null = null
 /** 拖拽中显示的尺寸提示（世界单位） */
@@ -121,9 +136,9 @@ let lastCursorAt = 0
 let deselectTimer: number | undefined
 
 const axisPair = computed<[0 | 1 | 2, 0 | 1 | 2]>(() => {
-  if (props.axis === 'top') return [0, 1]   // x / y
-  if (props.axis === 'side') return [0, 2]  // x / z
-  return [1, 2]                             // y / z
+  if (props.axis === 'top') return [0, 1] // x / y
+  if (props.axis === 'side') return [0, 2] // x / z
+  return [1, 2] // y / z
 })
 
 const axisLabel = computed(() => {
@@ -159,7 +174,10 @@ function pointScreen(p: { x: number; y: number; z: number }) {
 
 function computeBounds(cloud: PointCloud): Bounds {
   const [ia, ib] = axisPair.value
-  let minA = Infinity, maxA = -Infinity, minB = Infinity, maxB = -Infinity
+  let minA = Infinity,
+    maxA = -Infinity,
+    minB = Infinity,
+    maxB = -Infinity
   const pos = cloud.positions
   const step = Math.max(1, Math.floor(cloud.count / 120000))
   for (let i = 0; i < cloud.count; i += step) {
@@ -206,12 +224,13 @@ function rebuildCloudLayer() {
 
   // 语义着色：先把标签转成 rgb 查找结果（每点 3 个 0~1 值）
   const useSemantic = props.pointColorBy === 'semantic' && !!props.cloud.labels?.length
-  const semanticRgb = useSemantic
-    ? labelsToColors(props.cloud.labels!, semanticClassesOf(props.cloud))
-    : null
+  const semanticRgb = useSemantic ? labelsToColors(props.cloud.labels!, semanticClassesOf(props.cloud)) : null
+  // 强度 / 高度着色与 3D 视口共用同一套色带；缺 intensity 时自动退回默认明暗
+  const rampRgb = semanticRgb ? null : (cloudColorsFor(props.cloud, props.pointColorBy) ?? null)
 
   // 默认模式按高度做轻微明暗，正交视图也能看出远近层次
-  let minZ = Infinity, maxZ = -Infinity
+  let minZ = Infinity,
+    maxZ = -Infinity
   const stepZ = Math.max(1, Math.floor(props.cloud.count / 4000))
   for (let i = 0; i < props.cloud.count; i += stepZ) {
     const z = pos[i * 3 + 2]
@@ -219,7 +238,10 @@ function rebuildCloudLayer() {
     if (z < minZ) minZ = z
     if (z > maxZ) maxZ = z
   }
-  if (!Number.isFinite(minZ)) { minZ = 0; maxZ = 1 }
+  if (!Number.isFinite(minZ)) {
+    minZ = 0
+    maxZ = 1
+  }
   const zSpan = Math.max(maxZ - minZ, 0.001)
 
   for (let i = 0; i < props.cloud.count; i++) {
@@ -234,6 +256,10 @@ function rebuildCloudLayer() {
       data[idx] = semanticRgb[i * 3] * 255
       data[idx + 1] = semanticRgb[i * 3 + 1] * 255
       data[idx + 2] = semanticRgb[i * 3 + 2] * 255
+    } else if (rampRgb) {
+      data[idx] = rampRgb[i * 3] * 255
+      data[idx + 1] = rampRgb[i * 3 + 1] * 255
+      data[idx + 2] = rampRgb[i * 3 + 2] * 255
     } else {
       const t = (pos[i * 3 + 2] - minZ) / zSpan
       const v = 120 + Math.round(t * 110)
@@ -252,8 +278,14 @@ function rebuildCloudLayer() {
 function boxCorners(box: Box3D) {
   const hx = box.scale.x / 2
   const hy = box.scale.y / 2
-  const c = Math.cos(box.yaw), s = Math.sin(box.yaw)
-  const local: [number, number][] = [[hx, -hy], [hx, hy], [-hx, hy], [-hx, -hy]]
+  const c = Math.cos(box.yaw),
+    s = Math.sin(box.yaw)
+  const local: [number, number][] = [
+    [hx, -hy],
+    [hx, hy],
+    [-hx, hy],
+    [-hx, -hy],
+  ]
   return local.map(([lx, ly]) => ({
     x: box.position.x + lx * c - ly * s,
     y: box.position.y + lx * s + ly * c,
@@ -280,7 +312,8 @@ function handlesOf(box: Box3D): Handles {
       box.position.y + Math.sin(box.yaw) * (box.scale.x / 2),
     )
     const center = toScreen(box.position.x, box.position.y)
-    const dx = mid.x - center.x, dy = mid.y - center.y
+    const dx = mid.x - center.x,
+      dy = mid.y - center.y
     const len = Math.hypot(dx, dy) || 1
     const rot = { x: mid.x + (dx / len) * 20, y: mid.y + (dy / len) * 20 }
     return { corners: cs, rotate: rot, height: null, center }
@@ -328,7 +361,7 @@ function drawBox(box: Box3D) {
   if (!ctx) return
   const primary = box.id === props.selectedId
   const selected = primary || props.selectedIds.includes(box.id)
-  const hovered = !selected && (hoverId === box.id || props.hoverId === box.id)
+  const hovered = !selected && (localHoverId === box.id || props.hoverId === box.id)
   const rgb = props.colorOf(box)
   const css = '#' + rgb.toString(16).padStart(6, '0')
   const locked = props.lockedIds.includes(box.id)
@@ -342,7 +375,7 @@ function drawBox(box: Box3D) {
     cs.forEach((p, i) => (i ? ctx!.lineTo(p.x, p.y) : ctx!.moveTo(p.x, p.y)))
     ctx.closePath()
     if (!props.outlinedBorders) {
-      ctx.fillStyle = hexToRgba(css, 0.10 + props.opacity * 0.12)
+      ctx.fillStyle = hexToRgba(css, 0.1 + props.opacity * 0.12)
       ctx.fill()
     }
     ctx.strokeStyle = stroke
@@ -365,7 +398,7 @@ function drawBox(box: Box3D) {
       ctx.beginPath()
       poly.forEach((p, i) => (i ? ctx!.lineTo(p.x, p.y) : ctx!.moveTo(p.x, p.y)))
       ctx.closePath()
-      ctx.fillStyle = hexToRgba(css, 0.06 + props.opacity * 0.10)
+      ctx.fillStyle = hexToRgba(css, 0.06 + props.opacity * 0.1)
       ctx.fill()
       ctx.strokeStyle = stroke
       ctx.lineWidth = primary ? 2 : selected ? 1.8 : hovered ? 2.2 : 1.3
@@ -455,11 +488,10 @@ function drawBox(box: Box3D) {
   // 悬停读数：鼠标指着的框，直接把 L×W×H 与角度贴在框顶。
   // 24 个同类车框堆在一起时，「哪个是我指着的」和「它多大」应该同时得到答案。
   if (hovered) {
-    const pts = props.axis === 'top'
-      ? boxCorners(box).map((p) => toScreen(p.x, p.y))
-      : screenPoly(box)
+    const pts = props.axis === 'top' ? boxCorners(box).map((p) => toScreen(p.x, p.y)) : screenPoly(box)
     let top = pts[0]
-    let minX = Infinity, maxX = -Infinity
+    let minX = Infinity,
+      maxX = -Infinity
     for (const p of pts) {
       if (p.y < top.y) top = p
       if (p.x < minX) minX = p.x
@@ -473,9 +505,8 @@ function drawBox(box: Box3D) {
   // 锁定标识：画布上得能看出"拖不动"是锁住了，而不是卡了。
   // 挂在框体最上方的角点之外，避开中心的角点手柄与标签片。
   if (locked) {
-    const pts = props.axis === 'top'
-      ? boxCorners(box).map((p) => toScreen(p.x, p.y))
-      : boxVertices(box).map(pointScreen)
+    const pts =
+      props.axis === 'top' ? boxCorners(box).map((p) => toScreen(p.x, p.y)) : boxVertices(box).map(pointScreen)
     let top = pts[0]
     for (const p of pts) if (p.y < top.y) top = p
     drawLock({ x: top.x, y: top.y - 11 })
@@ -521,11 +552,7 @@ function redraw() {
     ctx.save()
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     // 平移只位移整层位图：逐点写 ImageData 是 67k 次循环，拖动时不能每帧跑
-    ctx.drawImage(
-      cloudLayer,
-      Math.round((panX - layerPanX) * dpr),
-      Math.round((panY - layerPanY) * dpr),
-    )
+    ctx.drawImage(cloudLayer, Math.round((panX - layerPanX) * dpr), Math.round((panY - layerPanY) * dpr))
     ctx.restore()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
@@ -607,9 +634,12 @@ function drawScaleBar() {
 function drawGrid() {
   if (!ctx) return
   const [ia, ib] = axisPair.value
-  const w0 = toWorld(0, height), w1 = toWorld(width, 0)
-  const a0 = Math.ceil(w0.a), a1 = Math.floor(w1.a)
-  const b0 = Math.ceil(w0.b), b1 = Math.floor(w1.b)
+  const w0 = toWorld(0, height),
+    w1 = toWorld(width, 0)
+  const a0 = Math.ceil(w0.a),
+    a1 = Math.floor(w1.a)
+  const b0 = Math.ceil(w0.b),
+    b1 = Math.floor(w1.b)
   const stepA = a1 - a0 > 220 ? 10 : a1 - a0 > 90 ? 5 : 1
   const stepB = b1 - b0 > 220 ? 10 : b1 - b0 > 90 ? 5 : 1
   ctx.strokeStyle = 'rgba(42,53,80,0.55)'
@@ -632,9 +662,15 @@ function drawGrid() {
   // 原点轴：x 红 / y 绿 / z 蓝，和 3D 视口的 AxesHelper 对应
   const o = toScreen(0, 0)
   ctx.strokeStyle = ia === 0 ? '#ff5252' : ia === 1 ? '#3ddc84' : '#48b0ff'
-  ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x + 28, o.y); ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(o.x, o.y)
+  ctx.lineTo(o.x + 28, o.y)
+  ctx.stroke()
   ctx.strokeStyle = ib === 1 ? '#3ddc84' : ib === 2 ? '#48b0ff' : '#ff5252'
-  ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x, o.y - 28); ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(o.x, o.y)
+  ctx.lineTo(o.x, o.y - 28)
+  ctx.stroke()
 }
 
 /** 命中测试：返回角点序号（0-3）、旋转、高度或框体 */
@@ -660,7 +696,8 @@ function hitTest(mx: number, my: number): { kind: DragMode; box: Box3D | null; c
       const w = toWorld(mx, my)
       const dx = w.a - box.position.x
       const dy = w.b - box.position.y
-      const c = Math.cos(-box.yaw), s = Math.sin(-box.yaw)
+      const c = Math.cos(-box.yaw),
+        s = Math.sin(-box.yaw)
       const lx = dx * c - dy * s
       const ly = dx * s + dy * c
       if (Math.abs(lx) <= box.scale.x / 2 && Math.abs(ly) <= box.scale.y / 2) {
@@ -675,9 +712,7 @@ function hitTest(mx: number, my: number): { kind: DragMode; box: Box3D | null; c
   // 基本点不中。退一步：离框心 5px 内也算指着它，否则小尺度下悬停/选中都是死路。
   let nearest: { box: Box3D; d: number } | null = null
   for (const box of props.boxes) {
-    const c = props.axis === 'top'
-      ? toScreen(box.position.x, box.position.y)
-      : pointScreen(box.position)
+    const c = props.axis === 'top' ? toScreen(box.position.x, box.position.y) : pointScreen(box.position)
     const d = Math.hypot(mx - c.x, my - c.y)
     if (!nearest || d < nearest.d) nearest = { box, d }
   }
@@ -695,7 +730,10 @@ function worldZFromScreen(my: number): number {
  */
 function emitCursorAt(mx: number, my: number) {
   const cloud = props.cloud
-  if (!cloud) { emit('cursor', null); return }
+  if (!cloud) {
+    emit('cursor', null)
+    return
+  }
   const now = performance.now()
   if (now - lastCursorAt < 60) return
   lastCursorAt = now
@@ -711,12 +749,21 @@ function emitCursorAt(mx: number, my: number) {
     const da = pos[i * 3 + ia] - w.a
     const db = pos[i * 3 + ib] - w.b
     const d = da * da + db * db
-    if (d < bestD) { bestD = d; best = i }
+    if (d < bestD) {
+      bestD = d
+      best = i
+    }
   }
-  if (best < 0) { emit('cursor', null); return }
+  if (best < 0) {
+    emit('cursor', null)
+    return
+  }
   // 最近点在屏幕上离光标太远，说明鼠标在空白处，别硬报一个远处的坐标
   const sp = toScreen(pos[best * 3 + ia], pos[best * 3 + ib])
-  if (Math.hypot(sp.x - mx, sp.y - my) > 16) { emit('cursor', null); return }
+  if (Math.hypot(sp.x - mx, sp.y - my) > 16) {
+    emit('cursor', null)
+    return
+  }
   emit('cursor', { x: pos[best * 3], y: pos[best * 3 + 1], z: pos[best * 3 + 2] })
 }
 
@@ -735,7 +782,10 @@ function shiftInPlane(box: Box3D, da: number, db: number) {
 }
 
 function clearDeselectTimer() {
-  if (deselectTimer) { window.clearTimeout(deselectTimer); deselectTimer = undefined }
+  if (deselectTimer) {
+    window.clearTimeout(deselectTimer)
+    deselectTimer = undefined
+  }
 }
 
 function beginDrag(e: MouseEvent) {
@@ -789,9 +839,7 @@ function beginDrag(e: MouseEvent) {
 
   if (inGroup) {
     dragMode = 'move'
-    dragBoxes = JSON.parse(JSON.stringify(
-      props.boxes.filter((b) => props.selectedIds.includes(b.id)),
-    )) as Box3D[]
+    dragBoxes = JSON.parse(JSON.stringify(props.boxes.filter((b) => props.selectedIds.includes(b.id)))) as Box3D[]
     e.preventDefault()
     return
   }
@@ -826,7 +874,10 @@ function onMove(e: MouseEvent) {
 
   // 四个视图都监听 window 的 mousemove：不在自己画布范围内就不做事
   if (dragMode === 'none' && (mx < 0 || my < 0 || mx > width || my > height)) {
-    if (hoverId) { hoverId = null; redraw() }
+    if (localHoverId) {
+      localHoverId = null
+      redraw()
+    }
     return
   }
 
@@ -845,14 +896,14 @@ function onMove(e: MouseEvent) {
     }
     // 悬停高亮：框叠在一起时先看清要选中哪个，再点下去
     const nextHover = hit.box?.id ?? null
-    if (nextHover !== hoverId) {
-      hoverId = nextHover
+    if (nextHover !== localHoverId) {
+      localHoverId = nextHover
       redraw()
     }
     // 共享给其余视图与 3D 视口：这条线上谁在指着哪个框，全局只有一份答案
-    if (hoverId !== emittedHover) {
-      emittedHover = hoverId
-      emit('hover', hoverId)
+    if (localHoverId !== emittedHover) {
+      emittedHover = localHoverId
+      emit('hover', localHoverId)
     }
     emitCursorAt(mx, my)
     return
@@ -909,7 +960,8 @@ function onMove(e: MouseEvent) {
     readoutAt = { x: mx, y: my }
   } else if (dragMode === 'resize') {
     // 以对角点为锚，把鼠标投影到框的局部 u/v 轴上求新长宽
-    const c = Math.cos(dragBox.yaw), s = Math.sin(dragBox.yaw)
+    const c = Math.cos(dragBox.yaw),
+      s = Math.sin(dragBox.yaw)
     const relX = w.a - dragFixed.x
     const relY = w.b - dragFixed.y
     const du = relX * c + relY * s
@@ -923,9 +975,12 @@ function onMove(e: MouseEvent) {
   } else if (dragMode === 'rotate') {
     const angle = Math.atan2(w.b - dragBox.position.y, w.a - dragBox.position.x)
     let yaw = dragStartYaw + (angle - dragStartAngle)
-    if (e.shiftKey) { const step = Math.PI / 12; yaw = Math.round(yaw / step) * step }
+    if (e.shiftKey) {
+      const step = Math.PI / 12
+      yaw = Math.round(yaw / step) * step
+    }
     start.yaw = yaw
-    readout = `${((((yaw * 180) / Math.PI) % 360 + 360) % 360).toFixed(0)}°`
+    readout = `${(((((yaw * 180) / Math.PI) % 360) + 360) % 360).toFixed(0)}°`
     readoutAt = { x: mx, y: my }
   } else if (dragMode === 'height') {
     const z = worldZFromScreen(my)
@@ -937,6 +992,44 @@ function onMove(e: MouseEvent) {
   }
 
   emit('edit', start)
+}
+
+/**
+ * 取消「正在画 / 正在拖」的框。返回是否真的取消了什么。
+ *
+ * 画框是 mouseup 时才 `emit('create')`，拖拽/缩放/旋转则是每次 mousemove 都
+ * `emit('edit')` 落到父级了 —— 所以后者的"取消"必须把起始快照再提交一遍
+ * （父级按 id 覆盖，等价于回滚），不能只是本地丢掉状态。
+ */
+function cancelDrag(): boolean {
+  if (dragMode === 'none') return false
+  const mode = dragMode
+  if (mode === 'move' || mode === 'resize' || mode === 'rotate' || mode === 'height') {
+    if (dragBoxes) emit('editMany', cloneBoxes(dragBoxes))
+    else if (dragBox) emit('edit', dragBox)
+  }
+  draft = null
+  bandRect = null
+  dragMode = 'none'
+  dragBox = null
+  dragBoxes = null
+  readout = null
+  panned = false
+  cloudDirty = true
+  redraw()
+  return true
+}
+
+/**
+ * Esc：中途放弃当前这次拖拽。
+ *
+ * 用捕获阶段并 `stopPropagation`：全局快捷键里的 Esc 是"取消选中 + 回到选择工具"，
+ * 画错一个框顺手把已选中的对象也丢了不是用户想要的。谁真有进行中的拖拽谁拦，
+ * 没拖拽时一律放行，其余视图与全局行为不受影响。
+ */
+function onEscape(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  if (cancelDrag()) e.stopPropagation()
 }
 
 function endDrag() {
@@ -964,9 +1057,7 @@ function endDrag() {
     if (!clicked) {
       // 用框中心判定：比「整体包住」宽容，比「碰到就算」精确
       for (const box of props.boxes) {
-        const c = props.axis === 'top'
-          ? toScreen(box.position.x, box.position.y)
-          : pointScreen(box.position)
+        const c = props.axis === 'top' ? toScreen(box.position.x, box.position.y) : pointScreen(box.position)
         if (c.x >= x0 && c.x <= x1 && c.y >= y0 && c.y <= y1) ids.push(box.id)
       }
     }
@@ -1053,8 +1144,14 @@ function onAppearanceChange() {
 
 /** 鼠标离开画布：清掉悬停高亮和坐标，否则会一直停在最后一个值 */
 function onLeave() {
-  if (hoverId) { hoverId = null; redraw() }
-  if (emittedHover !== null) { emittedHover = null; emit('hover', null) }
+  if (localHoverId) {
+    localHoverId = null
+    redraw()
+  }
+  if (emittedHover !== null) {
+    emittedHover = null
+    emit('hover', null)
+  }
   emit('cursor', null)
 }
 
@@ -1091,11 +1188,16 @@ onMounted(() => {
   canvas.addEventListener('mousedown', beginDrag)
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', endDrag)
+  // 捕获阶段：见 onEscape 的注释
+  window.addEventListener('keydown', onEscape, true)
   canvas.addEventListener('wheel', onWheel, { passive: false })
   canvas.addEventListener('mouseleave', onLeave)
   canvas.addEventListener('contextmenu', (e) => e.preventDefault())
   canvas.addEventListener('dblclick', () => {
-    if (deselectTimer) { window.clearTimeout(deselectTimer); deselectTimer = undefined }
+    if (deselectTimer) {
+      window.clearTimeout(deselectTimer)
+      deselectTimer = undefined
+    }
     emit('maximize')
   })
 
@@ -1129,67 +1231,103 @@ onBeforeUnmount(() => {
   }
   window.removeEventListener('mousemove', onMove)
   window.removeEventListener('mouseup', endDrag)
+  window.removeEventListener('keydown', onEscape, true)
   if (fitTimer) window.clearTimeout(fitTimer)
   if (deselectTimer) window.clearTimeout(deselectTimer)
 })
 
-watch(() => props.cloud, (next) => {
-  if (next === boundsCloud) return
-  boundsCloud = next
-  const nextBounds = next ? computeBounds(next) : null
-  const prev = bounds
-  bounds = nextBounds
+watch(
+  () => props.cloud,
+  (next) => {
+    if (next === boundsCloud) return
+    boundsCloud = next
+    const nextBounds = next ? computeBounds(next) : null
+    const prev = bounds
+    bounds = nextBounds
 
-  // 时序逐帧切换时，各帧包围盒差异很小：保持当前缩放，避免每帧都"跳一下"。
-  // 只有明显换了数据集（跨度变化 > 20% 或中心漂移过大）才重新适应。
-  let keepView = false
-  if (prev && nextBounds) {
-    const spanOld = Math.max(prev.maxA - prev.minA, prev.maxB - prev.minB, 1)
-    const spanNew = Math.max(nextBounds.maxA - nextBounds.minA, nextBounds.maxB - nextBounds.minB, 1)
-    const ratio = spanNew / spanOld
-    const shift = Math.hypot(
-      (nextBounds.minA + nextBounds.maxA) / 2 - (prev.minA + prev.maxA) / 2,
-      (nextBounds.minB + nextBounds.maxB) / 2 - (prev.minB + prev.maxB) / 2,
-    )
-    keepView = ratio > 0.8 && ratio < 1.25 && shift < spanOld * 0.2
-  }
+    // 时序逐帧切换时，各帧包围盒差异很小：保持当前缩放，避免每帧都"跳一下"。
+    // 只有明显换了数据集（跨度变化 > 20% 或中心漂移过大）才重新适应。
+    let keepView = false
+    if (prev && nextBounds) {
+      const spanOld = Math.max(prev.maxA - prev.minA, prev.maxB - prev.minB, 1)
+      const spanNew = Math.max(nextBounds.maxA - nextBounds.minA, nextBounds.maxB - nextBounds.minB, 1)
+      const ratio = spanNew / spanOld
+      const shift = Math.hypot(
+        (nextBounds.minA + nextBounds.maxA) / 2 - (prev.minA + prev.maxA) / 2,
+        (nextBounds.minB + nextBounds.maxB) / 2 - (prev.minB + prev.maxB) / 2,
+      )
+      keepView = ratio > 0.8 && ratio < 1.25 && shift < spanOld * 0.2
+    }
 
-  cloudDirty = true
-  if (next && !keepView) {
-    if (fitTimer) window.clearTimeout(fitTimer)
-    fitTimer = window.setTimeout(fitView, 60)
-  } else {
-    redraw()
-  }
-})
+    cloudDirty = true
+    if (next && !keepView) {
+      if (fitTimer) window.clearTimeout(fitTimer)
+      fitTimer = window.setTimeout(fitView, 60)
+    } else {
+      redraw()
+    }
+  },
+)
 
 // 必须 deep：拖动时 applyBox 只改框内字段，数组引用不变，浅监听收不到
-watch(() => props.boxes, () => redraw(), { deep: true })
-watch(() => props.selectedId, () => redraw())
-watch(() => props.selectedIds, () => redraw())
+watch(
+  () => props.boxes,
+  () => redraw(),
+  { deep: true },
+)
+watch(
+  () => props.selectedId,
+  () => redraw(),
+)
+watch(
+  () => props.selectedIds,
+  () => redraw(),
+)
 // 别的视图（或 3D 视口）改了悬停对象：跟着高亮
-watch(() => props.hoverId, () => redraw())
+watch(
+  () => props.hoverId,
+  () => redraw(),
+)
 // 联动缩放：只接受别的视图发来的信号，忽略自己那条
-watch(() => props.zoomSignal, (sig) => {
-  if (!sig || sig.from === props.axis) return
-  applyLinkedZoom(sig.scale)
-})
+watch(
+  () => props.zoomSignal,
+  (sig) => {
+    if (!sig || sig.from === props.axis) return
+    applyLinkedZoom(sig.scale)
+  },
+)
 // 联动平移：与缩放同一套规则（谁发起谁不动）
-watch(() => props.panSignal, (sig) => {
-  if (!sig || sig.from === props.axis) return
-  applyLinkedPan(sig.da, sig.db)
-})
-watch(() => props.tool, () => { hoverId = null; emittedHover = null; redraw() })
-watch(() => [props.opacity, props.outlinedBorders, props.showOrientation, props.pointColorBy], () => {
-  cloudDirty = true
-  onAppearanceChange()
-})
-watch(() => props.axis, () => {
-  bounds = props.cloud ? computeBounds(props.cloud) : null
-  boundsCloud = props.cloud
-  cloudDirty = true
-  fitView()
-})
+watch(
+  () => props.panSignal,
+  (sig) => {
+    if (!sig || sig.from === props.axis) return
+    applyLinkedPan(sig.da, sig.db)
+  },
+)
+watch(
+  () => props.tool,
+  () => {
+    localHoverId = null
+    emittedHover = null
+    redraw()
+  },
+)
+watch(
+  () => [props.opacity, props.outlinedBorders, props.showOrientation, props.pointColorBy],
+  () => {
+    cloudDirty = true
+    onAppearanceChange()
+  },
+)
+watch(
+  () => props.axis,
+  () => {
+    bounds = props.cloud ? computeBounds(props.cloud) : null
+    boundsCloud = props.cloud
+    cloudDirty = true
+    fitView()
+  },
+)
 </script>
 
 <template>

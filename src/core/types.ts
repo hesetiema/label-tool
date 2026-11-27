@@ -110,6 +110,8 @@ export interface SemanticClass {
 export interface PointCloud {
   positions: Float32Array
   count: number
+  /** 反射/强度，量纲随数据源（PCD `intensity`、PLY `scalar_intensity`、KITTI 第 4 分量） */
+  intensity?: Float32Array
   colors?: Float32Array
   labels?: SemanticLabels
   instances?: InstanceIds

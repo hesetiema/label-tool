@@ -26,6 +26,7 @@ const APP = process.env.APP_URL || 'http://127.0.0.1:5199/'
 const SUITES = {
   gc: 'GC 判定矩阵（控制台入口、dryRun、四类判定、启动清扫）',
   load: '懒加载端到端（21 帧导入、逐帧落盘、刷新恢复）',
+  color: '点云着色与读取兜底（intensity 贯通、强度/高度切换、.ply 拖入）',
   timeline: '时间线拖拽 / 右键菜单 / 合并保存 / 三个导出入口',
   docfirst: 'doc-first 恢复（点云外置、生命周期保真、只剩文档、清草稿）',
   collide: '两个同帧数数据集不撞号',
@@ -61,14 +62,15 @@ if (!(await reachable(APP))) {
   process.exit(2)
 }
 
-const run = (name) => new Promise((resolve) => {
-  const child = spawn(process.execPath, [join(HERE, `${name}.mjs`)], {
-    cwd: HERE,
-    stdio: 'inherit',
-    env: { ...process.env, APP_URL: APP },
+const run = (name) =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, [join(HERE, `${name}.mjs`)], {
+      cwd: HERE,
+      stdio: 'inherit',
+      env: { ...process.env, APP_URL: APP },
+    })
+    child.on('exit', (code) => resolve(code ?? 1))
   })
-  child.on('exit', (code) => resolve(code ?? 1))
-})
 
 const failed = []
 for (const name of names) {

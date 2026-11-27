@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * PCD 解析 worker
+ * 点云解析 worker（PCD / PLY / KITTI .bin）
  * ============================================================
  *
  * 【为什么必须搬进 worker】
@@ -20,12 +20,15 @@
  *   下采样策略（体素尺寸、距离 LOD）依赖 UI 状态，worker 不该知道这些。
  *   等 P2 需要时再加一条 `downsample` 消息类型，而不是把策略写死在解析里。
  */
-import { parsePCD } from '../core/io/pcd'
+import { parseCloudBuffer, type CloudFormat } from '../core/io/cloud'
 import type { SemanticLabels } from '../core/types'
 
 interface ParseRequest {
   id: number
   buffer: ArrayBuffer
+  /** 文件名与已知格式：交给 parseCloudBuffer 决定用哪个解析器 */
+  name?: string
+  format?: CloudFormat
 }
 
 interface ParseResponse {
@@ -35,6 +38,7 @@ interface ParseResponse {
   positions?: Float32Array
   colors?: Float32Array
   labels?: SemanticLabels
+  intensity?: Float32Array
   /** 语义实例 id（PCD 里没有，保留字段位，未来由 .label 合并时填） */
   error?: string
 }
@@ -46,20 +50,25 @@ const ctx = self as unknown as {
 }
 
 ctx.onmessage = (e: MessageEvent<ParseRequest>) => {
-  const { id, buffer } = e.data
+  const { id, buffer, name, format } = e.data
   try {
-    const cloud = parsePCD(buffer)
+    const cloud = parseCloudBuffer(buffer, { name, format })
     const transfer: Transferable[] = [cloud.positions.buffer]
     if (cloud.colors) transfer.push(cloud.colors.buffer)
     if (cloud.labels) transfer.push(cloud.labels.buffer)
-    ctx.postMessage({
-      id,
-      ok: true,
-      count: cloud.count,
-      positions: cloud.positions,
-      ...(cloud.colors ? { colors: cloud.colors } : {}),
-      ...(cloud.labels ? { labels: cloud.labels } : {}),
-    }, transfer)
+    if (cloud.intensity) transfer.push(cloud.intensity.buffer)
+    ctx.postMessage(
+      {
+        id,
+        ok: true,
+        count: cloud.count,
+        positions: cloud.positions,
+        ...(cloud.colors ? { colors: cloud.colors } : {}),
+        ...(cloud.labels ? { labels: cloud.labels } : {}),
+        ...(cloud.intensity ? { intensity: cloud.intensity } : {}),
+      },
+      transfer,
+    )
   } catch (err) {
     // 解析错误是数据问题（头部损坏、binary_compressed），必须回传而不是让 worker 崩掉：
     // worker 崩掉时主线程只知道 onerror，拿不到是哪一帧、为什么。

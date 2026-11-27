@@ -23,11 +23,14 @@ import type { Box3D, PointCloud } from '../core/types'
 import type { DataSource, FramePayload, FrameRequestOptions, SampleHandle, SampleSummary } from '../ports/dataSource'
 import type { SceneMeta } from '../domain/model/scene'
 import type { Calibration } from '../core/io/calibration'
-import { parsePcdAsync } from './pcdParser'
+import { parseCloudAsync } from './pcdParser'
 import { sampleIdOf } from '../domain/model/ids'
 
+/** 认的点云扩展名。真正用什么解析器由 core/io/cloud.ts 按内容判定，这里只管挑文件 */
+export const CLOUD_FILE_RE = /\.(pcd|ply|bin)$/i
+
 export interface LocalFilePair {
-  /** 点云文件（.pcd） */
+  /** 点云文件（.pcd / .ply / KITTI .bin） */
   cloud: File
   /** 同名标注（.json），可选 */
   labels?: File
@@ -67,10 +70,11 @@ export function sortCloudFiles<T extends { name: string }>(files: T[]): T[] {
  * 标注按去掉扩展名的文件名匹配，例如 `000970.pcd` ↔ `000970.json`。
  */
 export function pairLocalFiles(files: File[]): LocalFilePair[] {
-  const pcds = sortCloudFiles(files.filter((f) => /\.pcd$/i.test(f.name)))
+  const clouds = sortCloudFiles(files.filter((f) => CLOUD_FILE_RE.test(f.name)))
   const jsons = files.filter((f) => /\.json$/i.test(f.name))
-  return pcds.map((cloud) => {
-    const stem = cloud.name.replace(/\.pcd$/i, '')
+  return clouds.map((cloud) => {
+    // 标注按「去掉点云扩展名」的文件名匹配：000970.pcd ↔ 000970.json
+    const stem = cloud.name.replace(CLOUD_FILE_RE, '')
     const labels = jsons.find((j) => j.name.replace(/\.json$/i, '') === stem)
     return labels ? { cloud, labels } : { cloud }
   })
@@ -100,7 +104,7 @@ class LocalFileHandle implements LocalSampleHandle {
     const pair = this.pairs[i]
     if (!pair) throw new Error(`帧 ${i} 超出范围（共 ${this.pairs.length} 帧）`)
     // 读盘本身在主线程，真正的耗时在 worker 解析；优先级透传下去才能起到排队作用
-    const cloud = await parsePcdAsync(await pair.cloud.arrayBuffer(), opts)
+    const cloud = await parseCloudAsync(await pair.cloud.arrayBuffer(), { ...opts, name: pair.cloud.name })
     return {
       ref: {
         index: i,
@@ -143,12 +147,9 @@ export interface LocalFileSource extends DataSource {
   openSample(sampleId: string): Promise<LocalSampleHandle>
 }
 
-export function createLocalFileSource(
-  pairs: LocalFilePair[],
-  opts: LocalSourceOptions = {},
-): LocalFileSource {
+export function createLocalFileSource(pairs: LocalFilePair[], opts: LocalSourceOptions = {}): LocalFileSource {
   const sceneId = opts.sceneId ?? 'local'
-  const name = opts.name ?? (pairs[0]?.cloud.name ?? '本地文件')
+  const name = opts.name ?? pairs[0]?.cloud.name ?? '本地文件'
   const range: [number, number] = pairs.length ? [0, pairs.length - 1] : [0, 0]
   const sampleId = sampleIdOf(sceneId, range)
   const meta: SceneMeta = {
@@ -162,14 +163,16 @@ export function createLocalFileSource(
   return {
     id: 'local-file',
     async listSamples(): Promise<SampleSummary[]> {
-      return [{
-        sampleId,
-        sceneId,
-        name,
-        frameRange: range,
-        sensorKinds: ['lidar'],
-        bytes: pairs.reduce((n, p) => n + p.cloud.size + (p.labels?.size ?? 0), 0),
-      }]
+      return [
+        {
+          sampleId,
+          sceneId,
+          name,
+          frameRange: range,
+          sensorKinds: ['lidar'],
+          bytes: pairs.reduce((n, p) => n + p.cloud.size + (p.labels?.size ?? 0), 0),
+        },
+      ]
     },
     async openSample(id: string): Promise<LocalSampleHandle> {
       if (id !== sampleId) throw new Error(`未知样本 ${id}`)

@@ -32,9 +32,12 @@ import { cloneBoxes } from '../core/history'
 import { fromStoredCloud, type SessionSnapshot } from '../core/io/session'
 import type { Box3D, PointCloud } from '../core/types'
 import type { StudioCore } from './studioCore'
-import { parsePcdAsync } from '../adapters/pcdParser'
+import { parseCloudAsync } from '../adapters/pcdParser'
 import {
-  createLocalFileSource, pairLocalFiles, placeholderCloud, type LocalFilePair,
+  createLocalFileSource,
+  pairLocalFiles,
+  placeholderCloud,
+  type LocalFilePair,
 } from '../adapters/localFileSource'
 import { createFrameLoader } from '../adapters/frameLoader'
 import { createCachedCloudHandle, saveFrameCloud } from '../adapters/frameCloudStore'
@@ -51,10 +54,30 @@ const LAZY_BYTES_THRESHOLD = 120 * 1024 * 1024
 
 export function useDataset(core: StudioCore) {
   const {
-    boxes, selectedId, cloud, frames, currentFrame, calib, imageUrl, showTrajectories,
-    pointColorBy, statusText, datasetName, categories, resetHistory, syncViewer, invalidateCloud,
-    getViewer, resetViewerState, markDirty, layout, saveState, lastSavedAt, ensureCategories,
-    setFrameLoader, datasetKey,
+    boxes,
+    selectedId,
+    cloud,
+    frames,
+    currentFrame,
+    calib,
+    imageUrl,
+    showTrajectories,
+    pointColorBy,
+    statusText,
+    datasetName,
+    categories,
+    resetHistory,
+    syncViewer,
+    invalidateCloud,
+    getViewer,
+    resetViewerState,
+    markDirty,
+    layout,
+    saveState,
+    lastSavedAt,
+    ensureCategories,
+    setFrameLoader,
+    datasetKey,
   } = core
 
   const fileInput = ref<HTMLInputElement | null>(null)
@@ -70,7 +93,10 @@ export function useDataset(core: StudioCore) {
     for (const id of firstIds) {
       if (!lastIds.has(id)) continue
       for (let i = 1; i < frames.value.length - 1; i++) {
-        if (!frames.value[i].boxes.some((b) => b.id === id)) { missing++; break }
+        if (!frames.value[i].boxes.some((b) => b.id === id)) {
+          missing++
+          break
+        }
       }
     }
     return missing
@@ -269,7 +295,7 @@ export function useDataset(core: StudioCore) {
       frames.value = []
       currentFrame.value = 0
       // 走 worker：3MB / 10 万点的解析不该占着主线程
-      cloud.value = await parsePcdAsync(pcBuf)
+      cloud.value = await parseCloudAsync(pcBuf, { name: '000970.pcd' })
       boxes.value = parseLabels(labelText)
       ensureCategories(boxes.value)
       datasetName.value = '000970 · SUSTechPOINTS 样例'
@@ -299,7 +325,10 @@ export function useDataset(core: StudioCore) {
         statusText.value = `读取标注 ${i + 1}/${pairs.length} …`
         await new Promise((r) => setTimeout(r, 0))
       }
-      if (!pair.labels) { out.push([]); continue }
+      if (!pair.labels) {
+        out.push([])
+        continue
+      }
       try {
         out.push(parseLabelsAuto(await pair.labels.text(), pair.labels.name).boxes)
       } catch {
@@ -322,7 +351,7 @@ export function useDataset(core: StudioCore) {
 
     const pairs = pairLocalFiles(files)
     if (!pairs.length) {
-      statusText.value = '请选择 .pcd 文件（可多选，按文件名排序组成时序）'
+      statusText.value = '请选择点云文件 .pcd / .ply / .bin（可多选，按文件名排序组成时序）'
       return
     }
 
@@ -355,8 +384,12 @@ export function useDataset(core: StudioCore) {
             if (persistedBytes + bytes > PERSIST_BUDGET) return
             persistedBytes += bytes
             void saveFrameCloud(key, frame, c)
-              .then(() => { persistedFrames.add(frame) })
-              .catch(() => { /* 尽力而为：没落盘的帧会让快照退回内联 */ })
+              .then(() => {
+                persistedFrames.add(frame)
+              })
+              .catch(() => {
+                /* 尽力而为：没落盘的帧会让快照退回内联 */
+              })
           },
         })
         setFrameLoader(loader)
@@ -388,7 +421,7 @@ export function useDataset(core: StudioCore) {
         statusText.value = `解析 ${i + 1}/${pairs.length}：${pairs[i].cloud.name} …`
         // 让出主线程，避免多帧解析时界面完全冻住
         await new Promise((r) => setTimeout(r, 0))
-        const parsed = await parsePcdAsync(await pairs[i].cloud.arrayBuffer())
+        const parsed = await parseCloudAsync(await pairs[i].cloud.arrayBuffer(), { name: pairs[i].cloud.name })
         nextFrames.push({ index: i, cloud: parsed, boxes: labelSets[i] ?? [] })
       }
 
@@ -400,9 +433,10 @@ export function useDataset(core: StudioCore) {
       showTrajectories.value = nextFrames.length > 1
       afterLoad()
       const total = nextFrames.reduce((n, f) => n + f.cloud.count, 0)
-      statusText.value = nextFrames.length > 1
-        ? `已导入 ${nextFrames.length} 帧（共 ${total.toLocaleString()} 点），可用顶部帧导航逐帧标注`
-        : `已加载 ${pairs[0].cloud.name}：${nextFrames[0].cloud.count.toLocaleString()} 个点`
+      statusText.value =
+        nextFrames.length > 1
+          ? `已导入 ${nextFrames.length} 帧（共 ${total.toLocaleString()} 点），可用顶部帧导航逐帧标注`
+          : `已加载 ${pairs[0].cloud.name}：${nextFrames[0].cloud.count.toLocaleString()} 个点`
     } catch (err) {
       statusText.value = `解析失败：${(err as Error).message}`
     } finally {
@@ -421,10 +455,14 @@ export function useDataset(core: StudioCore) {
     input.value = ''
     if (!file) return
     const current = cloud.value
-    if (!current) { statusText.value = '请先加载点云，再导入语义标签'; return }
+    if (!current) {
+      statusText.value = '请先加载点云，再导入语义标签'
+      return
+    }
     try {
       const { labels, instances, classCount, instanceCount } = parseSemanticLabelBin(
-        await file.arrayBuffer(), current.count,
+        await file.arrayBuffer(),
+        current.count,
       )
       // 替换整个点云对象而非原地改字段，保证 Vue 响应式与渲染缓存都失效
       cloud.value = {
@@ -468,16 +506,19 @@ export function useDataset(core: StudioCore) {
       // 快照自报的文档 id 与收到的文档不一致：两个来源已经指错，直接放弃
       if (snapshot?.sampleId && snapshot.sampleId !== doc.sampleId) return false
 
-      const plan = planDocumentRestore(doc, snapshot
-        ? {
-            frames: snapshot.frames.map((f) => ({
-              index: f.index,
-              hasCloud: !!f.cloud && f.cloud.count > 0,
-            })),
-            currentFrame: snapshot.currentFrame,
-            hasSingleCloud: !!snapshot.cloud,
-          }
-        : null)
+      const plan = planDocumentRestore(
+        doc,
+        snapshot
+          ? {
+              frames: snapshot.frames.map((f) => ({
+                index: f.index,
+                hasCloud: !!f.cloud && f.cloud.count > 0,
+              })),
+              currentFrame: snapshot.currentFrame,
+              hasSingleCloud: !!snapshot.cloud,
+            }
+          : null,
+      )
       if (!plan.ok) {
         console.warn('[restore] 文档与快照帧区间不一致，回退 v1 快照', doc.sampleId, doc.range)
         return false
@@ -518,8 +559,10 @@ export function useDataset(core: StudioCore) {
       }
 
       const currentCloud = plan.singleFrame
-        ? (snapshot?.cloud ? fromStoredCloud(snapshot.cloud) : null)
-        : cloudByIndex.get(plan.layout[plan.current]) ?? null
+        ? snapshot?.cloud
+          ? fromStoredCloud(snapshot.cloud)
+          : null
+        : (cloudByIndex.get(plan.layout[plan.current]) ?? null)
 
       categories.value = snapshot?.categories ?? []
       frames.value = restoredFrames
@@ -528,9 +571,7 @@ export function useDataset(core: StudioCore) {
       datasetName.value = snapshot?.datasetName || '本地草稿'
       showTrajectories.value = restoredFrames.length > 1
 
-      const allBoxes = restoredFrames.length
-        ? restoredFrames.flatMap((f) => f.boxes)
-        : boxesAt(doc.range[0])
+      const allBoxes = restoredFrames.length ? restoredFrames.flatMap((f) => f.boxes) : boxesAt(doc.range[0])
       ensureCategories(allBoxes)
 
       // 装文档：不做迁移，生命周期/状态/复核标记原样保留
@@ -560,21 +601,26 @@ export function useDataset(core: StudioCore) {
       if (cloud.value) getViewer()?.focusOnCloud(cloud.value)
       else if (plan.lazyFrames.length) {
         // 当前帧没有内联点云（老快照或帧缓存被清）：补一次异步解码
-        void core.loadFrameCloud(plan.current).then((c) => {
-          if (!c || currentFrame.value !== plan.current) return
-          cloud.value = c
-          syncViewer()
-        }).catch(() => { /* 状态栏在切帧路径里会提示 */ })
+        void core
+          .loadFrameCloud(plan.current)
+          .then((c) => {
+            if (!c || currentFrame.value !== plan.current) return
+            cloud.value = c
+            syncViewer()
+          })
+          .catch(() => {
+            /* 状态栏在切帧路径里会提示 */
+          })
       }
 
       const time = snapshot
         ? new Date(snapshot.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
         : ''
-      const lazyNote = plan.lazyFrames.length
-        ? ` · ${plan.lazyFrames.length} 帧点云待解码（切帧时自动读取）`
-        : ''
+      const lazyNote = plan.lazyFrames.length ? ` · ${plan.lazyFrames.length} 帧点云待解码（切帧时自动读取）` : ''
       const trimmed = doc.tasks.boxes.tracks.filter(
-        (t) => t.lifecycle.first !== t.keyframes[0]?.frame || t.lifecycle.last !== t.keyframes[t.keyframes.length - 1]?.frame,
+        (t) =>
+          t.lifecycle.first !== t.keyframes[0]?.frame ||
+          t.lifecycle.last !== t.keyframes[t.keyframes.length - 1]?.frame,
       ).length
       const trimNote = trimmed ? ` · ${trimmed} 条生命周期已裁剪` : ''
       statusText.value = snapshot
@@ -614,7 +660,10 @@ export function useDataset(core: StudioCore) {
 
       const lazyCount = restoredFrames.filter((f) => f.lazy).length
       if (lazyCount && key) {
-        const handle = createCachedCloudHandle(key, restoredFrames.map((f) => f.index))
+        const handle = createCachedCloudHandle(
+          key,
+          restoredFrames.map((f) => f.index),
+        )
         setFrameLoader(createFrameLoader(handle))
         datasetKey.value = key
       }
@@ -625,16 +674,15 @@ export function useDataset(core: StudioCore) {
       const frameCloud = restoredFrames[currentFrame.value]?.cloud
       cloud.value = snapshot.cloud
         ? fromStoredCloud(snapshot.cloud)
-        : frameCloud && frameCloud.count > 0 ? frameCloud : null
+        : frameCloud && frameCloud.count > 0
+          ? frameCloud
+          : null
       boxes.value = snapshot.cloud
         ? snapshot.boxes
         : cloneBoxes(restoredFrames[currentFrame.value]?.boxes ?? snapshot.boxes)
       datasetName.value = snapshot.datasetName || '本地草稿'
       showTrajectories.value = restoredFrames.length > 1
-      ensureCategories([
-        ...snapshot.boxes,
-        ...restoredFrames.flatMap((f) => f.boxes),
-      ])
+      ensureCategories([...snapshot.boxes, ...restoredFrames.flatMap((f) => f.boxes)])
       lastSavedAt.value = snapshot.savedAt
       saveState.value = 'saved'
       selectedId.value = null
@@ -644,9 +692,7 @@ export function useDataset(core: StudioCore) {
       syncViewer()
       if (cloud.value) getViewer()?.focusOnCloud(cloud.value)
       const time = new Date(snapshot.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-      const lazyNote = lazyCount
-        ? ` · ${lazyCount} 帧点云待解码（切帧时自动读取）`
-        : ''
+      const lazyNote = lazyCount ? ` · ${lazyCount} 帧点云待解码（切帧时自动读取）` : ''
       statusText.value = `已恢复 ${time} 的本地草稿：${boxes.value.length} 个框${lazyNote}`
       return true
     } catch (err) {
@@ -656,9 +702,23 @@ export function useDataset(core: StudioCore) {
   }
 
   return {
-    fileInput, semanticInput, importCount,
-    loadDemo, loadSequence, loadRealData, loadSemanticDemo,
-    importFiles, onSemanticFile, restore, restoreFromDocument, canSpillClouds, missingTrackCount,
-    framesReloadable, canEvictFrames, forgetPersistedFrames, forgetAllPersistedFrames, persistedSnapshot,
+    fileInput,
+    semanticInput,
+    importCount,
+    loadDemo,
+    loadSequence,
+    loadRealData,
+    loadSemanticDemo,
+    importFiles,
+    onSemanticFile,
+    restore,
+    restoreFromDocument,
+    canSpillClouds,
+    missingTrackCount,
+    framesReloadable,
+    canEvictFrames,
+    forgetPersistedFrames,
+    forgetAllPersistedFrames,
+    persistedSnapshot,
   }
 }

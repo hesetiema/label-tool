@@ -30,7 +30,7 @@
  *   这时退回主线程同步解析：慢，但功能必须可用 —— 不能让"不能建 worker"
  *   变成"打不开文件"。兜底路径不看优先级（主线程只有一条）。
  */
-import { parsePCD } from '../core/io/pcd'
+import { parseCloudBuffer, type CloudFormat } from '../core/io/cloud'
 import type { PointCloud, SemanticLabels } from '../core/types'
 import type { ParsePriority } from '../ports/dataSource'
 import { PriorityQueue } from './jobQueue'
@@ -43,6 +43,9 @@ interface PendingJob {
 interface QueuedJob extends PendingJob {
   id: number
   buffer: ArrayBuffer
+  /** 文件名与已知格式：worker 靠它决定用哪个解析器 */
+  name?: string
+  format?: CloudFormat
 }
 
 interface WorkerResponse {
@@ -52,6 +55,7 @@ interface WorkerResponse {
   positions?: Float32Array
   colors?: Float32Array
   labels?: SemanticLabels
+  intensity?: Float32Array
   error?: string
 }
 
@@ -94,7 +98,7 @@ function pump(): void {
     const worker = idle.pop()!
     pending.set(job.id, { resolve: job.resolve, reject: job.reject })
     try {
-      worker.postMessage({ id: job.id, buffer: job.buffer }, [job.buffer])
+      worker.postMessage({ id: job.id, buffer: job.buffer, name: job.name, format: job.format }, [job.buffer])
     } catch (err) {
       // 转移失败（buffer 已被转移过等）：当场失败，别让 worker 卡在空闲表外
       pending.delete(job.id)
@@ -134,6 +138,7 @@ function ensureWorkers(): Worker[] | null {
               count: msg.count ?? msg.positions.length / 3,
               ...(msg.colors ? { colors: msg.colors } : {}),
               ...(msg.labels ? { labels: msg.labels } : {}),
+              ...(msg.intensity ? { intensity: msg.intensity } : {}),
             })
           }
         }
@@ -158,24 +163,38 @@ function ensureWorkers(): Worker[] | null {
   }
 }
 
+/** 解析请求的可选参数 */
+export interface ParseCloudOptions {
+  /** 用户触发的解析用 `high`，预取请显式传 `low` */
+  priority?: ParsePriority
+  /** 文件名：`.pcd` / `.ply` / `.bin` 靠它和内容一起判定格式 */
+  name?: string
+  /** 已知格式时直接指定，跳过内容嗅探（草稿恢复会带上这个） */
+  format?: CloudFormat
+}
+
 /**
- * 解析一个 PCD 文件。
+ * 解析一个点云文件（PCD / PLY / KITTI .bin 由 `core/io/cloud.ts` 分发）。
  * @param buffer 文件原始字节。**注意：会转移给 worker，调用后不要再用这个 buffer。**
- * @param opts.priority 默认 `high`（用户触发的解析）。预取请显式传 `low`。
  */
-export async function parsePcdAsync(
-  buffer: ArrayBuffer,
-  opts: { priority?: ParsePriority } = {},
-): Promise<PointCloud> {
+export async function parseCloudAsync(buffer: ArrayBuffer, opts: ParseCloudOptions = {}): Promise<PointCloud> {
   const pool = ensureWorkers()
   if (!pool) {
     // 让出一个微任务，保证调用方拿到的失败/成功都是异步的（避免时序差异导致 UI 闪烁）
     await Promise.resolve()
-    return parsePCD(buffer)
+    return parseCloudBuffer(buffer, { name: opts.name, format: opts.format })
   }
   const id = ++seq
   return new Promise<PointCloud>((resolve, reject) => {
-    queue.push({ id, buffer, resolve, reject }, opts.priority ?? 'high')
+    queue.push({ id, buffer, resolve, reject, name: opts.name, format: opts.format }, opts.priority ?? 'high')
     pump()
   })
+}
+
+/**
+ * @deprecated 名字带 PCD 但已能解析三种格式，请用 `parseCloudAsync`。
+ * 保留它是因为老测试与老调用点还在用，删掉得不偿失。
+ */
+export function parsePcdAsync(buffer: ArrayBuffer, opts: { priority?: ParsePriority } = {}): Promise<PointCloud> {
+  return parseCloudAsync(buffer, opts)
 }

@@ -19,12 +19,12 @@ import CameraDirectorPanel from './panels/CameraDirectorPanel.vue'
 import PerformancePanel from './panels/PerformancePanel.vue'
 
 const studio = inject(StudioKey)!
-const {
-  colorBy, pointColorBy, opacity, outlinedBorders, showOrientation, linkZoom, linkPan, cloud,
-} = studio
+const { colorBy, pointColorBy, opacity, outlinedBorders, showOrientation, linkZoom, linkPan, cloud } = studio
 
 /** 当前点云是否带逐点语义标签 */
 const hasSemantics = computed(() => !!cloud.value?.labels?.length)
+/** 是否带反射强度：只有带 intensity 的数据才显示「强度」选项，避免点了没反应 */
+const hasIntensity = computed(() => !!cloud.value?.intensity?.length)
 const stats = computed(() => (hasSemantics.value ? semanticStats(cloud.value!) : []))
 const hex = (color: number) => '#' + color.toString(16).padStart(6, '0')
 
@@ -56,11 +56,25 @@ const tab = ref<Tab>('objects')
               <button :class="{ on: colorBy === 'instance' }" @click="colorBy = 'instance'">实例</button>
             </div>
           </div>
-          <div v-if="hasSemantics" class="appearance-row">
+          <div class="appearance-row">
             <span class="appearance-label">点云</span>
             <div class="seg mini">
               <button :class="{ on: pointColorBy === 'default' }" @click="pointColorBy = 'default'">默认</button>
-              <button :class="{ on: pointColorBy === 'semantic' }" @click="pointColorBy = 'semantic'">语义</button>
+              <button
+                v-if="hasSemantics"
+                :class="{ on: pointColorBy === 'semantic' }"
+                @click="pointColorBy = 'semantic'"
+              >
+                语义
+              </button>
+              <button
+                v-if="hasIntensity"
+                :class="{ on: pointColorBy === 'intensity' }"
+                @click="pointColorBy = 'intensity'"
+              >
+                强度
+              </button>
+              <button :class="{ on: pointColorBy === 'height' }" @click="pointColorBy = 'height'">高度</button>
             </div>
           </div>
           <div v-if="hasSemantics && pointColorBy === 'semantic'" class="semantic-legend">
@@ -75,12 +89,8 @@ const tab = ref<Tab>('objects')
             <span class="appearance-label">不透明度</span>
             <input v-model.number="opacity" type="range" min="0.2" max="1" step="0.05" />
           </label>
-          <label class="check-row">
-            <input v-model="outlinedBorders" type="checkbox" /> 仅描边（不填充面）
-          </label>
-          <label class="check-row">
-            <input v-model="showOrientation" type="checkbox" /> 显示朝向短线
-          </label>
+          <label class="check-row"> <input v-model="outlinedBorders" type="checkbox" /> 仅描边（不填充面） </label>
+          <label class="check-row"> <input v-model="showOrientation" type="checkbox" /> 显示朝向短线 </label>
           <label class="check-row" title="三张正交视图同步到相同「米/像素」，方便比较各处比例">
             <input v-model="linkZoom" type="checkbox" /> 三视图联动缩放
           </label>

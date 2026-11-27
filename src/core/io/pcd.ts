@@ -146,6 +146,24 @@ function unpackRgb(view: DataView, byteOffset: number): [number, number, number]
   return [((v >> 16) & 0xff) / 255, ((v >> 8) & 0xff) / 255, (v & 0xff) / 255]
 }
 
+/** ascii 的 rgb 解析要复用同一个 DataView，避免逐点分配 */
+const asciiRgbScratch = new DataView(new ArrayBuffer(4))
+
+/**
+ * ASCII 的 rgb 有两种写法，都要认：
+ *   1. PCL 的浮点打包（`4.808e-39` 这种"把 0x00RRGGBB 当 float32 读"的怪值）
+ *   2. 有些工具直接写十进制整数 `16711680`
+ */
+function unpackRgbAscii(value: number): [number, number, number] {
+  if (!Number.isFinite(value)) return [1, 1, 1]
+  if (Number.isInteger(value) && value > 1 && value <= 0xff_ff_ff) {
+    const v = value >>> 0
+    return [((v >> 16) & 0xff) / 255, ((v >> 8) & 0xff) / 255, (v & 0xff) / 255]
+  }
+  asciiRgbScratch.setFloat32(0, value, true)
+  return unpackRgb(asciiRgbScratch, 0)
+}
+
 /**
  * 解析 PCD 文件的主入口。
  * @param buffer 文件的原始 ArrayBuffer
@@ -155,68 +173,125 @@ export function parsePCD(buffer: ArrayBuffer): PointCloud {
   const { headText, dataOffset } = locateHeader(bytes)
   const header = parseHeader(headText)
 
-  const { points, fields, count, size, type, pointStep, byteOffset, tokenOffset } = header
-  if (!points || points < 0) throw new Error('PCD 未声明有效点数（POINTS / WIDTH）')
-
-  const positions = new Float32Array(points * 3)
-  let colors: Float32Array | undefined
-  let labels: SemanticLabels | undefined
+  const { points: declaredPoints, fields, count, size, type, pointStep, byteOffset, tokenOffset } = header
+  if (!declaredPoints || declaredPoints <= 0) throw new Error('PCD 未声明有效点数（POINTS / WIDTH）')
 
   const ix = fields.indexOf('x')
   const iy = fields.indexOf('y')
   const iz = fields.indexOf('z')
   if (ix < 0 || iy < 0 || iz < 0) throw new Error('PCD 缺少 x/y/z 字段')
 
+  /*
+   * 头部声明的点数是不可信输入：被截断的文件、手工改过的文件都会让它与数据段长度
+   * 不符，而 `new Float32Array(points * 3)` 是直接按它分配内存的 —— 一个改成 1e9
+   * 的 POINTS 就能让整个页面 OOM。先按数据段能容纳的行数取上界：
+   *   binary：行数 = 数据字节 / pointStep
+   *   ascii ：一个 token 至少 2 字节（字符 + 分隔符），行数 ≤ 数据字节 / (2 * stride)
+   */
+  const dataBytes = Math.max(0, buffer.byteLength - dataOffset)
+  const stride = count.reduce((a, b) => a + b, 0)
+  const maxRows =
+    header.encoding === 'binary'
+      ? Math.floor(dataBytes / Math.max(1, pointStep))
+      : Math.floor(dataBytes / Math.max(1, 2 * stride))
+  const points = Math.min(declaredPoints, Math.max(0, maxRows))
+  if (points === 0) throw new Error('PCD 数据段为空或与声明的点数不符')
+
+  const positions = new Float32Array(points * 3)
+  let colors: Float32Array | undefined
+  let labels: SemanticLabels | undefined
+  /** 反射强度：读出来就能按强度着色（社区工具的标配），丢掉就再也找不回来 */
+  let intensity: Float32Array | undefined
+
   const colorIdx = fields.findIndex((f) => f === 'rgb' || f === 'rgba')
   if (colorIdx >= 0) colors = new Float32Array(points * 3)
+
+  // 强度字段的别名：PCL 默认叫 intensity，有的工具叫 reflectance / i
+  const intensityIdx = fields.findIndex((f) => /^(intensity|reflectance|i)$/i.test(f))
+  if (intensityIdx >= 0) intensity = new Float32Array(points)
 
   // 语义标签字段：常见命名 label / semantic / semantic_label / class
   const labelIdx = fields.findIndex((f) => /^(label|semantic|semantic_label|class)$/i.test(f))
   if (labelIdx >= 0) labels = new Uint16Array(points)
 
+  /**
+   * `w` 是写入游标：无效点（PCL 的 `nan`、坏文件的残缺行）在这里被剔除，
+   * 而不是写 0 留在原点 —— 一堆 (0,0,0) 会变成自车脚下的一团假点云。
+   */
+  let w = 0
+
   if (header.encoding === 'ascii') {
     // ---- ASCII：按空白切分，每个点 stride 个 token（stride = sum(COUNT)）----
-    const stride = count.reduce((a, b) => a + b, 0)
     const body = decoder.decode(bytes.subarray(dataOffset))
     const tokens = body.split(/\s+/)
-    for (let i = 0; i < points; i++) {
+    const usable = Math.min(points, Math.floor(tokens.length / Math.max(1, stride)))
+    for (let i = 0; i < usable; i++) {
       const base = i * stride
-      positions[i * 3] = Number(tokens[base + tokenOffset[ix]])
-      positions[i * 3 + 1] = Number(tokens[base + tokenOffset[iy]])
-      positions[i * 3 + 2] = Number(tokens[base + tokenOffset[iz]])
+      const x = Number(tokens[base + tokenOffset[ix]])
+      const y = Number(tokens[base + tokenOffset[iy]])
+      const z = Number(tokens[base + tokenOffset[iz]])
+      // PCL 用 nan 表示无效回波；NaN 进了 BufferGeometry，three.js 的包围球会变成
+      // NaN，整个点云直接消失（而不是只错几个点），所以必须在这里挡住
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue
+      positions[w * 3] = x
+      positions[w * 3 + 1] = y
+      positions[w * 3 + 2] = z
+      if (colors && colorIdx >= 0) {
+        const [r, g, b] = unpackRgbAscii(Number(tokens[base + tokenOffset[colorIdx]]))
+        colors[w * 3] = r
+        colors[w * 3 + 1] = g
+        colors[w * 3 + 2] = b
+      }
       if (labels && labelIdx >= 0) {
         const raw = Number(tokens[base + tokenOffset[labelIdx]])
-        labels[i] = Number.isFinite(raw) ? (raw & 0xffff) : 0
+        labels[w] = Number.isFinite(raw) ? raw & 0xffff : 0
       }
+      if (intensity && intensityIdx >= 0) intensity[w] = Number(tokens[base + tokenOffset[intensityIdx]])
+      w++
     }
   } else if (header.encoding === 'binary') {
     // ---- BINARY：按 pointStep 步进，用 DataView 按类型读取 ----
     const view = new DataView(buffer)
     for (let i = 0; i < points; i++) {
       const rowStart = dataOffset + i * pointStep
-      // 数据段比声明短时提前结束，避免抛 RangeError 整个文件打不开
-      if (rowStart + pointStep > buffer.byteLength) {
-        positions.fill(0, i * 3)
-        break
-      }
-      positions[i * 3] = readNumber(view, rowStart + byteOffset[ix], type[ix], size[ix])
-      positions[i * 3 + 1] = readNumber(view, rowStart + byteOffset[iy], type[iy], size[iy])
-      positions[i * 3 + 2] = readNumber(view, rowStart + byteOffset[iz], type[iz], size[iz])
+      // 上面的 maxRows 已经兜住了截断，这里再挡一次纯属保险
+      if (rowStart + pointStep > buffer.byteLength) break
+      const x = readNumber(view, rowStart + byteOffset[ix], type[ix], size[ix])
+      const y = readNumber(view, rowStart + byteOffset[iy], type[iy], size[iy])
+      const z = readNumber(view, rowStart + byteOffset[iz], type[iz], size[iz])
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue
+      positions[w * 3] = x
+      positions[w * 3 + 1] = y
+      positions[w * 3 + 2] = z
       if (colors && colorIdx >= 0) {
         const [r, g, b] = unpackRgb(view, rowStart + byteOffset[colorIdx])
-        colors[i * 3] = r
-        colors[i * 3 + 1] = g
-        colors[i * 3 + 2] = b
+        colors[w * 3] = r
+        colors[w * 3 + 1] = g
+        colors[w * 3 + 2] = b
       }
       if (labels && labelIdx >= 0) {
         const raw = readNumber(view, rowStart + byteOffset[labelIdx], type[labelIdx], size[labelIdx])
         // SemanticKITTI 用 uint32 打包 semantic(低16) + instance(高16)，这里只取语义
-        labels[i] = Number.isFinite(raw) ? (raw & 0xffff) : 0
+        labels[w] = Number.isFinite(raw) ? raw & 0xffff : 0
       }
+      if (intensity && intensityIdx >= 0) {
+        const raw = readNumber(view, rowStart + byteOffset[intensityIdx], type[intensityIdx], size[intensityIdx])
+        intensity[w] = Number.isFinite(raw) ? raw : 0
+      }
+      w++
     }
   } else {
     throw new Error('binary_compressed 编码暂未支持，请用 PCL 转存为 ascii 或 binary')
   }
 
-  return { positions, count: points, colors, labels }
+  // 剔除过无效点时按实际点数收紧数组，避免把尾部一堆 0 留在点云里
+  if (w === points) return { positions, count: points, colors, labels, intensity }
+  if (w === 0) throw new Error('PCD 里没有有效点（全部是 nan 或字段缺失）')
+  return {
+    positions: positions.slice(0, w * 3),
+    count: w,
+    colors: colors?.slice(0, w * 3),
+    labels: labels?.slice(0, w),
+    intensity: intensity?.slice(0, w),
+  }
 }

@@ -39,7 +39,7 @@ export interface SceneMeta {
 
 export type DataRef =
   | { kind: 'inline'; cloud: PointCloud }
-  | { kind: 'blob'; key: string; bytes: number; codec: 'pcd-bin' | 'pcd-ascii' | 'xyz-f32' }
+  | { kind: 'blob'; key: string; bytes: number; codec: 'pcd-bin' | 'pcd-ascii' | 'xyz-f32' | 'ply' | 'bin-f32' }
   | { kind: 'remote'; url: string; range?: [number, number]; etag?: string }
 
 export interface FrameRef {

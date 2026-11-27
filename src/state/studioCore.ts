@@ -56,8 +56,7 @@ export function strVal(e: Event): string {
 
 /** 实例配色：按 id 稳定哈希，保证同一目标在任何视图里颜色一致 */
 const INSTANCE_PALETTE = [
-  0x4fc3f7, 0xff7043, 0x66bb6a, 0xab47bc, 0xffca28,
-  0x26c6da, 0xff4081, 0x8bc34a, 0xffa726, 0x7e57c2,
+  0x4fc3f7, 0xff7043, 0x66bb6a, 0xab47bc, 0xffca28, 0x26c6da, 0xff4081, 0x8bc34a, 0xffa726, 0x7e57c2,
 ]
 
 function hashString(s: string): number {
@@ -136,7 +135,9 @@ export function createStudioCore() {
   // ---- 外观（对应 CVAT 的 Appearance 面板）----
   const colorBy = ref<'label' | 'instance'>('label')
   /** 点云着色模式；语义标签存在时才有意义 */
-  const pointColorBy = ref<'default' | 'semantic'>('default')
+  const pointColorBy = ref<'default' | 'semantic' | 'intensity' | 'height'>('default')
+  /** 非空表示 3D 视口初始化失败（WebGL 不可用），Stage 用它显示说明而不是空画布 */
+  const viewerUnavailable = ref<string | null>(null)
   const opacity = ref(0.9)
   const outlinedBorders = ref(true)
   const showOrientation = ref(true)
@@ -261,7 +262,10 @@ export function createStudioCore() {
   function selectMany(ids: string[], primary?: string | null) {
     const uniq = [...new Set(ids)]
     selectedIds.value = new Set(uniq)
-    if (!uniq.length) { primaryId.value = null; return }
+    if (!uniq.length) {
+      primaryId.value = null
+      return
+    }
     primaryId.value = primary && uniq.includes(primary) ? primary : uniq[uniq.length - 1]
   }
 
@@ -292,11 +296,17 @@ export function createStudioCore() {
     if (primaryId.value && !alive.has(primaryId.value)) primaryId.value = [...next].pop() ?? null
   }
 
-  function getViewer() { return viewer }
-  function setViewer(v: PointCloudViewer | null) { viewer = v }
+  function getViewer() {
+    return viewer
+  }
+  function setViewer(v: PointCloudViewer | null) {
+    viewer = v
+  }
 
   /** 点云被替换时调用，下次 syncViewer 会强制重传几何体 */
-  function invalidateCloud() { lastCloudRef = null }
+  function invalidateCloud() {
+    lastCloudRef = null
+  }
 
   /** 当前帧在文档里的帧号（frames 数组下标 ≠ frame.index，导入数据可能跳号） */
   function frameNumber(index = currentFrame.value): number {
@@ -455,9 +465,14 @@ export function createStudioCore() {
    */
   function setCursor(p: { x: number; y: number; z: number } | null) {
     const cur = cursor.value
-    if (!p) { if (cur) cursor.value = null; return }
+    if (!p) {
+      if (cur) cursor.value = null
+      return
+    }
     const q = (v: number) => Math.round(v * 100) / 100
-    const nx = q(p.x), ny = q(p.y), nz = q(p.z)
+    const nx = q(p.x),
+      ny = q(p.y),
+      nz = q(p.z)
     if (cur && q(cur.x) === nx && q(cur.y) === ny && q(cur.z) === nz) return
     cursor.value = { x: nx, y: ny, z: nz }
   }
@@ -477,7 +492,7 @@ export function createStudioCore() {
       return
     }
     hoverId.value = id
-    viewer?.setHover(id ? visibleBoxes.value.find((b) => b.id === id) ?? null : null)
+    viewer?.setHover(id ? (visibleBoxes.value.find((b) => b.id === id) ?? null) : null)
   }
 
   /** 三视图联动缩放：把某个视图的「像素/米」广播给其余视图 */
@@ -540,9 +555,7 @@ export function createStudioCore() {
     }
     // 隐藏对象不进入渲染；质检模式下把"待评估版本"一起渲染（id 前缀区分）
     const base = visibleBoxes.value
-    const display = showReview.value && reviewBoxes.value.length
-      ? [...base, ...reviewBoxes.value]
-      : base
+    const display = showReview.value && reviewBoxes.value.length ? [...base, ...reviewBoxes.value] : base
     viewer.setAppearance({
       colorBy: colorBy.value,
       pointColorBy: pointColorBy.value,
@@ -552,13 +565,9 @@ export function createStudioCore() {
     })
     viewer.setBoxes(display, selectedIds.value, primaryId.value, colorOf)
     // 悬停光晕单独一层：它的几何体不随框重建，框被拖动时要跟着挪
-    viewer.setHover(hoverId.value ? visibleBoxes.value.find((b) => b.id === hoverId.value) ?? null : null)
+    viewer.setHover(hoverId.value ? (visibleBoxes.value.find((b) => b.id === hoverId.value) ?? null) : null)
     // 4D 轨迹叠加：关闭时传空数组清掉轨迹层
-    viewer.setTrajectories(
-      showTrajectories.value ? currentTrajectories() : [],
-      currentFrame.value,
-      primaryId.value,
-    )
+    viewer.setTrajectories(showTrajectories.value ? currentTrajectories() : [], currentFrame.value, primaryId.value)
     // 占据层按类别上色；切片只影响显示，不改数据
     viewer.setOccupancyLayer(occLayer.value, {
       slice: occSlice.value,
@@ -708,7 +717,8 @@ export function createStudioCore() {
 
   function toggleHidden(id: string) {
     const next = new Set(hiddenIds.value)
-    if (next.has(id)) next.delete(id); else next.add(id)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
     hiddenIds.value = next
     syncViewer()
     markDirty()
@@ -716,15 +726,14 @@ export function createStudioCore() {
 
   function toggleLocked(id: string) {
     const next = new Set(lockedIds.value)
-    if (next.has(id)) next.delete(id); else next.add(id)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
     lockedIds.value = next
     markDirty()
   }
 
   function toggleAllLocked() {
-    lockedIds.value = lockedIds.value.size === boxes.value.length
-      ? new Set()
-      : new Set(boxes.value.map((b) => b.id))
+    lockedIds.value = lockedIds.value.size === boxes.value.length ? new Set() : new Set(boxes.value.map((b) => b.id))
     markDirty()
   }
 
@@ -787,24 +796,109 @@ export function createStudioCore() {
   }
 
   return {
-    viewportRef, camViewRef, boxes, selectedId, selectedIds, selectedBoxes, selectedCount,
-    cloud, statusText, datasetName, frames, currentFrame,
-    doc, store, docVersion, rebuildDocument, installDocument, materializeNow, frameBoxCount, frameNumber,
-    refreshFrameBoxes, bumpDoc, frameLoader, setFrameLoader, isFrameLazy, loadFrameCloud, datasetKey,
-    layout, calib, imageUrl, tool, showOrtho, orthoMax,
-    colorBy, pointColorBy, opacity, outlinedBorders, showOrientation,
-    hiddenIds, lockedIds, categories, showTrajectories, reviewBoxes, showReview,
-    occLayer, occSlice, flowSegments,
-    qaReport, temporalReport, canUndo, canRedo, undoLabel, origin, selectedBox, visibleBoxes,
-    saveState, lastSavedAt, dirtyVersion, autosaveEnabled, cursor, frameNav,
-    readOnly, readOnlyNote,
-    hoverId, setHover, linkZoom, orthoZoom, broadcastZoom, linkPan, orthoPan, broadcastPan,
-    getViewer, setViewer, invalidateCloud, mutate, syncViewer, syncHistoryUi, markDirty, setCursor,
-    undoState, redoState, resetHistory, onReset, setLayout,
-    categoryOf, colorOf, trajectoryKey, currentTrajectories,
-    nextBoxId, toggleHidden, toggleLocked, toggleAllLocked, isLocked,
-    isSelected, selectMany, toggleSelect, selectAll, pruneSelection,
-    upsertCategory, removeCategory, ensureCategories, resetViewerState,
+    viewportRef,
+    camViewRef,
+    boxes,
+    selectedId,
+    selectedIds,
+    selectedBoxes,
+    selectedCount,
+    cloud,
+    statusText,
+    datasetName,
+    frames,
+    currentFrame,
+    doc,
+    store,
+    docVersion,
+    rebuildDocument,
+    installDocument,
+    materializeNow,
+    frameBoxCount,
+    frameNumber,
+    refreshFrameBoxes,
+    bumpDoc,
+    frameLoader,
+    setFrameLoader,
+    isFrameLazy,
+    loadFrameCloud,
+    datasetKey,
+    layout,
+    calib,
+    imageUrl,
+    tool,
+    showOrtho,
+    orthoMax,
+    colorBy,
+    pointColorBy,
+    viewerUnavailable,
+    opacity,
+    outlinedBorders,
+    showOrientation,
+    hiddenIds,
+    lockedIds,
+    categories,
+    showTrajectories,
+    reviewBoxes,
+    showReview,
+    occLayer,
+    occSlice,
+    flowSegments,
+    qaReport,
+    temporalReport,
+    canUndo,
+    canRedo,
+    undoLabel,
+    origin,
+    selectedBox,
+    visibleBoxes,
+    saveState,
+    lastSavedAt,
+    dirtyVersion,
+    autosaveEnabled,
+    cursor,
+    frameNav,
+    readOnly,
+    readOnlyNote,
+    hoverId,
+    setHover,
+    linkZoom,
+    orthoZoom,
+    broadcastZoom,
+    linkPan,
+    orthoPan,
+    broadcastPan,
+    getViewer,
+    setViewer,
+    invalidateCloud,
+    mutate,
+    syncViewer,
+    syncHistoryUi,
+    markDirty,
+    setCursor,
+    undoState,
+    redoState,
+    resetHistory,
+    onReset,
+    setLayout,
+    categoryOf,
+    colorOf,
+    trajectoryKey,
+    currentTrajectories,
+    nextBoxId,
+    toggleHidden,
+    toggleLocked,
+    toggleAllLocked,
+    isLocked,
+    isSelected,
+    selectMany,
+    toggleSelect,
+    selectAll,
+    pruneSelection,
+    upsertCategory,
+    removeCategory,
+    ensureCategories,
+    resetViewerState,
   }
 }
 

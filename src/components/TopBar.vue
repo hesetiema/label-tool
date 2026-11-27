@@ -9,13 +9,48 @@ import { StudioKey } from '../state/studioContext'
 
 const studio = inject(StudioKey)!
 const {
-  datasetName, frames, currentFrame, canUndo, canRedo, undoLabel, saveState, lastSavedAt,
-  calib, layout, autosaveEnabled, menuOpen, showHelp,
-  loadDemo, loadRealData, loadSequence, doUndo, doRedo, doExportFrame, doExportAll, doExportSeq, doExportSmooth,
-  prevFrame, nextFrame, setFrame, jumpToBoxFrame, setLayout, persistNow, clearDraft,
-  openList, numVal, fileInput, labelInput,
-  openReview, runMock, importFile, running: preRunning, reviewStats,
-  generateOccupancy, runCrossCheck, exportOccupancy, occBusy,
+  datasetName,
+  frames,
+  currentFrame,
+  canUndo,
+  canRedo,
+  undoLabel,
+  saveState,
+  lastSavedAt,
+  calib,
+  layout,
+  autosaveEnabled,
+  menuOpen,
+  showHelp,
+  loadDemo,
+  loadRealData,
+  loadSequence,
+  doUndo,
+  doRedo,
+  doExportFrame,
+  doExportAll,
+  doExportSeq,
+  doExportSmooth,
+  prevFrame,
+  nextFrame,
+  setFrame,
+  jumpToBoxFrame,
+  setLayout,
+  persistNow,
+  clearDraft,
+  openList,
+  numVal,
+  fileInput,
+  labelInput,
+  openReview,
+  runMock,
+  importFile,
+  running: preRunning,
+  reviewStats,
+  generateOccupancy,
+  runCrossCheck,
+  exportOccupancy,
+  occBusy,
 } = studio
 
 /** 预标注结果文件：解析失败由 importFile 兜住，这里只负责选文件 */
@@ -35,7 +70,10 @@ function onPreLabelFile(e: Event) {
 function onFrameInput(e: Event) {
   const el = e.target as HTMLInputElement
   const n = Number(el.value)
-  if (!Number.isFinite(n)) { el.value = String(currentFrame.value + 1); return }
+  if (!Number.isFinite(n)) {
+    el.value = String(currentFrame.value + 1)
+    return
+  }
   const i = Math.max(0, Math.min(frames.value.length - 1, Math.round(n) - 1))
   setFrame(i)
   el.value = String(i + 1)
@@ -95,7 +133,14 @@ const saveText = () => {
         <button :disabled="!frames.length" @click="act(doExportSmooth)">整段序列 JSON（RTS 平滑）</button>
         <div class="menu-sep"></div>
         <div class="menu-title">预标注</div>
-        <button :disabled="preRunning" @click="act(() => { void runMock() })">
+        <button
+          :disabled="preRunning"
+          @click="
+            act(() => {
+              void runMock()
+            })
+          "
+        >
           {{ preRunning ? '推理中…' : '跑演示模型（确定性）' }}
         </button>
         <button @click="pickPreLabel">导入预标注结果 JSON…</button>
@@ -105,19 +150,58 @@ const saveText = () => {
         </button>
         <div class="menu-sep"></div>
         <div class="menu-title">多任务</div>
-        <button :disabled="!!occBusy" @click="act(() => { void generateOccupancy('frame') })">
+        <button
+          :disabled="!!occBusy"
+          @click="
+            act(() => {
+              void generateOccupancy('frame')
+            })
+          "
+        >
           {{ occBusy ? occBusy : '生成占据（当前帧）' }}
         </button>
-        <button :disabled="!!occBusy" @click="act(() => { void generateOccupancy('all') })">生成占据（全段）</button>
-        <button :disabled="!!occBusy" @click="act(() => { void runCrossCheck('all') })">跨任务一致性校验</button>
-        <button @click="act(() => { void exportOccupancy() })">导出占据 .occ</button>
+        <button
+          :disabled="!!occBusy"
+          @click="
+            act(() => {
+              void generateOccupancy('all')
+            })
+          "
+        >
+          生成占据（全段）
+        </button>
+        <button
+          :disabled="!!occBusy"
+          @click="
+            act(() => {
+              void runCrossCheck('all')
+            })
+          "
+        >
+          跨任务一致性校验
+        </button>
+        <button
+          @click="
+            act(() => {
+              void exportOccupancy()
+            })
+          "
+        >
+          导出占据 .occ
+        </button>
         <div class="menu-sep"></div>
         <div class="menu-title">本地草稿</div>
-        <label class="menu-check">
-          <input v-model="autosaveEnabled" type="checkbox" /> 自动保存
-        </label>
+        <label class="menu-check"> <input v-model="autosaveEnabled" type="checkbox" /> 自动保存 </label>
         <button @click="act(() => persistNow(true))">立即保存</button>
-        <button @click="act(() => { void openList() })">本地样本列表…</button>
+        <button
+          @click="
+            act(() => {
+              void openList()
+            })
+          "
+        >
+          本地样本列表…
+        </button>
         <button class="danger" @click="act(clearDraft)">清除当前样本草稿</button>
       </div>
       <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
@@ -127,7 +211,14 @@ const saveText = () => {
 
     <div class="tb-center">
       <div class="tb-group">
-        <button class="tb-icon" :disabled="!canUndo" :title="canUndo ? `撤销：${undoLabel}` : '无可撤销'" @click="doUndo">↶</button>
+        <button
+          class="tb-icon"
+          :disabled="!canUndo"
+          :title="canUndo ? `撤销：${undoLabel}` : '无可撤销'"
+          @click="doUndo"
+        >
+          ↶
+        </button>
         <button class="tb-icon" :disabled="!canRedo" title="重做" @click="doRedo">↷</button>
       </div>
 
@@ -153,7 +244,8 @@ const saveText = () => {
             :value="currentFrame + 1"
             title="输入帧号并回车跳转"
             @change="onFrameInput"
-          /> / {{ frames.length }}
+          />
+          / {{ frames.length }}
         </span>
         <button class="tb-icon jump" title="上一处标注 (Shift+,)" @click="jumpToBoxFrame(-1)">◂▣</button>
         <button class="tb-icon jump" title="下一处标注 (Shift+.)" @click="jumpToBoxFrame(1)">▣▸</button>
@@ -169,9 +261,21 @@ const saveText = () => {
         :class="{ on: layout !== 'cloud' }"
         title="显示相机投影（分屏）"
         @click="setLayout(layout === 'cloud' ? 'split' : 'cloud')"
-      >相机</button>
+      >
+        相机
+      </button>
       <button class="tb-icon" title="快捷键与工作流 (F1)" @click="showHelp = true">?</button>
-      <input ref="fileInput" type="file" accept=".pcd" multiple hidden @change="studio.importFiles" />
+      <!-- data-role 是给 scripts/browser/*.mjs 用的稳定选择器：
+           accept 会随支持的格式变化，用例不该跟着改 -->
+      <input
+        ref="fileInput"
+        type="file"
+        data-role="cloud-input"
+        accept=".pcd,.ply,.bin"
+        multiple
+        hidden
+        @change="studio.importFiles"
+      />
       <input ref="labelInput" type="file" accept=".json" hidden @change="studio.onLabelFile" />
       <input ref="preLabelInput" type="file" accept=".json" hidden @change="onPreLabelFile" />
     </div>
