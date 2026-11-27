@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 怎么跑起来 / 怎么跑测试
+    url: https://github.com/hesetiema/label-tool/blob/main/CONTRIBUTING.md
+    about: 环境要求、pnpm verify 的组成、浏览器用例怎么跑，都在这里
+  - name: 已知差距与路线图
+    url: https://github.com/hesetiema/label-tool/blob/main/docs/12-review.md
+    about: 提交"缺少某功能"之前先看这里，可能已经列为 P1/P2 或已明确不做

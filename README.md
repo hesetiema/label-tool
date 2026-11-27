@@ -33,11 +33,22 @@ pnpm dev        # 打开 http://127.0.0.1:5173
 其余能力从右侧「更多」进入：**百万点压测**、**贪心 vs Kalman+Hungarian 关联演示**、**相机运镜与录制**（见 [第 ⑩ 篇](docs/10-camera-cinematography.md)）。
 
 ```bash
+pnpm dev        # 开发服务器（127.0.0.1:5173）
 pnpm build      # 类型检查 + 生产构建
-pnpm typecheck  # 只做类型检查
-pnpm test       # 分层校验 + 1005 项断言（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 预标注 / 150 P3 回收 / 97 P3 多任务 / 117 P4 VLA），无需浏览器
-pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev --port 5199；已起在别的端口就设 APP_URL）：用本机 Edge 验 IndexedDB / 懒加载 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核 / 占据与光流 / VLA 对齐，共 346 项
+pnpm preview    # 预览构建产物
+pnpm typecheck  # 只做类型检查（vue-tsc --noEmit）
+pnpm lint       # ESLint 10 flat config，--max-warnings 0
+pnpm format     # Prettier 3 全仓格式化（format:check 只检查不写）
+pnpm test       # 分层校验 + 1056 项断言（227 核心 / 247 4D 内核 / 47 状态层 / 81 P0 / 39 P2 预标注 / 150 P3 回收 / 97 P3 多任务 / 117 P4 VLA / 51 点云读取与着色）+ v8 覆盖率，无需浏览器
+pnpm size       # bundle 体积预算（size-limit，gzip）
+pnpm verify     # 提交前一把梭：lint + format:check + typecheck + check:layers + test + build + size
+pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev --port 5199；已起在别的端口就设 APP_URL）：用本机 Edge 验 IndexedDB / 懒加载 / 点云着色与 .ply 拖入 / 时间线 / 草稿恢复 / 跨标签页 / 样本删除 / 帧缓存淘汰 / 预标注复核 / 占据与光流 / VLA 对齐，13 支共 363 项
 ```
+
+> 覆盖率是**棘轮**不是目标：全局阈值 52 / 46 / 54 / 54（语句 / 分支 / 函数 / 行），
+> 分目录实测 core 93% / domain 86% / ports 100% / adapters 50%。`src/state`、`src/components`、
+> `src/viewer` 需要真实 DOM / WebGL，归 `pnpm test:browser` 用真浏览器走查，不产生这里的数字 ——
+> **不要用全局 53% 去判断「测得好不好」**。
 
 > `test:browser` 复用本机 Edge，不需要 `playwright install`；仓库不把 playwright 列为依赖，
 > 首次运行会按「项目依赖 → `PLAYWRIGHT_PATH` → `npx` 缓存」三级查找，找不到会给可执行的提示。
@@ -49,7 +60,8 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev --port 5199；�
 
 | 功能 | 说明 | 对照原仓库 |
 |---|---|---|
-| PCD 加载 | ascii / binary；正确处理 CRLF 头偏移、`COUNT>1` 填充字段、rgb 打包颜色 | `PCDLoader` |
+| 点云加载 | **PCD**（ascii / binary；正确处理 CRLF 头偏移、`COUNT>1` 填充字段、rgb 打包颜色、`intensity`/`reflectance` 强度）、**PLY**（ascii + `binary_little_endian`，属性按名字查偏移，`x red y green z blue` 这种乱序也读得对）、**KITTI `.bin`**（裸 float32，按字节数自动判定每点 3 或 4 个数）；格式靠内容嗅探（PLY 魔数 / PCD 的 `FIELDS`+`DATA` 行）优先于扩展名 | `PCDLoader` |
+| **标量着色** | 除「默认 / 语义」外，还能按**强度**（turbo 色带）与**高度**（viridis 色带）着色；范围取 2%~98% 分位，离群点不会把色带压平；3D 视口与三联正交视图共用同一份取色 | — |
 | **CVAT 式三视图** | 3D 透视 + Top / Side / Front 三联正交，单击选中、双击最大化、视图间同步 | `pcd_viewer.js` |
 | **两步画框** | Top 拖底面矩形 → Side 拖绿点调高度，角点缩放、黄点旋转（Shift 吸附 15°） | `mouse.js` + `auto-adjust.js` |
 | **多选与框选** | Ctrl 点选 / 空白拖拽橡皮筋框选 / `Tab` 切换 / `Ctrl+A` 全选；批量改类别、删除、复制、整组平移 | — |
@@ -111,6 +123,7 @@ pnpm test:browser  # 浏览器手测（另开终端先 pnpm dev --port 5199；�
 | [⑧ 4D 轨迹叠加回放](docs/08-4d-trajectory-replay.md) | `core/sequence.ts` / `viewer/PointCloudViewer.ts` | 轨迹提取纯函数、轨迹线渲染、回放定时器 |
 | [⑨ 4D 进阶：跨帧编辑与时序质检](docs/09-cross-frame-and-temporal-qa.md) | `core/temporalQA.ts` | 整框/增量传播、四类时序检测、健康分 |
 | [⑩ 相机导演：关键帧运镜与录制](docs/10-camera-cinematography.md) | `core/cameraTrajectory.ts` / `viewer/PointCloudViewer.ts` | 双时间线解耦、样条采样、MediaRecorder |
+| [⑫ 与成熟工具的差距评审](docs/12-review.md) | 全仓 | 十维能力对照（CVAT / Supervisely / Segments.ai / SUSTechPOINTS）、六大问题域、性能与工程基建专章、P0/P1 逐条落地证据与路线图 |
 | [⑪ 4D 多任务与 VLA 改造方案](docs/11-4d-multitask-vla-upgrade-plan.md) | `src/domain/*` | 从画框工具到 4D 数据生产；P0/P1 内核、本地持久化与缓存回收、P2 预标注与复核、**P3 多任务（占据 / 光流 / 跨任务一致性）**、**P4 VLA（指令段 / 动作通道 / 对齐校验 / JSONL 互通）**已落地，文末附实现进度与偏差说明 |
 
 另外两个可直接读源码的专题（无独立教程）：`core/io/formats/` 是 KITTI / DAIR-V2X / nuScenes / Waymo 的格式适配与坐标约定；`core/semantics.ts` 是 SemanticKITTI 官方类别表、learning_map（原始 34 类 → 训练 20 类）、`.label` 高低 16 位（语义 / 实例）的读写与统计。
@@ -169,11 +182,11 @@ src/
 │   ├── sample.ts         # 程序化演示点云（含语义演示场景）
 │   ├── semantics.ts      # 逐点语义：类别表 / 统计 / 配色 / .label 读写
 │   ├── history.ts        # 撤销重做：命令模式 + 状态快照
-│   ├── io/               # pcd.ts（PCD 解析）· label.ts（单帧/整段序列化）· calibration.ts（投影）
+│   ├── io/               # cloud.ts（格式嗅探分发）· pcd.ts / ply.ts / bin.ts（三种点云解析）· label.ts（单帧/整段序列化）· calibration.ts（投影）
 │   │                     # session.ts（IndexedDB 草稿）
 │   │   └── formats/      # 外部格式适配：conventions.ts（坐标/角度）· kitti.ts（含 DAIR-V2X）
 │   │                     # nuscenes.ts · waymo.ts · sustech.ts · index.ts（嗅探入口）
-│   ├── geometry/         # box.ts（OBB + 自动拟合 + PCA）· downsample.ts（体素下采样 + 距离 LOD）
+│   ├── geometry/         # box.ts（OBB + 自动拟合 + PCA）· downsample.ts（体素下采样 + 距离 LOD）· colorize.ts（强度/高度着色）
 │   ├── sequence/         # sequence.ts（多帧关联 + 轨迹插值）· temporalQA.ts（时序质检）· tracker.ts（Hungarian + Kalman）
 │   ├── quality/          # quality.ts（IoU / 匹配 / kappa / 漏误标率）
 │   └── camera/           # cameraTrajectory.ts（关键帧 + 样条采样 + JSON 序列化）
@@ -342,7 +355,7 @@ PCD 文件/示例  ──parsePCD──▶  PointCloud(positions)
   「导出 JSONL」得到每行一条样本的对外格式（snake_case、`{steer:[...]}` 这种对象写法也支持导入）；
   想验证导出没写错，用不带任何依赖的独立脚本回读一遍：
   `python3 scripts/vla_check.py xxx-vla.jsonl` （有问题退出码 1，读不动 2）。
-- **导入自己的数据**：右上菜单「导入 PCD（可多选组成时序）」；同时选中同名 JSON 会自动读取标注。
+- **导入自己的数据**：右上菜单「导入点云（`.pcd` / `.ply` / `.bin`，可多选组成时序）」；同时选中同名 JSON 会自动读取标注。
 - **导出**：单帧是 SUSTechPOINTS 兼容数组；整段序列是 `{ format, frames:[{ index, objects }] }`，脚本可逐帧拆开。
   「插值补帧」按文档范围把中间帧补齐；「RTS 平滑」在此基础上用后向平滑去掉轨迹抖动
   （人工标注的帧不动，抖动超过 0.3m 的轨迹会被跳过并在状态栏点名）。

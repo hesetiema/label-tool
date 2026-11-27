@@ -1,0 +1,56 @@
+name: 功能建议
+description: 想要某个能力、某处体验改进
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先看一眼 [`docs/12-review.md`](https://github.com/hesetiema/label-tool/blob/main/docs/12-review.md)：
+        里面列了十维能力对照、P1/P2 路线图，以及**明确不做的取舍**（不做后端、不引入 UI 组件库等）。
+        在那里已经写明的，就不用再提了 —— 但如果你认为某个取舍的前提变了，欢迎在 issue 里论证。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题
+      description: 别从"缺某个按钮"开始，先说场景。例如"一条 300 帧的序列，我要逐帧确认同一辆车没被漏标"
+      placeholder: 现在只能靠眼睛逐帧看，想有个"按 track 巡检"的视图 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你想到的做法
+      description: 有对照工具（CVAT / Supervisely / Segments.ai / SUSTechPOINTS）的具体行为最好
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 现在怎么绕过去
+      description: 现有功能的替代方案，或者"绕不过去"的具体原因
+    validations:
+      required: false
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 这更接近哪一种
+      options:
+        - 新能力（现在完全没有）
+        - 体验改进（有，但难用）
+        - 性能（能用，但慢）
+        - 文档 / 示例
+        - 工程基建（测试、构建、CI）
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 我理解这个项目的定位
+      options:
+        - label: 这是学习项目，主要标准是"读代码能学到东西"，功能数量不是唯一标准
+          required: true

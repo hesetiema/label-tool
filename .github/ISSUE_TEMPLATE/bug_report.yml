@@ -1,0 +1,94 @@
+name: Bug 报告
+description: 功能不对、崩溃、渲染异常、数据损坏
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告。**点云相关的问题请把数据格式和点数写清楚**，否则很难复现 ——
+        同一份文件用 ascii 和 binary 保存，走的完全是两条代码路径。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 你期望什么、实际发生了什么。有截图或录屏更好。
+      placeholder: 点「真实数据」后视图全黑，控制台报 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开 ?data=sequence
+        2. 选中第 2 帧的框
+        3. 按 Shift+F
+        4. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 大致属于哪一块
+      options:
+        - 点云加载 / 解析（PCD、XYZ、数据集导入）
+        - 3D 框标注与编辑
+        - 正交视图 / 3D 视口渲染
+        - 4D 时序（Track、插值、跟踪、质检）
+        - 多任务（占据 / 光流 / lane / VLA）
+        - 预标注与复核
+        - 持久化 / 草稿 / 缓存回收 / 跨标签页
+        - 相机投影与运镜
+        - 构建 / 测试 / CI
+        - 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: data-info
+    attributes:
+      label: 数据信息（点云问题必填）
+      description: 格式（ascii / binary / binary_compressed）+ 点数 + 来源；大文件不必附上，说明怎么造的即可
+      placeholder: binary PCD，66,899 点，SUSTechPOINTS 官方样例 000970.pcd
+    validations:
+      required: false
+
+  - type: textarea
+    id: console
+    attributes:
+      label: 控制台报错原文
+      description: 直接粘贴文本，不要用截图手抄。`F12` → Console，红色条目连栈一起复制
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: 浏览器 + 版本、操作系统、是否能用 WebGL2（chrome://gpu 里看）
+      placeholder: Edge 131 / Windows 11 / WebGL2 可用（硬件加速开）
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      description: '`git rev-parse --short HEAD` 的输出，或部署站点的访问日期'
+      placeholder: 704980f
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我搜索过已有 issue
+          required: true
+        - label: 我在干净刷新（Ctrl+Shift+R）下仍能复现，且清掉站点数据后仍复现
+          required: false
