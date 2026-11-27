@@ -102,15 +102,15 @@ type BusMessage =
   | { kind: 'refs:res'; from: string; to: string; reqId: string; state: TabState }
   | { kind: 'lease:lost'; from: string; to: string; sampleId: string }
   | {
-    kind: 'frames:evicted'
-    from: string
-    datasetKey: string
-    /** 被淘汰的帧与各自字节；`all` 为 true 时省略（整份数据集都不可信了） */
-    frames?: Array<{ frame: number; bytes: number }>
-    bytes: number
-    /** 淘汰量太大（或整段删）时只发一个标记，省得广播消息几 MB */
-    all?: boolean
-  }
+      kind: 'frames:evicted'
+      from: string
+      datasetKey: string
+      /** 被淘汰的帧与各自字节；`all` 为 true 时省略（整份数据集都不可信了） */
+      frames?: Array<{ frame: number; bytes: number }>
+      bytes: number
+      /** 淘汰量太大（或整段删）时只发一个标记，省得广播消息几 MB */
+      all?: boolean
+    }
 
 /** 单条淘汰通知里最多带多少帧；超过就退化成 `all` */
 const EVICTED_FRAME_LIMIT = 200
@@ -158,7 +158,9 @@ function readSessionTabId(): string | null {
 function persistSessionTabId(id: string): void {
   try {
     ;(globalThis as { sessionStorage?: StorageLike }).sessionStorage?.setItem(SESSION_ID_KEY, id)
-  } catch { /* 隐私模式：接受刷新后换 id（最多等一个 TTL） */ }
+  } catch {
+    /* 隐私模式：接受刷新后换 id（最多等一个 TTL） */
+  }
 }
 
 export function resolveLocalStorage(): StorageLike | null {
@@ -202,7 +204,43 @@ export class TabBus {
     else if (!rec) this.emitLeaseLost('expired')
   }
 
-  private readonly onPageHide = () => { this.release() }
+  private readonly onPageHide = () => {
+    this.release()
+  }
+
+  /**
+   * 后台标签页的定时器会被节流：普通后台是约 1 次/秒（2000ms 心跳还能撑住
+   * 6000ms 的 TTL），但隐藏超过 5 分钟后 Chrome 会把定时器压到约 1 次/分钟，
+   * 心跳必然过期 —— 这时另一个标签页可以合法接管，而我们自己还以为在写。
+   *
+   * 所以：切到后台时立刻 beat 一次（把最后一刻的状态落下去），切回前台时
+   * 立刻 beat 一次并等一拍对齐 —— 租约如果已经被别人拿走，`beat()` 会通过
+   * `emitLeaseLost('takeover')` 让我们马上转只读，而不是等下一次被节流的心跳
+   * 或者下一次保存才发现。
+   */
+  private readonly onVisibility = () => {
+    if (!this.started) return
+    this.beat()
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      // 让事件循环跑一轮：`storage` 事件可能就在这一拍里到达，先让对端的状态落地
+      setTimeout(() => {
+        if (this.started) this.beat()
+      }, 0)
+    }
+  }
+
+  /**
+   * bfcache 回来：`pagehide` 已经主动把租约还回去了，如果不重新立起来，
+   * 整页会一直停在只读状态（而用户只是前进/后退了一下）。
+   */
+  private readonly onPageShow = (e: PageTransitionEvent) => {
+    if (!this.started || !e.persisted) return
+    const state = this.state()
+    if (!state.sampleId) return
+    void this.claim(state.sampleId).then((res) => {
+      if (!res.ok) this.emitLeaseLost('takeover')
+    })
+  }
 
   constructor(opts: TabBusOptions = {}) {
     const carried = opts.id ? null : readSessionTabId()
@@ -226,8 +264,12 @@ export class TabBus {
     if (channel) channel.onmessage = (ev: MessageEvent) => this.handle(ev.data as BusMessage)
   }
 
-  get supported(): boolean { return this.storage !== null }
-  get broadcastSupported(): boolean { return this.channel !== null }
+  get supported(): boolean {
+    return this.storage !== null
+  }
+  get broadcastSupported(): boolean {
+    return this.channel !== null
+  }
 
   /**
    * 开始心跳与应答。`getState` 每次被问到时现取 —— 缓存引用集
@@ -239,10 +281,16 @@ export class TabBus {
     this.started = true
     if (this.storage) {
       this.beat()
-      this.heartbeat = setInterval(() => { this.beat() }, this.heartbeatMs)
+      this.heartbeat = setInterval(() => {
+        this.beat()
+      }, this.heartbeatMs)
       if (typeof window !== 'undefined') {
         window.addEventListener('storage', this.onStorage)
         window.addEventListener('pagehide', this.onPageHide)
+        window.addEventListener('pageshow', this.onPageShow)
+      }
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', this.onVisibility)
       }
     }
   }
@@ -255,11 +303,19 @@ export class TabBus {
     if (typeof window !== 'undefined') {
       window.removeEventListener('storage', this.onStorage)
       window.removeEventListener('pagehide', this.onPageHide)
+      window.removeEventListener('pageshow', this.onPageShow)
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.onVisibility)
     }
     this.release()
     this.storage?.removeItem(TAB_PREFIX + this.tabId)
     this.started = false
-    try { this.channel?.close() } catch { /* 已关闭 */ }
+    try {
+      this.channel?.close()
+    } catch {
+      /* 已关闭 */
+    }
   }
 
   onLeaseLost(handler: (reason: 'takeover' | 'expired') => void): () => void {
@@ -294,7 +350,9 @@ export class TabBus {
         ...(tooMany ? { all: true } : { frames }),
         bytes,
       } satisfies BusMessage)
-    } catch { /* 通道已关：对方靠自己的下一次清扫兜底 */ }
+    } catch {
+      /* 通道已关：对方靠自己的下一次清扫兜底 */
+    }
   }
 
   /** 同源的其它标签页（已过滤过期） */
@@ -311,7 +369,11 @@ export class TabBus {
       const raw = ls.getItem(key)
       if (!raw) continue
       let rec: { at?: number; sampleId?: string; datasetKey?: string; evictable?: boolean }
-      try { rec = JSON.parse(raw) } catch { continue }
+      try {
+        rec = JSON.parse(raw)
+      } catch {
+        continue
+      }
       if (!Number.isFinite(rec.at) || now - (rec.at as number) > this.ttlMs) continue
       out.push({
         tabId: id,
@@ -380,9 +442,14 @@ export class TabBus {
     if (prior && prior.tabId !== this.tabId && this.channel) {
       try {
         this.channel.postMessage({
-          kind: 'lease:lost', from: this.tabId, to: prior.tabId, sampleId,
+          kind: 'lease:lost',
+          from: this.tabId,
+          to: prior.tabId,
+          sampleId,
         } satisfies BusMessage)
-      } catch { /* 通道关了就算了，对方靠心跳看门狗也会发现 */ }
+      } catch {
+        /* 通道关了就算了，对方靠心跳看门狗也会发现 */
+      }
     }
     return { ok: true, holder: this.tabId, supported: true }
   }
@@ -407,14 +474,22 @@ export class TabBus {
    */
   async collectPeerRefs(timeoutMs = 320): Promise<PeerRefsResult> {
     const empty: PeerRefsResult = {
-      payloadRefs: [], datasetKeys: [], sampleIds: [], responders: 0, peers: [], supported: false,
-      evictableDatasetKeys: [], protectKeys: [],
+      payloadRefs: [],
+      datasetKeys: [],
+      sampleIds: [],
+      responders: 0,
+      peers: [],
+      supported: false,
+      evictableDatasetKeys: [],
+      protectKeys: [],
     }
     if (!this.channel) return empty
 
     const reqId = `${this.tabId}:${++this.seq}`
     const received: PeerState[] = []
-    this.refsWaiters.set(reqId, (state) => { received.push(state) })
+    this.refsWaiters.set(reqId, (state) => {
+      received.push(state)
+    })
     try {
       this.channel.postMessage({ kind: 'refs:req', from: this.tabId, reqId } satisfies BusMessage)
     } catch {
@@ -430,7 +505,9 @@ export class TabBus {
   }
 
   /** 供排障：当前租约记录（自己的或别人的） */
-  leaseOf(sampleId: string): LeaseRecord | null { return this.readLease(sampleId) }
+  leaseOf(sampleId: string): LeaseRecord | null {
+    return this.readLease(sampleId)
+  }
 
   /* ---------------- 内部 ---------------- */
 
@@ -440,9 +517,15 @@ export class TabBus {
     const state = this.state()
     const at = this.now()
     try {
-      ls.setItem(TAB_PREFIX + this.tabId, JSON.stringify({
-        at, sampleId: state.sampleId, datasetKey: state.datasetKey, evictable: state.evictable === true,
-      }))
+      ls.setItem(
+        TAB_PREFIX + this.tabId,
+        JSON.stringify({
+          at,
+          sampleId: state.sampleId,
+          datasetKey: state.datasetKey,
+          evictable: state.evictable === true,
+        }),
+      )
       if (this.sampleId) {
         // 续期前先看当前持有点：被别人接管了就不能再写回去（那会来回踢皮球）。
         // 记录不存在说明它过期/被清了 —— 我们仍然认为自己在写，于是重新立起来。
@@ -453,7 +536,9 @@ export class TabBus {
           this.sampleId = ''
         }
       }
-    } catch { /* 配额满/隐私模式：心跳失败不影响编辑 */ }
+    } catch {
+      /* 配额满/隐私模式：心跳失败不影响编辑 */
+    }
   }
 
   private state(): TabState {
@@ -470,9 +555,15 @@ export class TabBus {
       if (msg.from === this.tabId) return
       try {
         this.channel?.postMessage({
-          kind: 'refs:res', from: this.tabId, to: msg.from, reqId: msg.reqId, state: this.state(),
+          kind: 'refs:res',
+          from: this.tabId,
+          to: msg.from,
+          reqId: msg.reqId,
+          state: this.state(),
         } satisfies BusMessage)
-      } catch { /* 通道已关 */ }
+      } catch {
+        /* 通道已关 */
+      }
       return
     }
     if (msg.kind === 'refs:res') {
@@ -497,14 +588,22 @@ export class TabBus {
         all: msg.all === true,
       }
       for (const handler of this.frameEvictedHandlers) {
-        try { handler(notice) } catch { /* 一个订阅者出错不该影响其它 */ }
+        try {
+          handler(notice)
+        } catch {
+          /* 一个订阅者出错不该影响其它 */
+        }
       }
     }
   }
 
   private emitLeaseLost(reason: 'takeover' | 'expired'): void {
     for (const handler of this.leaseLostHandlers) {
-      try { handler(reason) } catch { /* 一个订阅者出错不该影响其它订阅者 */ }
+      try {
+        handler(reason)
+      } catch {
+        /* 一个订阅者出错不该影响其它订阅者 */
+      }
     }
   }
 
@@ -522,10 +621,16 @@ export class TabBus {
 
   private writeLease(sampleId: string): void {
     try {
-      this.storage?.setItem(LEASE_PREFIX + sampleId, JSON.stringify({
-        tabId: this.tabId, at: this.now(),
-      } satisfies LeaseRecord))
-    } catch { /* 写不进去就靠 claim 的返回值兜底 */ }
+      this.storage?.setItem(
+        LEASE_PREFIX + sampleId,
+        JSON.stringify({
+          tabId: this.tabId,
+          at: this.now(),
+        } satisfies LeaseRecord),
+      )
+    } catch {
+      /* 写不进去就靠 claim 的返回值兜底 */
+    }
   }
 }
 

@@ -32,12 +32,54 @@ export interface DrawRect {
 /** 跨帧复制的目标范围：下一帧 / 后续全部 / 全部其他帧 */
 export type CopyScope = 'next' | 'forward' | 'all'
 
+/**
+ * 这个 keydown 该不该当成"标注快捷键"处理。
+ *
+ * 三个必须放行的场景（都不是理论问题）：
+ *   1. 正在输入 —— input/textarea/select 之外还要算 contenteditable：
+ *      面板里有的控件是 div，靠 tagName 拦不住，敲空格会把页面滚走
+ *   2. 输入法组词中 —— 拼音候选阶段的 keydown 的 `key` 是候选词字符，
+ *      按 v / h / n 会一边打字一边把工具切掉，中文用户每次输入都会踩到
+ *   3. 弹窗打开时 —— 方向键、Tab 属于弹窗自己（列表导航、关按钮），
+ *      全局再抢一遍会让焦点乱跳，Esc 也会同时关弹窗和改工具
+ */
+function shouldIgnoreShortcut(e: KeyboardEvent): boolean {
+  const target = e.target as HTMLElement | null
+  if (target) {
+    const tag = target.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+    if (target.isContentEditable) return true
+  }
+  // isComposing 是标准字段；229 是 Chrome / Safari 在组词阶段塞进 keyCode 的旧约定
+  if (e.isComposing || e.keyCode === 229) return true
+  // 任何弹窗都带 data-modal（目前只有帮助弹窗，新弹窗记得加）
+  if (typeof document !== 'undefined' && document.querySelector('[data-modal]')) return true
+  return false
+}
+
 export function useAnnotation(core: StudioCore) {
   const {
-    boxes, selectedId, selectedIds, selectedBoxes, selectedCount,
-    cloud, statusText, origin, mutate, syncViewer, resetHistory,
-    frames, currentFrame, categories, categoryOf, nextBoxId, markDirty,
-    selectMany, toggleSelect, selectAll, pruneSelection,
+    boxes,
+    selectedId,
+    selectedIds,
+    selectedBoxes,
+    selectedCount,
+    cloud,
+    statusText,
+    origin,
+    mutate,
+    syncViewer,
+    resetHistory,
+    frames,
+    currentFrame,
+    categories,
+    categoryOf,
+    nextBoxId,
+    markDirty,
+    selectMany,
+    toggleSelect,
+    selectAll,
+    pruneSelection,
   } = core
 
   const currentCategory = ref('Car')
@@ -78,7 +120,8 @@ export function useAnnotation(core: StudioCore) {
     const pos = cloud.value.positions
     const indices: number[] = []
     for (let i = 0; i < cloud.value.count; i++) {
-      const px = pos[i * 3], py = pos[i * 3 + 1]
+      const px = pos[i * 3],
+        py = pos[i * 3 + 1]
       if (px >= rect.x0 && px <= rect.x1 && py >= rect.y0 && py <= rect.y1) indices.push(i)
     }
     if (indices.length < 5) {
@@ -91,7 +134,11 @@ export function useAnnotation(core: StudioCore) {
     const box: Box3D = {
       id: nextId(),
       label: cat.name,
-      position: fitted?.position ?? { x: (rect.x0 + rect.x1) / 2, y: (rect.y0 + rect.y1) / 2, z: cat.defaultSize[2] / 2 },
+      position: fitted?.position ?? {
+        x: (rect.x0 + rect.x1) / 2,
+        y: (rect.y0 + rect.y1) / 2,
+        z: cat.defaultSize[2] / 2,
+      },
       scale: fitted?.scale ?? { x: rect.x1 - rect.x0, y: rect.y1 - rect.y0, z: cat.defaultSize[2] },
       yaw: fitted?.yaw ?? 0,
     }
@@ -124,9 +171,7 @@ export function useAnnotation(core: StudioCore) {
     toggleSelect(id)
     rememberOrigin()
     syncViewer()
-    statusText.value = selectedCount.value > 1
-      ? `已选 ${selectedCount.value} 个对象`
-      : `选中 #${id}`
+    statusText.value = selectedCount.value > 1 ? `已选 ${selectedCount.value} 个对象` : `选中 #${id}`
   }
 
   /** 橡皮筋框选：一次选中一批 */
@@ -150,7 +195,10 @@ export function useAnnotation(core: StudioCore) {
     const viewer = core.getViewer()
     if (!viewer || e.button !== 0) return
     const id = viewer.pickBox(e.clientX, e.clientY, core.visibleBoxes.value)
-    if (!id) { selectBox(null); return }
+    if (!id) {
+      selectBox(null)
+      return
+    }
     if (e.ctrlKey || e.metaKey || e.shiftKey) toggleSelectBox(id)
     else selectBox(id)
   }
@@ -161,15 +209,19 @@ export function useAnnotation(core: StudioCore) {
    */
   function applyBox(id: string, next: Box3D, mergeKey: string) {
     if (core.isLocked(id)) return
-    mutate('拖拽编辑', () => {
-      const cur = boxes.value.find((b) => b.id === id)
-      if (!cur) return
-      cur.position = { ...next.position }
-      cur.scale = { ...next.scale }
-      cur.yaw = next.yaw
-      cur.label = next.label
-      if (next.visibility) cur.visibility = next.visibility
-    }, mergeKey)
+    mutate(
+      '拖拽编辑',
+      () => {
+        const cur = boxes.value.find((b) => b.id === id)
+        if (!cur) return
+        cur.position = { ...next.position }
+        cur.scale = { ...next.scale }
+        cur.yaw = next.yaw
+        cur.label = next.label
+        if (next.visibility) cur.visibility = next.visibility
+      },
+      mergeKey,
+    )
   }
 
   /**
@@ -177,16 +229,20 @@ export function useAnnotation(core: StudioCore) {
    * 锁定的成员直接跳过（对齐 CVAT：锁住的对象不参与任何编辑）。
    */
   function applyBoxes(list: Box3D[], mergeKey: string, label = '拖动多个框') {
-    mutate(label, () => {
-      for (const next of list) {
-        if (core.isLocked(next.id)) continue
-        const cur = boxes.value.find((b) => b.id === next.id)
-        if (!cur) continue
-        cur.position = { ...next.position }
-        cur.scale = { ...next.scale }
-        cur.yaw = next.yaw
-      }
-    }, mergeKey)
+    mutate(
+      label,
+      () => {
+        for (const next of list) {
+          if (core.isLocked(next.id)) continue
+          const cur = boxes.value.find((b) => b.id === next.id)
+          if (!cur) continue
+          cur.position = { ...next.position }
+          cur.scale = { ...next.scale }
+          cur.yaw = next.yaw
+        }
+      },
+      mergeKey,
+    )
   }
 
   /** 数字键 / 类别下拉：改所有选中对象的类别；没有选中时只改"下一个新框"的默认类别 */
@@ -201,9 +257,8 @@ export function useAnnotation(core: StudioCore) {
       for (const b of targets) b.label = label
     })
     currentCategory.value = label
-    statusText.value = targets.length > 1
-      ? `已把 ${targets.length} 个对象改为 ${label}`
-      : `#${targets[0].id} 改为 ${label}`
+    statusText.value =
+      targets.length > 1 ? `已把 ${targets.length} 个对象改为 ${label}` : `#${targets[0].id} 改为 ${label}`
   }
 
   /**
@@ -251,20 +306,40 @@ export function useAnnotation(core: StudioCore) {
     const id = selectedId.value
     if (!id || core.isLocked(id)) return
     if (typeof value === 'number' && !Number.isFinite(value)) return
-    mutate('修改属性', () => {
-      const b = boxes.value.find((x) => x.id === id)
-      if (!b) return
-      switch (prop) {
-        case 'label': b.label = value as string; break
-        case 'x': b.position.x = value as number; break
-        case 'y': b.position.y = value as number; break
-        case 'z': b.position.z = value as number; break
-        case 'length': b.scale.x = Math.max(0.1, value as number); break
-        case 'width': b.scale.y = Math.max(0.1, value as number); break
-        case 'height': b.scale.z = Math.max(0.1, value as number); break
-        case 'yaw': b.yaw = value as number; break
-      }
-    }, `prop:${id}:${prop}`)
+    mutate(
+      '修改属性',
+      () => {
+        const b = boxes.value.find((x) => x.id === id)
+        if (!b) return
+        switch (prop) {
+          case 'label':
+            b.label = value as string
+            break
+          case 'x':
+            b.position.x = value as number
+            break
+          case 'y':
+            b.position.y = value as number
+            break
+          case 'z':
+            b.position.z = value as number
+            break
+          case 'length':
+            b.scale.x = Math.max(0.1, value as number)
+            break
+          case 'width':
+            b.scale.y = Math.max(0.1, value as number)
+            break
+          case 'height':
+            b.scale.z = Math.max(0.1, value as number)
+            break
+          case 'yaw':
+            b.yaw = value as number
+            break
+        }
+      },
+      `prop:${id}:${prop}`,
+    )
   }
 
   /** 克隆选中的一批框，并把 id 换成新的、整体偏移 2m（避免与原框完全重叠） */
@@ -286,9 +361,12 @@ export function useAnnotation(core: StudioCore) {
     const src = selectedBoxes.value
     if (!src.length) return
     const copies = cloneAsNew(src)
-    if (!mutate('复制框', () => {
-      boxes.value.push(...copies)
-    })) return
+    if (
+      !mutate('复制框', () => {
+        boxes.value.push(...copies)
+      })
+    )
+      return
     adoptSelection(copies.map((c) => c.id))
     statusText.value = copies.length > 1 ? `已复制 ${copies.length} 个对象` : `已复制为 #${copies[0].id}`
   }
@@ -297,17 +375,19 @@ export function useAnnotation(core: StudioCore) {
     const src = selectedBoxes.value
     if (!src.length) return
     clipboard = cloneBoxes(src)
-    statusText.value = src.length > 1
-      ? `已复制 ${src.length} 个对象，Ctrl+V 粘贴到当前帧`
-      : `已复制 #${src[0].id}，Ctrl+V 粘贴到当前帧`
+    statusText.value =
+      src.length > 1 ? `已复制 ${src.length} 个对象，Ctrl+V 粘贴到当前帧` : `已复制 #${src[0].id}，Ctrl+V 粘贴到当前帧`
   }
 
   function pasteClipboard() {
     if (!clipboard.length) return
     const copies = cloneAsNew(clipboard)
-    if (!mutate('粘贴框', () => {
-      boxes.value.push(...copies)
-    })) return
+    if (
+      !mutate('粘贴框', () => {
+        boxes.value.push(...copies)
+      })
+    )
+      return
     adoptSelection(copies.map((c) => c.id))
     statusText.value = copies.length > 1 ? `已粘贴 ${copies.length} 个对象` : `已粘贴为 #${copies[0].id}`
   }
@@ -375,13 +455,15 @@ export function useAnnotation(core: StudioCore) {
       return
     }
     const skipped = selectedCount.value - ids.length
-    if (!mutate(ids.length > 1 ? `删除 ${ids.length} 个框` : '删除框', () => {
-      boxes.value = boxes.value.filter((b) => !ids.includes(b.id))
-      selectedId.value = null
-    })) return
-    statusText.value = ids.length > 1
-      ? `已删除 ${ids.length} 个对象${skipped ? `（跳过 ${skipped} 个锁定）` : ''}`
-      : `已删除 #${ids[0]}`
+    if (
+      !mutate(ids.length > 1 ? `删除 ${ids.length} 个框` : '删除框', () => {
+        boxes.value = boxes.value.filter((b) => !ids.includes(b.id))
+        selectedId.value = null
+      })
+    )
+      return
+    statusText.value =
+      ids.length > 1 ? `已删除 ${ids.length} 个对象${skipped ? `（跳过 ${skipped} 个锁定）` : ''}` : `已删除 #${ids[0]}`
   }
 
   // ---- 撤销重做 ----
@@ -420,8 +502,9 @@ export function useAnnotation(core: StudioCore) {
     const list = boxes.value.filter((b) => isExportableView(b as Box3D & { review?: string; sourceKind?: string }))
     downloadJson(`${baseName()}${suffix}.json`, serializeLabels(list))
     const dropped = boxes.value.length - list.length
-    statusText.value = `已导出当前帧 ${list.length} 个框（SUSTechPOINTS 格式）`
-      + (dropped ? `，${dropped} 个待复核/已拒绝的模型框未导出` : '')
+    statusText.value =
+      `已导出当前帧 ${list.length} 个框（SUSTechPOINTS 格式）` +
+      (dropped ? `，${dropped} 个待复核/已拒绝的模型框未导出` : '')
   }
 
   /**
@@ -442,8 +525,9 @@ export function useAnnotation(core: StudioCore) {
     downloadJson(`${baseName()}-sequence.json`, serializeSequence(payload))
     const total = payload.reduce((n, f) => n + f.boxes.length, 0)
     const dropped = frames.value.reduce((n, f) => n + f.boxes.length, 0) - total
-    statusText.value = `已导出 ${frames.value.length} 帧 / ${total} 个框的整段序列`
-      + (dropped ? `（${dropped} 个待复核/已拒绝的模型框未导出）` : '')
+    statusText.value =
+      `已导出 ${frames.value.length} 帧 / ${total} 个框的整段序列` +
+      (dropped ? `（${dropped} 个待复核/已拒绝的模型框未导出）` : '')
   }
 
   /**
@@ -463,9 +547,12 @@ export function useAnnotation(core: StudioCore) {
     }
     const [from, to] = store.document.range
     const frames = Math.max(0, to - from + 1)
-    downloadBlob(`${baseName()}-sequence-interp.json`, sequenceBlob(store, {
-      materialize: { mode: 'linear', acceptedOnly: true },
-    }))
+    downloadBlob(
+      `${baseName()}-sequence-interp.json`,
+      sequenceBlob(store, {
+        materialize: { mode: 'linear', acceptedOnly: true },
+      }),
+    )
     statusText.value = `已导出第 ${from}–${to} 帧（共 ${frames} 帧，插值补帧）· ${store.trackCount} 条轨迹`
   }
 
@@ -484,13 +571,14 @@ export function useAnnotation(core: StudioCore) {
     }
     const [from, to] = store.document.range
     const { paths, skipped } = smoothDocument(store.document)
-    downloadBlob(`${baseName()}-sequence-smooth.json`, sequenceBlob(store, {
-      materialize: { mode: 'linear', paths, acceptedOnly: true },
-    }))
+    downloadBlob(
+      `${baseName()}-sequence-smooth.json`,
+      sequenceBlob(store, {
+        materialize: { mode: 'linear', paths, acceptedOnly: true },
+      }),
+    )
     const jittery = skipped.filter((s) => s.reason === 'shift-too-large')
-    const tail = jittery.length
-      ? `；${jittery.length} 条抖动过大未平滑（最大 ${jittery[0].maxShift.toFixed(2)}m）`
-      : ''
+    const tail = jittery.length ? `；${jittery.length} 条抖动过大未平滑（最大 ${jittery[0].maxShift.toFixed(2)}m）` : ''
     statusText.value = `已导出第 ${from}–${to} 帧（RTS 平滑 ${paths.size}/${store.trackCount} 条轨迹${tail}）`
   }
 
@@ -556,41 +644,72 @@ export function useAnnotation(core: StudioCore) {
     const list = core.visibleBoxes.value
     if (!list.length) return
     const at = list.findIndex((b) => b.id === selectedId.value)
-    const i = at < 0
-      ? (dir > 0 ? 0 : list.length - 1)
-      : (at + dir + list.length) % list.length
+    const i = at < 0 ? (dir > 0 ? 0 : list.length - 1) : (at + dir + list.length) % list.length
     selectBox(list[i].id)
     statusText.value = `选中 ${list[i].label} #${list[i].id}`
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    const tag = (e.target as HTMLElement)?.tagName
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+    if (shouldIgnoreShortcut(e)) return
     const key = e.key.toLowerCase()
     const ctrl = e.ctrlKey || e.metaKey
 
     if (ctrl && key === 's') {
       e.preventDefault()
-      if (e.shiftKey) doExportAll(); else doExportFrame()
+      if (e.shiftKey) doExportAll()
+      else doExportFrame()
       return
     }
     if (ctrl && key === 'z') {
       e.preventDefault()
-      if (e.shiftKey) doRedo(); else doUndo()
+      if (e.shiftKey) doRedo()
+      else doUndo()
       return
     }
-    if (ctrl && key === 'y') { e.preventDefault(); doRedo(); return }
-    if (ctrl && key === 'a') { e.preventDefault(); selectAllBoxes(); return }
-    if (ctrl && key === 'c') { e.preventDefault(); copySelected(); return }
-    if (ctrl && key === 'v') { e.preventDefault(); pasteClipboard(); return }
-    if (ctrl && key === 'd') { e.preventDefault(); duplicateSelected(); return }
+    if (ctrl && key === 'y') {
+      e.preventDefault()
+      doRedo()
+      return
+    }
+    if (ctrl && key === 'a') {
+      e.preventDefault()
+      selectAllBoxes()
+      return
+    }
+    if (ctrl && key === 'c') {
+      e.preventDefault()
+      copySelected()
+      return
+    }
+    if (ctrl && key === 'v') {
+      e.preventDefault()
+      pasteClipboard()
+      return
+    }
+    if (ctrl && key === 'd') {
+      e.preventDefault()
+      duplicateSelected()
+      return
+    }
     // Ctrl+B：把选中框广播到后续所有帧（同 id，构成轨迹）
-    if (ctrl && key === 'b') { e.preventDefault(); copyToFrames('forward'); return }
+    if (ctrl && key === 'b') {
+      e.preventDefault()
+      copyToFrames('forward')
+      return
+    }
 
     // 工具切换：V 选择 / H 平移 / N 画框（与 CVAT 一致）
     if (!ctrl && !e.altKey) {
-      if (key === 'v') { core.tool.value = 'select'; statusText.value = '工具：选择'; return }
-      if (key === 'h') { core.tool.value = 'pan'; statusText.value = '工具：平移'; return }
+      if (key === 'v') {
+        core.tool.value = 'select'
+        statusText.value = '工具：选择'
+        return
+      }
+      if (key === 'h') {
+        core.tool.value = 'pan'
+        statusText.value = '工具：平移'
+        return
+      }
       if (key === 'n') {
         core.tool.value = 'draw'
         core.orthoMax.value = 'top' // 与 CVAT 一致：画框时把顶视放到最大
@@ -615,20 +734,51 @@ export function useAnnotation(core: StudioCore) {
       // 数字键 1-9：有选中就改选中对象的类别，没选中只改「下一个新框」的默认类别
       if (/^[1-9]$/.test(key)) {
         const cat = categories.value[Number(key) - 1]
-        if (cat) { relabelSelected(cat.name); return }
+        if (cat) {
+          relabelSelected(cat.name)
+          return
+        }
       }
     }
 
     // 方向键 / Tab：不依赖"有选中"，先处理
     if (!ctrl && !e.altKey) {
       const step = e.shiftKey ? 0.5 : 0.1
-      if (key === 'arrowleft') { e.preventDefault(); nudge(-1, 0, 0, step); return }
-      if (key === 'arrowright') { e.preventDefault(); nudge(1, 0, 0, step); return }
-      if (key === 'arrowup') { e.preventDefault(); nudge(0, 1, 0, step); return }
-      if (key === 'arrowdown') { e.preventDefault(); nudge(0, -1, 0, step); return }
-      if (key === 'pageup') { e.preventDefault(); nudge(0, 0, 1, step); return }
-      if (key === 'pagedown') { e.preventDefault(); nudge(0, 0, -1, step); return }
-      if (key === 'tab') { e.preventDefault(); cycleSelection(e.shiftKey ? -1 : 1); return }
+      if (key === 'arrowleft') {
+        e.preventDefault()
+        nudge(-1, 0, 0, step)
+        return
+      }
+      if (key === 'arrowright') {
+        e.preventDefault()
+        nudge(1, 0, 0, step)
+        return
+      }
+      if (key === 'arrowup') {
+        e.preventDefault()
+        nudge(0, 1, 0, step)
+        return
+      }
+      if (key === 'arrowdown') {
+        e.preventDefault()
+        nudge(0, -1, 0, step)
+        return
+      }
+      if (key === 'pageup') {
+        e.preventDefault()
+        nudge(0, 0, 1, step)
+        return
+      }
+      if (key === 'pagedown') {
+        e.preventDefault()
+        nudge(0, 0, -1, step)
+        return
+      }
+      if (key === 'tab') {
+        e.preventDefault()
+        cycleSelection(e.shiftKey ? -1 : 1)
+        return
+      }
     }
 
     const targets = selectedBoxes.value.filter((b) => !core.isLocked(b.id))
@@ -652,19 +802,84 @@ export function useAnnotation(core: StudioCore) {
     }
 
     switch (key) {
-      case 'w': edit('平移框', (b) => { b.position.x += step }, 'x+'); break
-      case 's': edit('平移框', (b) => { b.position.x -= step }, 'x-'); break
-      case 'a': edit('平移框', (b) => { b.position.y += step }, 'y+'); break
-      case 'd': edit('平移框', (b) => { b.position.y -= step }, 'y-'); break
-      case 'q': edit('旋转框', (b) => { b.yaw += 0.05 }, 'yaw+'); break
-      case 'e': edit('旋转框', (b) => { b.yaw -= 0.05 }, 'yaw-'); break
-      case 'r': edit('缩放框', (b) => { b.scale.x = Math.max(0.2, b.scale.x + step) }, 'len+'); break
-      case 'f': edit('缩放框', (b) => { b.scale.x = Math.max(0.2, b.scale.x - step) }, 'len-'); break
+      case 'w':
+        edit(
+          '平移框',
+          (b) => {
+            b.position.x += step
+          },
+          'x+',
+        )
+        break
+      case 's':
+        edit(
+          '平移框',
+          (b) => {
+            b.position.x -= step
+          },
+          'x-',
+        )
+        break
+      case 'a':
+        edit(
+          '平移框',
+          (b) => {
+            b.position.y += step
+          },
+          'y+',
+        )
+        break
+      case 'd':
+        edit(
+          '平移框',
+          (b) => {
+            b.position.y -= step
+          },
+          'y-',
+        )
+        break
+      case 'q':
+        edit(
+          '旋转框',
+          (b) => {
+            b.yaw += 0.05
+          },
+          'yaw+',
+        )
+        break
+      case 'e':
+        edit(
+          '旋转框',
+          (b) => {
+            b.yaw -= 0.05
+          },
+          'yaw-',
+        )
+        break
+      case 'r':
+        edit(
+          '缩放框',
+          (b) => {
+            b.scale.x = Math.max(0.2, b.scale.x + step)
+          },
+          'len+',
+        )
+        break
+      case 'f':
+        edit(
+          '缩放框',
+          (b) => {
+            b.scale.x = Math.max(0.2, b.scale.x - step)
+          },
+          'len-',
+        )
+        break
       case 'delete':
       case 'backspace':
         deleteSelected()
         break
-      default: return
+      default:
+        return
     }
     e.preventDefault()
   }
@@ -675,10 +890,33 @@ export function useAnnotation(core: StudioCore) {
   }
 
   return {
-    currentCategory, labelInput, createBoxFromRect, createBoxFromPoints, selectBox, onViewerClick,
-    toggleSelectBox, selectGroup, selectAllBoxes, relabelSelected, refitSelected,
-    applyBox, applyBoxes, setBoxProp, duplicateSelected, copySelected, pasteClipboard, deleteSelected,
+    currentCategory,
+    labelInput,
+    createBoxFromRect,
+    createBoxFromPoints,
+    selectBox,
+    onViewerClick,
+    toggleSelectBox,
+    selectGroup,
+    selectAllBoxes,
+    relabelSelected,
+    refitSelected,
+    applyBox,
+    applyBoxes,
+    setBoxProp,
+    duplicateSelected,
+    copySelected,
+    pasteClipboard,
+    deleteSelected,
     copyToFrames,
-    doUndo, doRedo, doExportFrame, doExportAll, doExportSeq, doExportSmooth, onLabelFile, onKeyDown, pickAt,
+    doUndo,
+    doRedo,
+    doExportFrame,
+    doExportAll,
+    doExportSeq,
+    doExportSmooth,
+    onLabelFile,
+    onKeyDown,
+    pickAt,
   }
 }

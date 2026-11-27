@@ -66,7 +66,8 @@ const groups = [
 </script>
 
 <template>
-  <div v-if="showHelp" class="modal-mask" @click.self="showHelp = false">
+  <!-- data-modal：全局快捷键据此判断"有弹窗打开"，见 useAnnotation 的 shouldIgnoreShortcut -->
+  <div v-if="showHelp" class="modal-mask" data-modal="help" @click.self="showHelp = false">
     <div class="modal">
       <header class="modal-head">
         <h3>快捷键与工作流</h3>
@@ -81,8 +82,8 @@ const groups = [
           </div>
         </div>
         <div class="modal-note">
-          数据流：点云 → Top 拖框 → Side 调高度 → 属性面板精调 → 自动保存到浏览器 →
-          导出 SUSTechPOINTS 兼容 JSON。序列场景可用 <kbd>Ctrl</kbd>+<kbd>B</kbd> 把标好的框铺到后续帧，
+          数据流：点云 → Top 拖框 → Side 调高度 → 属性面板精调 → 自动保存到浏览器 → 导出 SUSTechPOINTS 兼容
+          JSON。序列场景可用 <kbd>Ctrl</kbd>+<kbd>B</kbd> 把标好的框铺到后续帧，
           再逐帧微调；参考线刻度靠每个视图左下角的比例尺读取，光标处的点云坐标显示在状态栏右侧。
         </div>
       </div>

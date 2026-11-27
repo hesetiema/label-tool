@@ -13,7 +13,9 @@ const browser = await chromium.launch(LAUNCH_OPTS)
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage()
 const consoleErrors = []
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message))
 
 await page.goto(APP + '?data=sequence', { waitUntil: 'load' })
@@ -26,10 +28,16 @@ check('runBlobGc 可调用', await page.evaluate(() => typeof window.studio.runB
 // 清库：这支用例断言的是"精确扫到 8 条"，上一次运行留下的键会让计数全错。
 // 放在第一次手动清扫之前，顺便把"空库也能跑"一起验了。
 await page.evaluate(async () => {
-  const db = await new Promise((res) => { const r = indexedDB.open('point-cloud-label-studio'); r.onsuccess = () => res(r.result) })
+  const db = await new Promise((res) => {
+    const r = indexedDB.open('point-cloud-label-studio')
+    r.onsuccess = () => res(r.result)
+  })
   const tx = db.transaction(['blobs', 'session', 'documents', 'docTasks', 'blobUsage'], 'readwrite')
   for (const n of ['blobs', 'session', 'documents', 'docTasks', 'blobUsage']) tx.objectStore(n).clear()
-  await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+  await new Promise((res, rej) => {
+    tx.oncomplete = res
+    tx.onerror = () => rej(tx.error)
+  })
   db.close()
 })
 await page.waitForTimeout(300)
@@ -47,14 +55,14 @@ const DS = 'test#live'
 const seed = await page.evaluate(async (ds) => {
   const enc = encodeURIComponent(ds)
   const entries = [
-    [`frames/${enc}/0`, 1000],                 // 活数据集（草稿指针指向）→ 留
-    [`frames/${enc}/1:colors`, 500],           // 同上 → 留
-    ['frames/dead%23001/0', 2000],             // 死数据集 → 删
-    ['frames/dead%23001/1:colors', 400],       // 死数据集 → 删
-    ['payload/deadbeefdeadbeef', 700],         // 无人引用的载荷 → 删
-    [`${ds}#0`, 300],                          // 旧键，前缀匹配活数据集 → 留
-    ['old-ds#3', 400],                         // 旧键，匹配不上 → 删
-    ['misc/unknown-thing', 100],               // 未知命名空间 → 留
+    [`frames/${enc}/0`, 1000], // 活数据集（草稿指针指向）→ 留
+    [`frames/${enc}/1:colors`, 500], // 同上 → 留
+    ['frames/dead%23001/0', 2000], // 死数据集 → 删
+    ['frames/dead%23001/1:colors', 400], // 死数据集 → 删
+    ['payload/deadbeefdeadbeef', 700], // 无人引用的载荷 → 删
+    [`${ds}#0`, 300], // 旧键，前缀匹配活数据集 → 留
+    ['old-ds#3', 400], // 旧键，匹配不上 → 删
+    ['misc/unknown-thing', 100], // 未知命名空间 → 留
   ]
   const db = await new Promise((res, rej) => {
     const r = indexedDB.open('point-cloud-label-studio')
@@ -68,30 +76,40 @@ const seed = await page.evaluate(async (ds) => {
   }
   // 草稿指针：让 GC 知道 frames/test%23live/ 还活着
   tx.objectStore('session').put({ datasetKey: ds, datasetName: '手测数据集', savedAt: Date.now() }, 'draft-meta')
-  await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+  await new Promise((res, rej) => {
+    tx.oncomplete = res
+    tx.onerror = () => rej(tx.error)
+  })
   db.close()
   return entries.map(([k]) => k)
 }, DS)
 check('已写入 8 条测试 blob + 草稿指针', seed.length === 8, seed.join(', '))
 
-const keysNow = () => page.evaluate(async () => {
-  const db = await new Promise((res, rej) => {
-    const r = indexedDB.open('point-cloud-label-studio')
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error)
+const keysNow = () =>
+  page.evaluate(async () => {
+    const db = await new Promise((res, rej) => {
+      const r = indexedDB.open('point-cloud-label-studio')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    const tx = db.transaction(['blobs'], 'readonly')
+    const keys = await new Promise((res, rej) => {
+      const req = tx.objectStore('blobs').getAllKeys()
+      req.onsuccess = () => res(req.result)
+      req.onerror = () => rej(req.error)
+    })
+    db.close()
+    return keys.map(String)
   })
-  const tx = db.transaction(['blobs'], 'readonly')
-  const keys = await new Promise((res, rej) => {
-    const req = tx.objectStore('blobs').getAllKeys()
-    req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error)
-  })
-  db.close()
-  return keys.map(String)
-})
 
 // ---- 3. dryRun 不删 ----
 const dry = await page.evaluate(async () => {
   const r = await window.studio.runBlobGc({ manual: true, dryRun: true })
-  return { status: window.studio.statusText.value, remove: r?.remove.map((v) => v.key) ?? [], released: r?.released ?? -1 }
+  return {
+    status: window.studio.statusText.value,
+    remove: r?.remove.map((v) => v.key) ?? [],
+    released: r?.released ?? -1,
+  }
 })
 const afterDry = await keysNow()
 check('dryRun 状态栏是预演文案', /预演/.test(dry.status), dry.status)
@@ -123,9 +141,13 @@ check('死载荷已删', !has('payload/deadbeefdeadbeef'))
 check('旧键活前缀保留', has(`${DS}#0`), real.reason[`${DS}#0`])
 check('旧键孤儿已删', !has('old-ds#3'), real.reason['old-ds#3'])
 check('未知命名空间保留', has('misc/unknown-thing'), real.reason['misc/unknown-thing'])
-check('判定理由齐全', real.reason[`frames/dead%23001/0`] === 'evicted-dataset/drop'
-  && real.reason['payload/deadbeefdeadbeef'] === 'dead-payload/drop'
-  && real.reason['misc/unknown-thing'] === 'unknown-kept/keep', JSON.stringify(real.reason, null, 1))
+check(
+  '判定理由齐全',
+  real.reason[`frames/dead%23001/0`] === 'evicted-dataset/drop' &&
+    real.reason['payload/deadbeefdeadbeef'] === 'dead-payload/drop' &&
+    real.reason['misc/unknown-thing'] === 'unknown-kept/keep',
+  JSON.stringify(real.reason, null, 1),
+)
 
 // ---- 5. 重复清扫幂等 ----
 const again = await page.evaluate(async () => {
@@ -145,23 +167,58 @@ check('重复清扫无副作用', again.released === 0 && /已是最简/.test(ag
 await page.evaluate(() => window.studio.persistNow())
 await page.reload({ waitUntil: 'load' })
 await page.waitForFunction(() => !!window.studio, null, { timeout: 30000 })
-await page.waitForFunction(async () => {
-  const ptr = await new Promise((res) => {
+await page
+  .waitForFunction(
+    async () => {
+      const ptr = await new Promise((res) => {
+        const r = indexedDB.open('point-cloud-label-studio')
+        r.onsuccess = () => {
+          const q = r.result.transaction(['session'], 'readonly').objectStore('session').get('draft-meta')
+          q.onsuccess = () => {
+            res(q.result)
+            r.result.close()
+          }
+        }
+      })
+      return ptr && ptr.datasetKey !== 'test#live'
+    },
+    null,
+    { timeout: 15000 },
+  )
+  .catch(() => {})
+// 等启动清扫（挂载后 1500ms）先跑完再动手。
+// 它和手动清扫判的是同一批垃圾：谁先跑谁收，"released>0"就变成看运气 ——
+// 实测在快机器上就是启动清扫先收完，手动清扫如实报 0，白白失败一次。
+await page.waitForTimeout(2500)
+// 再注入一条新垃圾（死数据集的帧键）：此后没有别的清扫会跑（换数据集触发的清扫只在
+// 保存路径上），手动清扫要收的就只有它一条 —— 这样"报数是否如实"才是确定的断言。
+await page.evaluate(async () => {
+  const db = await new Promise((res) => {
     const r = indexedDB.open('point-cloud-label-studio')
-    r.onsuccess = () => {
-      const q = r.result.transaction(['session'], 'readonly').objectStore('session').get('draft-meta')
-      q.onsuccess = () => { res(q.result); r.result.close() }
-    }
+    r.onsuccess = () => res(r.result)
   })
-  return ptr && ptr.datasetKey !== 'test#live'
-}, null, { timeout: 15000 }).catch(() => {})
+  const tx = db.transaction(['blobs'], 'readwrite')
+  tx.objectStore('blobs').put(
+    { data: new ArrayBuffer(256), bytes: 256, savedAt: Date.now() },
+    'frames/e2e-dead%23002/0',
+  )
+  await new Promise((res, rej) => {
+    tx.oncomplete = res
+    tx.onerror = () => rej(tx.error)
+  })
+  db.close()
+})
 const switched = await page.evaluate(async () => {
   const r = await window.studio.runBlobGc({ manual: true })
   return { released: r?.released ?? -1, status: window.studio.statusText.value }
 })
 const afterSwitch = await keysNow()
 check('切走数据集后旧帧缓存被回收', !afterSwitch.includes(`frames/${enc}/0`), afterSwitch.join(' | '))
-check('回收时如实报数', switched.released > 0, JSON.stringify(switched))
+check(
+  '回收时如实报数',
+  switched.released === 1 && !afterSwitch.includes('frames/e2e-dead%23002/0'),
+  JSON.stringify(switched),
+)
 
 // ---- 7. 恢复草稿后启动清扫必须保住该数据集的帧缓存 ----
 // 关键：草稿快照里帧是 lazy 的（真实懒加载导入就是这样），恢复时会重建加载器，
@@ -173,24 +230,39 @@ await page.evaluate(async (ds) => {
   const enc2 = encodeURIComponent(ds)
   const db = await new Promise((res, rej) => {
     const r = indexedDB.open('point-cloud-label-studio')
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error)
+    r.onsuccess = () => res(r.result)
+    r.onerror = () => rej(r.error)
   })
   const tx = db.transaction(['blobs', 'session'], 'readwrite')
   const blobs = tx.objectStore('blobs')
   blobs.put({ data: new ArrayBuffer(1000), bytes: 1000, savedAt: Date.now() }, `frames/${enc2}/0`)
   blobs.put({ data: new ArrayBuffer(800), bytes: 800, savedAt: Date.now() }, `frames/${enc2}/1`)
   const empty = { positions: new Float32Array(0), count: 0 }
-  tx.objectStore('session').put({
-    version: 1, savedAt: Date.now(), datasetName: '手测数据集', datasetKey: ds,
-    cloud: null,
-    frames: [
-      { index: 0, cloud: empty, boxes: [], lazy: true },
-      { index: 1, cloud: empty, boxes: [], lazy: true },
-    ],
-    currentFrame: 0, boxes: [], categories: [],
-  }, 'current')
-  tx.objectStore('session').put({ datasetKey: ds, datasetName: '手测数据集', savedAt: Date.now(), frameCount: 2 }, 'draft-meta')
-  await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error) })
+  tx.objectStore('session').put(
+    {
+      version: 1,
+      savedAt: Date.now(),
+      datasetName: '手测数据集',
+      datasetKey: ds,
+      cloud: null,
+      frames: [
+        { index: 0, cloud: empty, boxes: [], lazy: true },
+        { index: 1, cloud: empty, boxes: [], lazy: true },
+      ],
+      currentFrame: 0,
+      boxes: [],
+      categories: [],
+    },
+    'current',
+  )
+  tx.objectStore('session').put(
+    { datasetKey: ds, datasetName: '手测数据集', savedAt: Date.now(), frameCount: 2 },
+    'draft-meta',
+  )
+  await new Promise((res, rej) => {
+    tx.oncomplete = res
+    tx.onerror = () => rej(tx.error)
+  })
   db.close()
 }, DS)
 
@@ -205,8 +277,11 @@ const restoredGc = await page.evaluate(() => ({
 }))
 const afterRestore = await keysNow()
 check('无 ?data 时按草稿恢复', restoredGc.frames === 2 && restoredGc.key === 'test#live', JSON.stringify(restoredGc))
-check('恢复后启动清扫保住帧缓存', afterRestore.includes(`frames/${enc}/0`) && afterRestore.includes(`frames/${enc}/1`),
-  afterRestore.join(' | '))
+check(
+  '恢复后启动清扫保住帧缓存',
+  afterRestore.includes(`frames/${enc}/0`) && afterRestore.includes(`frames/${enc}/1`),
+  afterRestore.join(' | '),
+)
 
 check('页面无 console 报错', consoleErrors.length === 0, consoleErrors.slice(0, 5).join(' || '))
 
